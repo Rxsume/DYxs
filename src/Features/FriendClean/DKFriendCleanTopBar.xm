@@ -19,6 +19,9 @@
 #import "DKViewAdjust.h"
 #import <objc/runtime.h>
 
+// 第 3 批合并段 3b-M2 用：与第 1 批 DKXSFeatureHooks.xm 同款宏。
+#define DKXSGetBool(key) [[NSUserDefaults standardUserDefaults] boolForKey:key]
+
 static char kDKFriendBubbleRequestedHiddenKey;
 // 弱表（顶栏、胶囊、天窗控制器），只在主线程读写。
 static NSHashTable *gDKFriendNavViews;
@@ -103,6 +106,10 @@ NSString *DKFriendCleanTopBarStatus(void) {
 %hook AWEFamiliarNavView
 
 - (void)layoutSubviews {
+    // 第 3 批合并段 3b-M2（朋友日常按钮）：原片段先门控后 %orig，语义原样并入现有方法。
+    if (DKXSGetBool(@"DKXSHideFamiliar")) {
+        self.hidden = YES;
+    }
     %orig;
     DKFriendTopBarTrack(&gDKFriendNavViews, self);
     DKFriendNavApply(self);
