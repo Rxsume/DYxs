@@ -42,6 +42,11 @@
 @property(nonatomic, strong) AWELongPressPanelViewGroupModel *longPressViewGroupModel;
 @end
 
+// 最小接口声明：评论分享 cell 的 layoutSubviews 里读写 self.hidden；
+// hidden 为 UIView 属性，基类按其 CollectionViewCell 身份声明，不 import DouyinHeaders。
+@interface AWEIMCommentShareUserHorizontalCollectionViewCell : UICollectionViewCell
+@end
+
 %hook AWELongPressPanelViewGroupModel
 %property(nonatomic, assign) BOOL isDKXSCustomGroup;
 %end
