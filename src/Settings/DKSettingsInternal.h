@@ -1,0 +1,95 @@
+//
+//  DKSettingsInternal.h
+//  设置页内部接口：注册表、建页收尾、联动锁、ⓘ 文案与弹层。仅供 src/Settings 使用。
+//
+
+#ifndef DKSettingsInternal_h
+#define DKSettingsInternal_h
+
+#import "DKSettings.h"
+
+@class DKSettingsPage;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#pragma mark - 注册表（DKSettingsMenu.xm）
+
+/// 用已登记的 builder 新建该键的项；未登记返回 nil。
+AWESettingItemModel *DKSettingsBuildItem(NSString *key);
+
+/// 已登记的全部键：先按布局表从上到下，未写进布局表的按字母序排在后面。
+NSArray<NSString *> *DKSettingsRegisteredKeys(void);
+
+/// page 上 identifier 对应的项；page 不是 DYxs 设置页或没有该项时返回 nil。
+AWESettingItemModel *DKSettingsFindItem(UIViewController *page, NSString *identifier);
+
+/// 依次交出 page 上的每一项；page 不是 DYxs 设置页时不调用。
+void DKSettingsEnumerateItems(UIViewController *page, void (^block)(AWESettingItemModel *item));
+
+/// 当前显示的 DYxs 设置页，弹窗与刷新都以它为宿主。
+UIViewController *DKSettingsCurrentPage(void);
+
+/// 页面的分区数据（DYxs 页面才有值）；不是本插件的页返回 nil。
+NSArray *DKSettingsPageSections(UIViewController *page);
+
+/// 页面的表格；不是本插件的页或表格不可用时返回 nil。
+UITableView *DKSettingsPageTableView(UIViewController *page);
+
+/// 按布局表的子页定义建页（不推入导航栈）。子页入口与搜索跳转共用同一个建页口径。
+AWESettingBaseViewController *DKSettingsBuildPage(DKSettingsPage *spec);
+
+/// 设置值改变后调用：重算当前页的联动锁，只刷新可用态或显示值变化的行，被点的开关保留切换动画。
+void DKSettingsValuesChanged(void);
+
+#pragma mark - 项标记（DKSettingsItems.xm）
+
+/// 项上挂的 ⓘ 说明；没有返回 nil。
+NSString *DKSettingsItemInfo(AWESettingItemModel *item);
+
+/// 是否单选项（联动原因写「需先设置」而非「需先开启」）。
+BOOL DKSettingsItemIsChoice(AWESettingItemModel *item);
+
+/// 项上的值声明；未声明返回 nil。
+NSArray<DKSettingsValue *> *DKSettingsItemValues(AWESettingItemModel *item);
+DKSettingsDescribe DKSettingsItemDescribe(AWESettingItemModel *item);
+dispatch_block_t DKSettingsItemOnChange(AWESettingItemModel *item);
+BOOL DKSettingsItemExcludedFromBackup(AWESettingItemModel *item);
+BOOL DKSettingsItemNeedsRestart(AWESettingItemModel *item);
+BOOL DKSettingsItemIsDestructive(AWESettingItemModel *item);
+
+/// 按 lockedValue 显示开关状态或单选文字；lockedValue 为 nil 时照存值显示。只处理标准开关与单选，
+/// 其他项不动。显示有变化时返回 YES。
+BOOL DKSettingsShowValue(AWESettingItemModel *item, NSNumber *lockedValue);
+
+#pragma mark - 收尾与联动锁（DKSettingsLock.m）
+
+/// 建页收尾：卡片配色、图标、记下 builder 给的可用态，并按系统版本上玻璃锁。DYxs 页面的每一项都要过一遍。
+void DKSettingsPrepareItem(AWESettingItemModel *item, NSString *icon);
+
+/// 是否经过 DKSettingsPrepareItem 的项（cell 与页面 hook 只处理这类项）。
+BOOL DKSettingsIsOwnItem(AWESettingItemModel *item);
+
+/// 按前置关系重算各项可用态：可用 = builder 给的可用态 && 未被玻璃锁 && 前置项都已生效；带显示值的阻断项成立时
+/// 按该值显示。返回可用态或显示有变化的项。
+NSArray<AWESettingItemModel *> *DKSettingsApplyLocks(NSArray *sections);
+
+/// 被联动锁时的原因，如「需先开启「悬浮玻璃底栏」」；未被联动锁返回 nil。
+BOOL DKSettingsKeyIsLocked(NSString *key);
+NSString *DKSettingsKeyLockReason(NSString *key);
+NSString *DKSettingsLockReason(AWESettingItemModel *item);
+
+#pragma mark - 弹层（DKSettingsPopup.m）
+
+/// 在 source 旁弹说明气泡。点气泡无反应；点外部只收起气泡，这一下不传给下面的控件。
+void DKSettingsShowTip(UIView *source, NSString *text);
+
+/// 弹作者信息卡片，host 用来取窗口与深浅色。
+void DKSettingsShowAuthorCard(UIView *host);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* DKSettingsInternal_h */
