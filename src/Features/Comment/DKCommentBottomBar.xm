@@ -18,6 +18,9 @@
 #import <objc/message.h>
 #import <objc/runtime.h>
 
+// 第 3 批合并段 3a-M3 用：与第 1 批 DKXSFeatureHooks.xm 同款宏。
+#define DKXSGetBool(key) [[NSUserDefaults standardUserDefaults] boolForKey:key]
+
 static char kViewManagedKey;
 static char kViewSuppressedKey;
 static char kViewOriginalAlphaKey;
@@ -541,6 +544,11 @@ static void DKSetCommentEditing(AWECommentContainerViewController *controller, B
 }
 
 - (void)layoutSubviews {
+    // 第 3 批合并段 3a-M3（底栏评论隐藏门；底栏高度位移逻辑已删）：方法入口处门控。
+    if (DKXSGetBool(@"DKXSHideComment")) {
+        [self removeFromSuperview];
+        return;
+    }
     %orig;
     DKApplyDetailInputBackgroundState(self);
 }
