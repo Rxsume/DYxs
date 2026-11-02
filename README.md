@@ -35,7 +35,7 @@
 Copyright (c) 2026 Hierarch
 
 
-> 发布频道 https://t.me/DYxs
+> 发布频道 https://t.me/DYxs0
 
 
 感谢赞助：[赞助入口](https://github.com/HierarchThurs/DYxs/wiki/donate)
