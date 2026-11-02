@@ -6,6 +6,7 @@
 //    上游“同作品模型加分”的逻辑。见 REPORT.md。
 #import "DKXSCommentPlaybackCoordinator.h"
 #import <UIKit/UIKit.h>
+#import <objc/message.h>
 
 #define DKXSGetBool(key) [[NSUserDefaults standardUserDefaults] boolForKey:key]
 
@@ -24,8 +25,11 @@
 - (BOOL)isCommentImageBrowsing;
 @end
 
-@interface AWECommentContainerViewController (DKXSBatch1)
-- (id)state;
+// 上游 AwemeHeaders.h 对本类的完整声明（父类 UIViewController，state 返回
+// 上面声明的状态模型）；本文件不 import DouyinHeaders，故在此补完整声明，
+// 只给分类声明编译器认不出来（build #44 的 27 行报错根源）。
+@interface AWECommentContainerViewController : UIViewController
+- (_TtC33AWECommentPanelContainerSwiftImpl31CommentViewControllerStateModel *)state;
 @end
 
 // 最小接口声明（取自 DYxs DouyinHeaders.h 的 AWEAwemeModel 声明；本文件不
@@ -73,7 +77,10 @@
     Class floatingButtonCoordinatorClass = NSClassFromString(@"DKXSFloatingButtonCoordinator");
     id current = nil;
     if ([floatingButtonCoordinatorClass respondsToSelector:@selector(currentInteractionController)]) {
-        current = [floatingButtonCoordinatorClass currentInteractionController];
+        // 不能直接写 [floatingButtonCoordinatorClass currentInteractionController]：
+        // Class 类型接收者调未声明的类方法在 clang 里是硬 error（build #44 的 76 行报错）。
+        // 用 DYxs 已有的 objc_msgSend 转型写法，动态调用且不产生声明错误。
+        current = ((id (*)(id, SEL))objc_msgSend)(floatingButtonCoordinatorClass, @selector(currentInteractionController));
     }
     id bestViewModel = nil;
     CGFloat bestScore = -CGFLOAT_MAX;
