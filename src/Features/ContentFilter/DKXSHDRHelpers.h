@@ -10,6 +10,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 
 static NSString *const kDKXSHDRModeKey = @"DKXSHDRMode";
 static NSString *const kDKXSHDRModeOff = @"关闭";

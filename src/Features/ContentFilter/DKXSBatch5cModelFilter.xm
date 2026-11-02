@@ -30,6 +30,14 @@
 #import <objc/runtime.h>
 #import "DKXSHDRHelpers.h"
 
+// 最小接口声明：本文件 %hook AWEAwemeModel，并调用同文件 %new 的三个 DKXS 方法；
+// 只声明调用处用到的成员（基类按抖音模型惯例为 NSObject），不 import DouyinHeaders。
+@interface AWEAwemeModel : NSObject
+- (BOOL)dkxs_shouldExcludeFromGlobalHDRFilter;
+- (BOOL)dkxs_containsHDRMetadataInObject:(id)object depth:(NSUInteger)depth;
+- (BOOL)dkxs_contentFilter;
+@end
+
 static BOOL DKXSModelGetBool(NSString *key) {
     return [[NSUserDefaults standardUserDefaults] boolForKey:key];
 }

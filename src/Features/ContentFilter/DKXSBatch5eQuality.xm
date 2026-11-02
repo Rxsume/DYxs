@@ -14,6 +14,16 @@
 #import <UIKit/UIKit.h>
 #import "DKXSHDRHelpers.h"
 
+// 最小接口声明：本文件 %hook AWEVideoModel，playURL 里调 [self bitrateModels]；
+// bitrate 取值对象为 AWEVideoBSModel，其 bitrate 方法返回对象（后取 integerValue）。
+// 只声明调用处用到的成员（基类按抖音模型惯例为 NSObject），不 import DouyinHeaders。
+@interface AWEVideoModel : NSObject
+- (NSArray *)bitrateModels;
+@end
+@interface AWEVideoBSModel : NSObject
+- (id)bitrate;
+@end
+
 %hook AWEVideoModel
 
 - (id)playURL {
@@ -32,7 +42,7 @@
         if ([model isKindOfClass:NSClassFromString(@"AWEVideoBSModel")]) {
             id bitrateValue = nil;
             @try {
-                bitrateValue = [model bitrate];
+                bitrateValue = [(AWEVideoBSModel *)model bitrate];
             } @catch (__unused NSException *exception) {
             }
             if (bitrateValue) {
@@ -79,7 +89,7 @@
         if ([model isKindOfClass:NSClassFromString(@"AWEVideoBSModel")]) {
             id bitrateValue = nil;
             @try {
-                bitrateValue = [model bitrate];
+                bitrateValue = [(AWEVideoBSModel *)model bitrate];
             } @catch (__unused NSException *exception) {
             }
             if (bitrateValue) {
