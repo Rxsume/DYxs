@@ -42,6 +42,7 @@
 #import "DouyinHeaders.h"
 #import "DKCommentGlass.h"
 #import "DKCommentPadBackdrop.h"
+#import "DKXSCommentBlurCoordinator.h"
 #import "DKGlassFlexView.h"
 #import "DKGlassGuard.h"
 #import "DKKeys.h"
@@ -774,6 +775,20 @@ static void DKMaterializeSlotGlass(UIView *slot, UIViewController *controller) A
     if (glass) DKMaterializeGlass(glass, controller);
 }
 
+// 第 4 批合并段 4-B1 辅助函数：递归找指定类的全部子视图（与 DKInstallGlassEffect 同区静态函数）。
+// 若本文件已有同名辅助函数，复用已有的，删掉本段（经核对：并入前无同名函数）。
+static NSArray<UIView *> *DKXSBlurFindSubviewsOfClass(Class targetClass, UIView *container) {
+    if (!targetClass || !container) return @[];
+    NSMutableArray<UIView *> *found = [NSMutableArray array];
+    NSMutableArray *pending = [container.subviews mutableCopy];
+    for (NSUInteger index = 0; index < pending.count && index < 2048; index++) {
+        UIView *child = pending[index];
+        if ([child isKindOfClass:targetClass]) [found addObject:child];
+        [pending addObjectsFromArray:child.subviews];
+    }
+    return found;
+}
+
 static void DKCommentGlassSync(UIViewController *controller) API_AVAILABLE(ios(26.0)) {
     BOOL enabled = DKCommentGlassEnabled();
     if (!enabled && !gEverAttached) return;
@@ -853,6 +868,42 @@ static void DKCommentGlassSync(UIViewController *controller) API_AVAILABLE(ios(2
     %orig;
     DKCommentPadBackdropSync(self);
     if (@available(iOS 26.0, *)) DKCommentGlassSync(self);
+    // 第 4 批合并段 4-B1（评论容器布局驱动）：在原有调用之后追加，不动原有顺序。
+    {
+        [DKXSCommentBlurCoordinator layoutController:self];
+        if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DKXSEnableCommentBlur"]) {
+            Class containerViewClass = NSClassFromString(@"AWECommentInputViewSwiftImpl.CommentInputContainerView");
+            NSArray<UIView *> *containerViews = DKXSBlurFindSubviewsOfClass(containerViewClass, self.view);
+            for (UIView *containerView in containerViews) {
+                for (UIView *subview in containerView.subviews) {
+                    if (subview.hidden == NO && subview.backgroundColor && CGColorGetAlpha(subview.backgroundColor.CGColor) == 1) {
+                        float userTransparency = [[[NSUserDefaults standardUserDefaults] objectForKey:@"DKXSCommentBlurTransparent"] floatValue];
+                        if (userTransparency <= 0 || userTransparency > 1) userTransparency = 0.8;
+                        [DKXSCommentBlurCoordinator applyBlurEffectToView:subview transparency:userTransparency blurViewTag:999];
+                    }
+                }
+            }
+            Class middleContainerClass = NSClassFromString(@"AWECommentInputViewSwiftImpl.CommentInputViewMiddleContainer");
+            NSArray<UIView *> *middleContainers = DKXSBlurFindSubviewsOfClass(middleContainerClass, self.view);
+            for (UIView *middleContainer in middleContainers) {
+                BOOL containsDanmu = NO;
+                for (UIView *innerSubviewCheck in middleContainer.subviews) {
+                    if ([innerSubviewCheck isKindOfClass:[UILabel class]] && [((UILabel *)innerSubviewCheck).text containsString:@"弹幕"]) {
+                        containsDanmu = YES;
+                        break;
+                    }
+                }
+                [DKXSCommentBlurCoordinator layoutDanmuBackground:middleContainer controller:self enabled:containsDanmu];
+                if (!containsDanmu) {
+                    for (UIView *subview in middleContainer.subviews) {
+                        if (subview.hidden == NO && subview.backgroundColor && CGColorGetAlpha(subview.backgroundColor.CGColor) == 1) {
+                            [DKXSCommentBlurCoordinator applyBlurEffectToView:subview transparency:0.2f blurViewTag:999];
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 %end
@@ -929,6 +980,10 @@ static void DKTrackEmoticonBar(UIView *bar) API_AVAILABLE(ios(26.0)) {
     Class foldClass = DKFoldDisplayClass();
     if (!foldClass) return;
     DKSyncFoldRowsIn(self, foldClass, 0);
+    // 第 4 批合并段 4-B2（评论列表布局驱动）：在原有调用之后追加一行；开关关时协调器内部门控为空操作。
+    {
+        [DKXSCommentBlurCoordinator layoutListView:self];
+    }
 }
 
 %end
