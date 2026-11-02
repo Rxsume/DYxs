@@ -475,34 +475,6 @@ static NSComparisonResult dkxs_compareVersion(NSString *a, NSString *b) {
 
 %end
 
-#pragma mark - 倍速提示背景（全屏时清底色；DYxs DKPlaybackOverlay 亦 hook 本类，走 %orig 链）
-
-%hook AFDFastSpeedView
-
-- (void)layoutSubviews {
-    %orig;
-    if (![[NSUserDefaults standardUserDefaults] boolForKey:@"DKXSEnableFullScreen"]) {
-        return;
-    }
-    static char kDKXSFastSpeedBgKey;
-    NSArray *bgViews = objc_getAssociatedObject(self, &kDKXSFastSpeedBgKey);
-    if (!bgViews) {
-        NSMutableArray *tmp = [NSMutableArray array];
-        for (UIView *subview in self.subviews) {
-            if ([subview class] == [UIView class]) {
-                [tmp addObject:subview];
-            }
-        }
-        bgViews = [tmp copy];
-        objc_setAssociatedObject(self, &kDKXSFastSpeedBgKey, bgViews, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-    for (UIView *view in bgViews) {
-        view.backgroundColor = [UIColor clearColor];
-    }
-}
-
-%end
-
 #pragma mark - 评论打开前冻结关闭态（动画开始早于 viewDidLayoutSubviews，上游原注释）
 
 @interface AWEPlayInteractionCommentPanelController : UIViewController
