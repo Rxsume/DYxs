@@ -18,6 +18,11 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 
+// 最小接口声明：以下被 hook 的类在本文件内读写 UIView/NSObject 成员（hidden、alpha、superview、subviews、tag、window 等）或调用同文件 %new 方法，
+// 原先只有 Logos 前置声明，编译器找不到这些成员；基类按视图身份声明为 UIView（模型类为 NSObject），不 import DouyinHeaders。
+@interface TTPlayerView : UIView
+@end
+
 #define DKXSGetBool(key) [[NSUserDefaults standardUserDefaults] boolForKey:key]
 
 // 最小接口声明（只含本文件用到的成员）。
