@@ -94,9 +94,38 @@ static void DKEntranceApplySearchCopy(UIView *copy) {
 
 %hook AWEHPTopBarCTAItemView
 
+- (void)showRedDot {
+    // 第 3 批合并段 3b-M1（侧栏红点）：上游 objectForKey 已改为 boolForKey（防开关粘住）。
+    if (![[NSUserDefaults standardUserDefaults] boolForKey:@"DKXSHideSidebarDot"])
+        %orig;
+}
+
+- (void)hideCountRedDot {
+    if (![[NSUserDefaults standardUserDefaults] boolForKey:@"DKXSHideSidebarDot"])
+        %orig;
+}
+
 - (void)layoutSubviews {
     %orig;
     DKEntranceApply(self);
+    // 第 3 批合并段 3b-M1 布局体（原片段独立 %hook 块，因本文件已 hook 同类同方法，改并入现有方法）。
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DKXSHideSidebarDot"]) {
+        static char kDKXSSidebarBadgeCacheKey;
+        NSArray *cachedBadges = objc_getAssociatedObject(self, &kDKXSSidebarBadgeCacheKey);
+        if (!cachedBadges) {
+            NSMutableArray *badges = [NSMutableArray array];
+            for (UIView *subview in self.subviews) {
+                if ([subview isKindOfClass:%c(DUXBadge)]) {
+                    [badges addObject:subview];
+                }
+            }
+            cachedBadges = [badges copy];
+            objc_setAssociatedObject(self, &kDKXSSidebarBadgeCacheKey, cachedBadges, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        for (UIView *badge in cachedBadges) {
+            badge.hidden = YES;
+        }
+    }
 }
 
 - (void)didMoveToWindow {
