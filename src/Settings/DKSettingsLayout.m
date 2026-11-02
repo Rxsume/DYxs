@@ -142,6 +142,7 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     DKRow(DKKeyPlaybackRiskNoticeMode, @"ic_text_outlined_20"),
                     DKRow(DKKeyPlaybackMusicInfoMode, @"ic_quaver_outlined_20"),
                     DKRow(DKKeyPlaybackQuickReplyMode, @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSHideRecommendAppDownload", @"ic_boxarrowdown_outlined"),
                 ]),
                 DKSection(@"底部栏目", @[
                     DKRow(DKKeyPlaybackRemoveAllBottomBars, @"ic_eyeslash_outlined_20"),
@@ -210,6 +211,7 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     DKRow(DKKeyMessageSlotMode, @"ic_bag_outlined_20"),
                     DKRow(DKKeyMessageSearchMode, @"ic_videosearch_outlined_20"),
                     DKRow(DKKeyMessagePlusMode, @"ic_pluscircle_outlined_20"),
+                    DKRow(@"DKXSHideMessageTabStarMall", @"ic_bag_outlined_20"),
                 ]),
                 DKSection(@"列表顶部", @[
                     DKRow(DKKeyMessageDailyMode, @"ic_clock_outlined_20"),
@@ -241,6 +243,7 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     DKRow(DKKeyProfileAvatarPlusMode, @"ic_pluscircle_outlined_20"),
                     DKRow(DKKeyProfileSwitchAccountMode, @"ic_userswitch_outlined_20"),
                     DKRow(DKKeyProfileCapsuleMode, @"ic_magic_outlined_20"),
+                    DKRow(@"DKXSHideMineAvatarPlus", @"ic_pluscircle_outlined_20"),
                 ]),
                 DKSection(@"数据与按钮", @[
                     DKRow(DKKeyProfileStatsMode, @"ic_module_outlined_20"),
@@ -252,6 +255,7 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                 DKSection(@"内容", @[
                     DKRow(DKKeyProfileGuideBannerMode, @"ic_cameralogo_outlined_20"),
                     DKRow(DKKeyProfileHideUGCGuide, @"ic_user_outlined_20"),
+                    DKRow(@"DKXSHideMineAICreation", @"ic_video_outlined_20"),
                 ]),
                 DKSection(@"分页", @[
                     DKRow(DKKeyProfileRemovePostTab, @"ic_video_outlined_20"),
@@ -483,6 +487,7 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
         ]),
         DKSection(@"评论区", @[
             DKRow(DKKeyCommentCopyWithoutName, @"ic_text_outlined_20"),
+            DKRow(@"DKXSCommentPausePlayback", @"ic_comment_outlined_20"),
         ]),
         // 从 DYYY 移植的增强设置：原来只登记未排布，会落到一级页末尾的「未归类」。
         DKSection(@"自动消息", @[
@@ -506,6 +511,7 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
         DKSection(@"直播", @[
             DKRow(@"DKXSDisableAutoEnterLive", @"ic_tv_outlined_20"),
             DKRow(@"DKXSDisableAutoHideLive", @"ic_tv_outlined_20"),
+            DKRow(@"DKXSHideLiveRoomShareCompanion", @"ic_tv_outlined_20"),
         ]),
     ]);
 
