@@ -23,6 +23,9 @@
 #import <objc/message.h>
 #import <objc/runtime.h>
 
+// 第 3 批合并段 3a-M1 用：与第 1 批 DKXSFeatureHooks.xm 同款宏。
+#define DKXSGetBool(key) [[NSUserDefaults standardUserDefaults] boolForKey:key]
+
 static NSString *const kDKTabMapClass = @"AWENormalModeTabBarItemConfigsMap";
 static NSString *const kDKTabMapShared = @"sharedMap";
 static NSString *const kDKTabMapLookup = @"getTabIdWithTabBarItemType:";
@@ -220,6 +223,24 @@ void DKTabBarRemovalRefresh(void) {
     %orig;
     NSArray<UIView *> *buttons = DKRemovalButtons(self);
     DKRemovalApplyHidden(buttons);
+    // 第 3 批合并段 3a-M1（底栏按钮隐藏，只取隐藏过滤；均匀分布主逻辑与 registerTabBar 未搬）：
+    // 位置：%orig 之后、DYxs 自身重排逻辑之前。
+    {
+        BOOL hideShop = DKXSGetBool(@"DKXSHideShopButton");
+        BOOL hideMsg = DKXSGetBool(@"DKXSHideMessageButton");
+        BOOL hideFri = DKXSGetBool(@"DKXSHideFriendsButton");
+        BOOL hideMe = DKXSGetBool(@"DKXSHideMyButton");
+        BOOL hidePlus = DKXSGetBool(@"DKXSHidePlusButton");
+        for (UIView *subview in self.subviews) {
+            NSString *label = subview.accessibilityLabel;
+            BOOL isPlusButton = [subview isKindOfClass:%c(AWENormalModeTabBarPlusButton)] || [subview isKindOfClass:%c(AWENormalModeTabBarGeneralPlusButton)] || [subview isKindOfClass:%c(AWENormalModeTabBarGeneralPlusInnerButton)] || [label isEqualToString:@"拍摄"];
+            BOOL shouldHide = (isPlusButton && hidePlus) || ([label containsString:@"商城"] && hideShop) || ([label containsString:@"消息"] && hideMsg) || ([label containsString:@"朋友"] && hideFri) || ([label isEqualToString:@"我"] && hideMe);
+            if (shouldHide) {
+                subview.userInteractionEnabled = NO;
+                subview.hidden = YES;
+            }
+        }
+    }
     DKRemovalRedistribute(buttons);
 }
 

@@ -1231,6 +1231,25 @@ void DKGlassTabBarRefresh(void) {
 - (void)layoutSubviews {
     %orig;
     DKGlassScheduleMirror();
+    // 第 3 批合并段 3a-M2（底栏红点隐藏）：原片段为独立 %hook 块，因本文件已 hook 同类同方法，
+    // 改为把片段体并入现有方法（片段代码原样，%orig 只调一次）。
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DKXSHideBottomDot"]) {
+        static char kDKXSBottomDotBadgeCacheKey;
+        NSArray *badges = objc_getAssociatedObject(self, &kDKXSBottomDotBadgeCacheKey);
+        if (!badges) {
+            NSMutableArray *tmp = [NSMutableArray array];
+            for (UIView *subview in [self subviews]) {
+                if ([subview isKindOfClass:NSClassFromString(@"DUXBadge")]) {
+                    [tmp addObject:subview];
+                }
+            }
+            badges = [tmp copy];
+            objc_setAssociatedObject(self, &kDKXSBottomDotBadgeCacheKey, badges, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        for (UIView *badge in badges) {
+            badge.hidden = YES;
+        }
+    }
 }
 
 %end
