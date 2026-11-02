@@ -1,0 +1,69 @@
+name: build DYxs packages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'Makefile'
+      - 'control'
+      - 'DYxs.plist'
+      - '.github/**'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  build:
+    # Pinned on purpose: the glass tab bar needs an iOS 26 SDK, and the macos-latest label
+    # migrates gradually — falling back to macOS 15 breaks the build on undeclared symbols.
+    runs-on: macos-26
+    env:
+      THEOS_LOGOS_REV: a62370066a97e36d59b200a9fa10c5091f5e8972
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve DYxs version
+        id: package
+        run: |
+          version=$(awk -F': *' '$1 == "Version" { print $2; exit }' control)
+          if [ -z "$version" ]; then
+            echo "Unable to read Version from control" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve Theos cache key
+        run: |
+          theos_head=$(git ls-remote https://github.com/roothide/theos HEAD | cut -f 1)
+          sdks_head=$(git ls-remote https://github.com/theos/sdks HEAD | cut -f 1)
+          echo "THEOS_CACHE_KEY=${{ runner.os }}-${theos_head}-${sdks_head}-logos-${THEOS_LOGOS_REV}" >> "$GITHUB_ENV"
+
+      - name: Cache DYxs Theos toolchain
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/theos
+          key: ${{ env.THEOS_CACHE_KEY }}
+
+      - name: Setup DYxs Theos toolchain
+        run: bash .github/scripts/setup-theos.sh
+
+      - name: Build DYxs release assets
+        run: bash .github/scripts/build-packages.sh
+
+      - name: Verify DYxs release assets
+        run: bash .github/scripts/verify-assets.sh
+
+      - name: Upload DYxs artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: DYxs-${{ steps.package.outputs.version }}-${{ github.run_number }}
+          path: |
+            packages/*.deb
+            packages/*.dylib
