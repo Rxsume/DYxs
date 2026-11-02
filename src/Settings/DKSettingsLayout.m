@@ -278,6 +278,18 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                 ]),
             ]),
         ]),
+        // 从 DYYY 移植的隐藏设置：原来只登记未排布，会落到一级页末尾的「未归类」。
+        DKSection(@"右侧互动与音乐", @[
+            DKRow(@"DKXSHideLikeButton", @"ic_thumbsup_outlined_20"),
+            DKRow(@"DKXSHideLikeLabel", @"ic_thumbsup_outlined_20"),
+            DKRow(@"DKXSHideCommentButton", @"ic_comment_outlined_20"),
+            DKRow(@"DKXSHideCommentLabel", @"ic_comment_outlined_20"),
+            DKRow(@"DKXSHideShareButton", @"ic_share_outlined"),
+            DKRow(@"DKXSHideShareLabel", @"ic_share_outlined"),
+            DKRow(@"DKXSHideCollectButton", @"ic_star_outlined_20"),
+            DKRow(@"DKXSHideCollectLabel", @"ic_star_outlined_20"),
+            DKRow(@"DKXSHideMusicButton", @"ic_quaver_outlined_20"),
+        ]),
     ]);
 
     DKSettingsPage *appearance = DKPage(@"外观定制", @"ic_magic_outlined_20", @[
@@ -471,6 +483,29 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
         ]),
         DKSection(@"评论区", @[
             DKRow(DKKeyCommentCopyWithoutName, @"ic_text_outlined_20"),
+        ]),
+        // 从 DYYY 移植的增强设置：原来只登记未排布，会落到一级页末尾的「未归类」。
+        DKSection(@"自动消息", @[
+            DKRow(@"DKXSAutoMessageEnabled", @"ic_msg_outlined_20"),
+            DKRow(@"DKXSAutoMessageToastEnabled", @"ic_msg_outlined_20"),
+            DKRow(@"DKXSAutoMessageAllSentToastEnabled", @"ic_msg_outlined_20"),
+            DKRow(@"DKXSAutoMessageIDQueryKeyword", @"ic_text_outlined_20"),
+            DKRow(@"DKXSAutoMessageConfigPage", @"ic_msg_outlined_20"),
+        ]),
+        DKSection(@"好友分享", @[
+            DKRow(@"DKXSFriendShareFeedEnabled", @"ic_video_outlined_20"),
+            DKRow(@"DKXSFriendShareAutoRefreshEnabled", @"ic_video_outlined_20"),
+            DKRow(@"DKXSFriendShareScan", @"ic_video_outlined_20"),
+            DKRow(@"DKXSFriendShareClear", @"ic_video_outlined_20"),
+        ]),
+        DKSection(@"ABTest", @[
+            DKRow(@"DKXSABTestBlockEnabled", @"ic_gearsimplify_outlined_20"),
+            DKRow(@"DKXSRemoteConfigURL", @"ic_text_outlined_20"),
+            DKRow(@"DKXSABTestCheckUpdate", @"ic_gearsimplify_outlined_20"),
+        ]),
+        DKSection(@"直播", @[
+            DKRow(@"DKXSDisableAutoEnterLive", @"ic_tv_outlined_20"),
+            DKRow(@"DKXSDisableAutoHideLive", @"ic_tv_outlined_20"),
         ]),
     ]);
 
