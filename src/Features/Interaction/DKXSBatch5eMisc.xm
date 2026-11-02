@@ -326,6 +326,7 @@ static void DKXSCollectFollowAuthorInfo(id model, NSString **nicknameOut, NSStri
 %end
 
 %ctor {
+    %init;
     Class swiftLabelClass = NSClassFromString(@"AWECommentSwiftBizUI_CommentInteractionBaseLabel");
     if (swiftLabelClass) {
         %init(DKXSCommentExactTimeGroup, AWECommentSwiftBizUI_CommentInteractionBaseLabel = swiftLabelClass);
