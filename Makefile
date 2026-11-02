@@ -33,8 +33,8 @@ TWEAK_NAME = DYxs
 DYxs_FILES = $(shell find src -type f \( -name '*.m' -o -name '*.mm' -o -name '*.x' -o -name '*.xm' -o -name '*.c' -o -name '*.cc' -o -name '*.cpp' \) | sort)
 DYxs_INCLUDE_DIRS = $(shell find src -type d | sort)
 DYxs_CFLAGS = -fobjc-arc -w -fmodules-cache-path=$(CURDIR)/debug/details/cache/module-cache $(addprefix -I,$(DYxs_INCLUDE_DIRS)) -DDK_VERSION=@\"$(DK_VERSION)\"
-DYxs_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics Photos PhotosUI ImageIO UniformTypeIdentifiers AudioToolbox AVFAudio AVFoundation CoreMedia MediaToolbox Accelerate
-DYxs_LDFLAGS += -lz
+DYxs_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics Photos PhotosUI ImageIO UniformTypeIdentifiers AudioToolbox AVFAudio AVFoundation CoreMedia MediaToolbox Accelerate UserNotifications QuickLook
+DYxs_LDFLAGS += -lz -lsqlite3
 DYxs_LOGOS_DEFAULT_GENERATOR = internal
 
 export THEOS_STRICT_LOGOS = 0
