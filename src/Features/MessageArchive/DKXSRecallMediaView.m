@@ -4,6 +4,7 @@
 #import "DKXSRecallMediaView.h"
 #import "DKXSRecallContent.h"
 #import "DKXSArchiveCore.h"
+#import <objc/runtime.h>
 #import <QuickLook/QuickLook.h>
 
 @interface DKXSPreviewItem : NSObject <QLPreviewItem>

@@ -3,6 +3,7 @@
 
 #import "DKXSArchiveAvatar.h"
 #import "DKXSArchiveCore.h"
+#import <objc/runtime.h>
 #import <objc/message.h>
 
 static NSArray *DKXSAvatarFields(void) {
