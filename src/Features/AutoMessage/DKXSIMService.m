@@ -324,6 +324,16 @@
     return [uid isKindOfClass:NSString.class] ? uid : @"";
 }
 
+// 学习用账户：hook 捕获优先，取不到时复用手动测试已在用的 contactDatabase 回退
+// （HTSServiceCenter / AWEIMContactDataManager，只读已配置服务，不构造新 SDK 实例）。
+// 修复“手动测试能取到账户、学习路径却因 capturedAccountID 为空而静默丢弃”的不对称。
+// 不改变任何发送判定；发送仍用 sendText 原有的 manualTest/captured 两条路径。
++ (NSString *)learningAccountID {
+    NSString *account = [self capturedAccountID];
+    if (account.length) return account;
+    return [self accountID];
+}
+
 + (NSString *)stateKey:(NSString *)userID {
     NSString *account = [self capturedAccountID];
     if (!account.length || !userID.length) return nil;
@@ -406,7 +416,7 @@
     dispatch_async(dispatch_get_main_queue(), ^{
         id manager = [self serviceForRole:@"conversations" root:root];
         if (!root || [self value:manager key:@"r"] != root) return;
-        NSString *account = [self capturedAccountID];
+        NSString *account = [self learningAccountID];
         NSString *cid = [self value:conversation key:@"identifier"];
         if (![cid isKindOfClass:NSString.class] || !cid.length) return;
         long long peer = [manager otherUserIDFor1to1ChatWithConversationID:cid];
@@ -418,11 +428,14 @@
 
 + (void)observeTextModel:(id)model sender:(id)sender {
     [self captureService:sender role:@"sender"];
-    id content = [self value:model key:@"messageContentDict"];
-    NSNumber *type = [self textTypeForBody:content number:[self value:model key:@"messageType"]];
+    // 40.8.0 下发送模型可能把正文放在 content 而非 messageContentDict；两处都试，
+    // 但仍过 textTypeForBody 的纯文字过滤（带 aweme/image/resource/video/item_id 的一律拒收），
+    // 不会把媒体/分享卡片的类型误学成文字类型。
+    NSNumber *type = [self textTypeForBody:[self value:model key:@"messageContentDict"] number:[self value:model key:@"messageType"]];
+    if (!type) type = [self textTypeForBody:[self value:model key:@"content"] number:[self value:model key:@"messageType"]];
     if (!type) return;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSString *account = [self capturedAccountID];
+        NSString *account = [self learningAccountID];
         if (account.length) [self rememberTextType:type account:account];
     });
 }
@@ -445,7 +458,7 @@
     id root = [self value:manager key:@"r"];
     dispatch_async(dispatch_get_main_queue(), ^{
         [self shared].historyResultCount = count;
-        NSString *account = [self capturedAccountID];
+        NSString *account = [self learningAccountID];
         if (!account.length || !root || [self shared].textTypes[account]) return;
         for (id message in sample) {
             NSString *cid = [self value:message key:@"belongingConversationIdentifier"];
@@ -497,6 +510,22 @@
 }
 
 + (void)observeMessage:(id)message conversation:(id)conversation error:(id)error {
+    // 回执侧被动学习：覆盖“发送模型观测不到”的原生发送路径（例如 40.8.0 聊天输入
+    // 走了未 hook 的发送方法，但回执仍经 IESIMMessageSender 回调）。
+    // 仅当发送方是本账户时学习，且仍过 textTypeForBody 纯文字过滤；类型计算在回调线程做，
+    // 写入 textTypes/缓存统一放主队列（与现有观测点一致，避免 NSMutableDictionary 跨线程写）。
+    // 不触发历史读取、不改发送行为、不碰待确认 pending 逻辑。
+    if (!error) {
+        NSNumber *receiptType = [self textTypeForBody:[self value:message key:@"content"] number:[self value:message key:@"messageType"]];
+        id senderValue = [self value:message key:@"sender"];
+        NSString *senderID = [senderValue respondsToSelector:@selector(stringValue)] ? [senderValue stringValue] : nil;
+        if (receiptType && senderID.length) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                NSString *account = [self learningAccountID];
+                if (account.length && [senderID isEqual:account]) [self rememberTextType:receiptType account:account];
+            });
+        }
+    }
     id identifier = [self value:message key:@"identifier"];
     if (![identifier isKindOfClass:NSString.class]) return;
     dispatch_async(dispatch_get_main_queue(), ^{
