@@ -105,11 +105,72 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
             DKRow(DKKeyTopBarRemoveBadge, @"ic_bellslash_outlined"),
             DKRow(DKKeySideBarRemoveBadge, @"ic_bellslash_outlined"),
         ]),
+        // 第 3 批：底栏（3a，12 键；DKXSHideComment 实现为移除评论输入背景视图，见 REPORT）。
+        DKSection(@"底栏", @[
+            DKRow(@"DKXSHideBottomDot", @"ic_bellslash_outlined"),
+            DKRow(@"DKXSHideDoubleColumnEntry", @"ic_eyeslash_outlined_20"),
+            DKRow(@"DKXSHideShopButton", @"ic_bag_outlined_20"),
+            DKRow(@"DKXSHideMessageButton", @"ic_msg_outlined_20"),
+            DKRow(@"DKXSHideFriendsButton", @"ic_user_outlined_20"),
+            DKRow(@"DKXSHidePlusButton", @"ic_pluscircle_outlined_20"),
+            DKRow(@"DKXSHideMyButton", @"ic_personcircleclean_outlined_20"),
+            DKRow(@"DKXSHideComment", @"ic_comment_outlined_20"),
+            DKRow(@"DKXSHideHotSearch", @"ic_fire_outlined_20"),
+            DKRow(@"DKXSHidePadTabBarElements", @"ic_squaresplit_outlined_20"),
+            DKRow(@"DKXSHideEntry", @"ic_fullscreen_outlined_16"),
+            DKRow(@"DKXSRemoveEntry", @"ic_fullscreen_outlined_16"),
+        ]),
+        // 第 3 批：侧边栏（3b，4 键）。
+        DKSection(@"侧边栏", @[
+            DKRow(@"DKXSHideLeftSideBar", @"ic_hamburgernut_outlined_20"),
+            DKRow(@"DKXSHideSidebarDot", @"ic_bellslash_outlined"),
+            DKRow(@"DKXSHideSidebarRecentApps", @"ic_module_outlined_20"),
+            DKRow(@"DKXSHideSidebarRecentUsers", @"ic_user_outlined_20"),
+        ]),
+        // 第 3 批：顶栏频道移除（3b-M4，14 键整块，不可拆）。
+        DKSection(@"顶栏频道移除", @[
+            DKRow(@"DKXSHideHotContainer", @"ic_fire_outlined_20"),
+            DKRow(@"DKXSHideFollow", @"ic_user_outlined_20"),
+            DKRow(@"DKXSHideFriend", @"ic_user_outlined_20"),
+            DKRow(@"DKXSHideMediumVideo", @"ic_video_outlined_20"),
+            DKRow(@"DKXSHideMall", @"ic_bag_outlined_20"),
+            DKRow(@"DKXSHideNearby", @"ic_location_outlined_20"),
+            DKRow(@"DKXSHideGroupon", @"ic_bag_outlined_20"),
+            DKRow(@"DKXSHideTabLive", @"ic_tv_outlined_20"),
+            DKRow(@"DKXSHidePadHot", @"ic_fire_outlined_20"),
+            DKRow(@"DKXSHideHangout", @"ic_star_outlined_20"),
+            DKRow(@"DKXSHidePlaylet", @"ic_video_outlined_20"),
+            DKRow(@"DKXSHideCinema", @"ic_video_outlined_20"),
+            DKRow(@"DKXSHideKidsV2", @"ic_user_outlined_20"),
+            DKRow(@"DKXSHideGame", @"ic_squaretriangle_outlined_20"),
+        ]),
+        // 第 3 批：关注与同城（3b，6 键）。
+        DKSection(@"关注与同城", @[
+            DKRow(@"DKXSHideLiveView", @"ic_tv_outlined_20"),
+            DKRow(@"DKXSHideConcernCapsuleView", @"ic_tv_outlined_20"),
+            DKRow(@"DKXSHideMenuView", @"ic_location_outlined_20"),
+            DKRow(@"DKXSHideNearbyCapsuleView", @"ic_location_outlined_20"),
+            DKRow(@"DKXSHideEnterLive", @"ic_tv_outlined_20"),
+            DKRow(@"DKXSHideLiveCapsuleView", @"ic_tv_outlined_20"),
+        ]),
         DKSection(@"视频播放", @[
             DKPage(@"播放页精简", @"ic_eyeslash_outlined_20", @[
                 DKSection(@"播放页元素", @[
                     DKRow(DKKeyPlaybackFullscreenMode, @"ic_fullscreen_outlined_16"),
                     DKRow(DKKeyPlaybackDanmakuMode, @"ic_comment_outlined_20"),
+                    // 第 3 批 3c（5 键）：头像与遮罩。
+                    DKRow(@"DKXSHideAvatarButton", @"ic_personcircleclean_outlined_20"),
+                    DKRow(@"DKXSHideAvatarLive", @"ic_tv_outlined_20"),
+                    DKRow(@"DKXSHideLOTAnimationView", @"ic_pluscircle_outlined_20"),
+                    DKRow(@"DKXSHideFollowPromptView", @"ic_pluscircle_outlined_20"),
+                    DKRow(@"DKXSHideGradient", @"ic_eyeslash_outlined_20"),
+                    // 第 5a 批弹幕（3 键）。
+                    DKRow(@"DKXSCommentShowDanmaku", @"ic_comment_outlined_20"),
+                    DKRow(@"DKXSHideLiveDanmaku", @"ic_comment_outlined_20"),
+                    DKRow(@"DKXSHideDanmuButton", @"ic_comment_outlined_20"),
+                    // 第 6 批（2 键）：右侧标签、章节要点。
+                    DKRow(@"DKXSHideRightLabel", @"ic_text_outlined_20"),
+                    DKRow(@"DKXSHideChapterPoints", @"ic_text_outlined_20"),
                 ]),
                 DKSection(@"作品详情页", @[
                     DKRow(DKKeyDetailReturnMode, @"ic_arrowleft_outlined_20"),
@@ -173,6 +234,25 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                 DKSection(@"评论区元素", @[
                     DKRow(DKKeyCommentReplyBottomBarMode, @"ic_comment_outlined_20"),
                     DKRow(DKKeyRemoveCommentSurvey, @"ic_emoji_outlined_20"),
+                    // 第 6 批（1 键）：评论发现图标。
+                    DKRow(@"DKXSHideCommentDiscover", @"ic_videosearch_outlined_20"),
+                ]),
+                // 第 4 批：毛玻璃（2 键）。
+                DKSection(@"毛玻璃", @[
+                    DKRow(@"DKXSEnableCommentBlur", @"ic_comment_outlined_20"),
+                    DKRow(@"DKXSCommentBlurTransparent", @"ic_text_outlined_20"),
+                ]),
+                // 第 4 批：评论长按（9 键）。
+                DKSection(@"评论长按", @[
+                    DKRow(@"DKXSHideCommentLongPressFavorite", @"ic_star_outlined_20"),
+                    DKRow(@"DKXSHideCommentShareToFriends", @"ic_share_outlined"),
+                    DKRow(@"DKXSHideCommentLongPressCopy", @"ic_text_outlined_20"),
+                    DKRow(@"DKXSHideCommentLongPressSaveImage", @"ic_image_outlined_20"),
+                    DKRow(@"DKXSHideCommentLongPressReport", @"ic_eyeslash_outlined_20"),
+                    DKRow(@"DKXSHideCommentLongPressSearch", @"ic_videosearch_outlined_20"),
+                    DKRow(@"DKXSHideCommentLongPressDaily", @"ic_clock_outlined_20"),
+                    DKRow(@"DKXSHideCommentLongPressVideoReply", @"ic_video_outlined_20"),
+                    DKRow(@"DKXSHideCommentLongPressPictureSearch", @"ic_image_outlined_20"),
                 ]),
                 DKSection(@"评论区图片", @[
                     DKRow(DKKeyCommentMediaCleanBottomBar, @"ic_image_outlined_20"),
@@ -184,6 +264,14 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
             DKRow(DKKeyFeedMenuNoPanel, @"ic_eyeslash_outlined_20"),
             DKRow(DKKeyFeedMenu, @"ic_video_outlined_20"),
             DKRow(DKKeyCommentMenu, @"ic_comment_outlined_20"),
+            // 第 4 批长按面板（7 键）。
+            DKRow(@"DKXSLongPressCopyText", @"ic_text_outlined_20"),
+            DKRow(@"DKXSLongPressCopyLink", @"ic_share_outlined"),
+            DKRow(@"DKXSLongPressFilterUser", @"ic_user_outlined_20"),
+            DKRow(@"DKXSLongPressFilterTitle", @"ic_funnel_outlined_20"),
+            DKRow(@"DKXSLongPressTimerClose", @"ic_clock_outlined_20"),
+            DKRow(@"DKXSSimplifyLongPressPanel", @"ic_eyeslash_outlined_20"),
+            DKRow(@"DKXSHidePanelItems", @"ic_text_outlined_20"),
         ]),
         DKSection(@"朋友页", @[
             DKPage(@"朋友页精简", @"ic_user_outlined_20", @[
@@ -191,6 +279,8 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     DKRow(DKKeyFriendAvatarEntryMode, @"ic_userplus_outlined_20"),
                     DKRow(DKKeyFriendDailyMode, @"ic_clock_outlined_20"),
                     DKRow(DKKeyFriendButtonMode, @"ic_userswitch_outlined_20"),
+                    // 第 3 批 3b（1 键）：朋友日常按钮。
+                    DKRow(@"DKXSHideFamiliar", @"ic_clock_outlined_20"),
                 ]),
                 DKSection(@"作品", @[
                     DKRow(DKKeyFriendRelationTagMode, @"ic_tag_outlined_20"),
@@ -212,11 +302,17 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     DKRow(DKKeyMessageSearchMode, @"ic_videosearch_outlined_20"),
                     DKRow(DKKeyMessagePlusMode, @"ic_pluscircle_outlined_20"),
                     DKRow(@"DKXSHideMessageTabStarMall", @"ic_bag_outlined_20"),
+                    // 第 3 批 3b（2 键）。
+                    DKRow(@"DKXSHideMessageTabRedPacket", @"ic_bag_outlined_20"),
+                    DKRow(@"DKXSHidePushBanner", @"ic_bellslash_outlined"),
                 ]),
                 DKSection(@"列表顶部", @[
                     DKRow(DKKeyMessageDailyMode, @"ic_clock_outlined_20"),
                     DKRow(DKKeyMessageFriendAvatarMode, @"ic_personcircleclean_outlined_20"),
                     DKRow(DKKeyMessageInteractionMode, @"ic_msgheart_outlined_20"),
+                    // 第 3 批 3b（2 键）。
+                    DKRow(@"DKXSHideAvatarList", @"ic_user_outlined_20"),
+                    DKRow(@"DKXSHideAvatarBubble", @"ic_msg_outlined_20"),
                 ]),
                 DKSection(@"聊天页", @[
                     DKRow(DKKeyChatRemoveEmojiSuggestions, @"ic_emoji_outlined_20"),
@@ -228,6 +324,50 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     DKRow(DKKeyChatRemoveCall, @"ic_phoneup_outlined"),
                     DKRow(DKKeyChatRemoveMenu, @"ic_hamburgernut_outlined_20"),
                     DKRow(DKKeyChatGroupZoneNoAutoExpand, @"ic_hamburgeruparrow_outlined_20"),
+                    // 第 3 批 3b（5 键）。
+                    DKRow(@"DKXSHideGroupShop", @"ic_bag_outlined_20"),
+                    DKRow(@"DKXSHideGroupLiveIndicator", @"ic_tv_outlined_20"),
+                    DKRow(@"DKXSHideGroupInputActionBar", @"ic_eyeslash_outlined_20"),
+                    DKRow(@"DKXSHideReply", @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSHideShareContentView", @"ic_share_outlined"),
+                ]),
+                // DY778 第 1 批：消息留存（32 键 + 3 动作行；按会话开关字典两键为内部存储键，不入表）。
+                DKSection(@"消息留存", @[
+                    DKRow(@"DKXSRecallEnabled", @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSRecallBadge", @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSRecallBadgeText", @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSRecallPosition", @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSRecallArchiveEntry", @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSRecallNotifications", @"ic_bellslash_outlined"),
+                    DKRow(@"DKXSRecallNotificationPreview", @"ic_bellslash_outlined"),
+                    DKRow(@"DKXSRecallTintBubble", @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSRecallPlainBubbleOnSkin", @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSRecallBubbleColor", @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSRecallRetentionDays", @"ic_clock_outlined_20"),
+                    DKRow(@"DKXSRecallMaxRecords", @"ic_clock_outlined_20"),
+                    DKRow(@"DKXSRecallArchiveAction", @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSEditEnabled", @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSEditBadge", @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSEditBadgeText", @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSEditPosition", @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSEditArchiveEntry", @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSEditTintBubble", @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSEditBubbleColor", @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSEditNotifications", @"ic_bellslash_outlined"),
+                    DKRow(@"DKXSEditNotificationPreview", @"ic_bellslash_outlined"),
+                    DKRow(@"DKXSEditRetentionDays", @"ic_clock_outlined_20"),
+                    DKRow(@"DKXSEditMaxRecords", @"ic_clock_outlined_20"),
+                    DKRow(@"DKXSEditHistoryAction", @"ic_msg_outlined_20"),
+                    DKRow(@"DKXSTimeEnabled", @"ic_clock_outlined_20"),
+                    DKRow(@"DKXSTimeFormat", @"ic_clock_outlined_20"),
+                    DKRow(@"DKXSTimeSmartDate", @"ic_clock_outlined_20"),
+                    DKRow(@"DKXSTimeFontSize", @"ic_clock_outlined_20"),
+                    DKRow(@"DKXSTimeColor", @"ic_clock_outlined_20"),
+                    DKRow(@"DKXSTimeBackground", @"ic_clock_outlined_20"),
+                    DKRow(@"DKXSTimeOpacity", @"ic_clock_outlined_20"),
+                    DKRow(@"DKXSTimePosition", @"ic_clock_outlined_20"),
+                    DKRow(@"DKXSTimeHideOfficial", @"ic_clock_outlined_20"),
+                    DKRow(@"DKXSArchiveNotificationAction", @"ic_bellslash_outlined"),
                 ]),
             ]),
         ]),
@@ -238,6 +378,8 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     DKRow(DKKeyProfileVisitorMode, @"ic_user_outlined_20"),
                     DKRow(DKKeyProfileSearchMode, @"ic_videosearch_outlined_20"),
                     DKRow(DKKeyProfileSideBarMode, @"ic_hamburgernut_outlined_20"),
+                    // 第 3 批 3b（1 键）：我的添加朋友。
+                    DKRow(@"DKXSHideButton", @"ic_userplus_outlined_20"),
                 ]),
                 DKSection(@"头像与昵称", @[
                     DKRow(DKKeyProfileAvatarPlusMode, @"ic_pluscircle_outlined_20"),
@@ -256,6 +398,8 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     DKRow(DKKeyProfileGuideBannerMode, @"ic_cameralogo_outlined_20"),
                     DKRow(DKKeyProfileHideUGCGuide, @"ic_user_outlined_20"),
                     DKRow(@"DKXSHideMineAICreation", @"ic_video_outlined_20"),
+                    // 第 3 批 3b（1 键）：我的页发作品。
+                    DKRow(@"DKXSHidePostView", @"ic_video_outlined_20"),
                 ]),
                 DKSection(@"分页", @[
                     DKRow(DKKeyProfileRemovePostTab, @"ic_video_outlined_20"),
@@ -275,10 +419,18 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     DKRow(DKKeySearchRemoveGuess, @"ic_eyeslash_outlined_20"),
                     DKRow(DKKeySearchRemoveAllRanks, @"ic_eyeslash_outlined_20"),
                     DKRow(DKKeySearchRemoveRankFooter, @"ic_eyeslash_outlined_20"),
+                    // 第 3 批 3b（1 键）：相关搜索。
+                    DKRow(@"DKXSHideInteractionSearch", @"ic_videosearch_outlined_20"),
                 ]),
                 DKSection(@"输入入口", @[
                     DKRow(DKKeySearchRemoveVoice, @"ic_eyeslash_outlined_20"),
                     DKRow(DKKeySearchCameraMode, @"ic_cameralogo_outlined_20"),
+                    // 第 3 批 3b（5 键）。
+                    DKRow(@"DKXSHideSearchBubble", @"ic_fire_outlined_20"),
+                    DKRow(@"DKXSHideSearchSame", @"ic_videosearch_outlined_20"),
+                    DKRow(@"DKXSHideSearchEntrance", @"ic_videosearch_outlined_20"),
+                    DKRow(@"DKXSHideSearchEntranceIndicator", @"ic_videosearch_outlined_20"),
+                    DKRow(@"DKXSHideDiscover", @"ic_videosearch_outlined_20"),
                 ]),
             ]),
         ]),
@@ -294,6 +446,11 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
             DKRow(@"DKXSHideCollectLabel", @"ic_star_outlined_20"),
             DKRow(@"DKXSHideMusicButton", @"ic_quaver_outlined_20"),
             DKRow(@"DKXSShowExactInteractionCounts", @"ic_text_outlined_20"),
+        ]),
+        // 第 6 批：通用隐藏（2 键）。
+        DKSection(@"通用隐藏", @[
+            DKRow(@"DKXSHideBack", @"ic_arrowleft_outlined_20"),
+            DKRow(@"DKXSHideScancode", @"ic_videosearch_outlined_20"),
         ]),
     ]);
 
@@ -430,6 +587,29 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
             DKRow(DKKeyTipsGlass, @"ic_msg_outlined_20"),
             DKRow(DKKeyMediaSaveGlass, @"ic_boxarrowdown_outlined"),
         ]),
+        // 优先小批：标题自定义（5 键）。
+        DKSection(@"标题自定义", @[
+            DKRow(@"DKXSModifyTopTabText", @"ic_text_outlined_20"),
+            DKRow(@"DKXSIndexTitle", @"ic_text_outlined_20"),
+            DKRow(@"DKXSFriendsTitle", @"ic_text_outlined_20"),
+            DKRow(@"DKXSMsgTitle", @"ic_text_outlined_20"),
+            DKRow(@"DKXSSelfTitle", @"ic_text_outlined_20"),
+        ]),
+        // 第 5b–5e 批 5d：透明度与缩放（12 键；DKXSTabBarHeight 实现已在 DKXSABTestHook.xm，本批只登记）。
+        DKSection(@"透明度与缩放", @[
+            DKRow(@"DKXSTopBarTransparent", @"ic_text_outlined_20"),
+            DKRow(@"DKXSGlobalTransparency", @"ic_text_outlined_20"),
+            DKRow(@"DKXSAvatarViewTransparency", @"ic_text_outlined_20"),
+            DKRow(@"DKXSVideoBGColor", @"ic_text_outlined_20"),
+            DKRow(@"DKXSEnableNotificationTransparency", @"ic_msg_outlined_20"),
+            DKRow(@"DKXSNotificationCornerRadius", @"ic_text_outlined_20"),
+            DKRow(@"DKXSElementScale", @"ic_text_outlined_20"),
+            DKRow(@"DKXSNicknameScale", @"ic_text_outlined_20"),
+            DKRow(@"DKXSNicknameVerticalOffset", @"ic_text_outlined_20"),
+            DKRow(@"DKXSDescriptionVerticalOffset", @"ic_text_outlined_20"),
+            DKRow(@"DKXSIPLabelVerticalOffset", @"ic_text_outlined_20"),
+            DKRow(@"DKXSTabBarHeight", @"ic_text_outlined_20"),
+        ]),
     ]];
 
     DKSettingsPage *enhance = DKPage(@"功能增强", @"ic_squaresplit_outlined_20", @[
@@ -438,6 +618,12 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
             DKRow(DKKeyProgressAlwaysVisible, @"ic_playertime_outlined_20"),
             DKRow(DKKeyProgressPlayedOnly, @"ic_playerarrow_outlined"),
             DKRow(DKKeyProgressTimeStyle, @"ic_clock_outlined_20"),
+            // 优先小批（1 键）：自动播放。
+            DKRow(@"DKXSEnableAutoPlay", @"ic_playerarrow_outlined"),
+            // 第 5b 批（3 键）：后台播放、投屏 VPN、上下控制倍速。
+            DKRow(@"DKXSEnableBackgroundListen", @"ic_playerarrow_outlined"),
+            DKRow(@"DKXSDisableCastVPNCheck", @"ic_tv_outlined_20"),
+            DKRow(@"DKXSEnableLongPressSpeedGesture", @"ic_playerarrow_outlined"),
             DKPage(@"发布时间与地区", @"ic_clock_outlined_20", @[
                 DKSection(@"显示内容", @[
                     DKRow(DKKeyPublishTimeEnabled, @"ic_clock_outlined_20"),
@@ -481,6 +667,24 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                 ]),
             ]),
         ]),
+        // 优先小批：面板（4 键）。
+        DKSection(@"面板", @[
+            DKRow(@"DKXSEnableModernPanel", @"ic_squaresplit_outlined_20"),
+            DKRow(@"DKXSLongPressPanelBlur", @"ic_squaresplit_outlined_20"),
+            DKRow(@"DKXSEnableSheetBlur", @"ic_squaresplit_outlined_20"),
+            DKRow(@"DKXSSheetBlurTransparent", @"ic_text_outlined_20"),
+        ]),
+        // 第 5a 批：进度时长（8 键）。
+        DKSection(@"进度时长", @[
+            DKRow(@"DKXSShowScheduleDisplay", @"ic_playertime_outlined_20"),
+            DKRow(@"DKXSScheduleStyle", @"ic_playertime_outlined_20"),
+            DKRow(@"DKXSProgressLabelColor", @"ic_text_outlined_20"),
+            DKRow(@"DKXSTimelineVerticalPosition", @"ic_text_outlined_20"),
+            DKRow(@"DKXSHideVideoProgress", @"ic_playertime_outlined_20"),
+            DKRow(@"DKXSHideStoryProgressSlide", @"ic_playertime_outlined_20"),
+            DKRow(@"DKXSHideDotsIndicator", @"ic_playertime_outlined_20"),
+            DKRow(@"DKXSHideChapterProgress", @"ic_text_outlined_20"),
+        ]),
         DKSection(@"手势", @[
             DKRow(DKKeyDoubleTapOpenComment, @"ic_comment_outlined_20"),
             DKRow(DKKeyLongPressCopyNickname, @"ic_user_outlined_20"),
@@ -513,6 +717,11 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
             DKRow(@"DKXSDisableAutoEnterLive", @"ic_tv_outlined_20"),
             DKRow(@"DKXSDisableAutoHideLive", @"ic_tv_outlined_20"),
             DKRow(@"DKXSHideLiveRoomShareCompanion", @"ic_tv_outlined_20"),
+            // 优先小批（1 键）：默认直播画质。
+            DKRow(@"DKXSLiveQuality", @"ic_tv_outlined_20"),
+            // 第 5b 批（2 键）：直播间真实人数、开播时长。
+            DKRow(@"DKXSEnableLiveRealCount", @"ic_tv_outlined_20"),
+            DKRow(@"DKXSShowLiveDuration", @"ic_clock_outlined_20"),
         ]),
         DKSection(@"悬浮按钮", @[
             DKRow(@"DKXSEnableFloatSpeedButton", @"ic_playerarrow_outlined"),
@@ -536,6 +745,26 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
             DKRow(@"DKXSHidePauseVideoIcon", @"ic_eyeslash_outlined_20"),
             DKRow(@"DKXSHideStatusBarOnClear", @"ic_eyeslash_outlined_20"),
         ]),
+        // 第 5b–5e 批 5e：属地（4 键）。
+        DKSection(@"属地", @[
+            DKRow(@"DKXSEnableArea", @"ic_location_outlined_20"),
+            DKRow(@"DKXSGeonamesUsername", @"ic_user_outlined_20"),
+            DKRow(@"DKXSLabelColor", @"ic_text_outlined_20"),
+            DKRow(@"DKXSEnableRandomGradient", @"ic_magic_outlined_20"),
+        ]),
+        // 第 5b–5e 批 5e：杂项（5 键；DKXSHideStatusbar 第 2 批只读未登记，本批正式登记，同一键同一语义）。
+        DKSection(@"杂项", @[
+            DKRow(@"DKXSCommentExactTime", @"ic_clock_outlined_20"),
+            DKRow(@"DKXSEnableVideoHighestQuality", @"ic_video_outlined_20"),
+            DKRow(@"DKXSHideStatusbar", @"ic_eyeslash_outlined_20"),
+            DKRow(@"DKXSFollowTips", @"ic_user_outlined_20"),
+            DKRow(@"DKXSCollectTips", @"ic_star_outlined_20"),
+        ]),
+        // 第 6 批：全屏协调（2 键；与 DYxs 自带“视频全屏”互斥，不要同时开）。
+        DKSection(@"全屏协调", @[
+            DKRow(@"DKXSEnableFullScreen", @"ic_fullscreen_outlined_16"),
+            DKRow(@"DKXSHideBottomBg", @"ic_eyeslash_outlined_20"),
+        ]),
     ]);
 
     DKSettingsPage *media = DKPage(@"媒体保存", @"ic_boxarrowdown_outlined", @[
@@ -545,6 +774,11 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
             DKRow(DKKeyMediaSaveAllImages, @"ic_playsquarestack_outlined_20"),
             DKRow(DKKeyMediaSaveCover, @"ic_image_outlined"),
             DKRow(DKKeyMediaSaveMusic, @"ic_quaver_outlined_20"),
+        ]),
+        // 优先小批：接口解析（2 键；调用方已接在长按面板“接口保存”项，见 DKFeedLongPressSave.xm）。
+        DKSection(@"接口解析", @[
+            DKRow(@"DKXSInterfaceDownload", @"ic_text_outlined_20"),
+            DKRow(@"DKXSShowAllVideoQuality", @"ic_video_outlined_20"),
         ]),
         DKSection(@"评论区", @[
             DKRow(DKKeyMediaSaveComment, @"ic_comment_outlined_20"),
@@ -568,6 +802,24 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
             DKRow(DKKeyFilterRecommendedMusic, @"ic_quaver_outlined_20"),
             DKRow(DKKeyFilterRecommendedArticle, @"ic_text_outlined_20"),
             DKRow(DKKeyFilterRecommendedMerchantNote, @"ic_location_outlined_20"),
+        ]),
+        // 第 5b–5e 批 5c：推荐过滤（15 键；DKXSFilterKeywords/DKXSFilterUsers 为第 4 批存储键，读取复用，不重复登记）。
+        DKSection(@"推荐过滤", @[
+            DKRow(@"DKXSSkipLive", @"ic_tv_outlined_20"),
+            DKRow(@"DKXSSkipHotSpot", @"ic_fire_outlined_20"),
+            DKRow(@"DKXSSkipFriendsVideo", @"ic_user_outlined_20"),
+            DKRow(@"DKXSSkipPhotoText", @"ic_text_outlined_20"),
+            DKRow(@"DKXSSkipPhoto", @"ic_image_outlined_20"),
+            DKRow(@"DKXSSkipMusic", @"ic_quaver_outlined_20"),
+            DKRow(@"DKXSSkipAIInteraction", @"ic_magic_outlined_20"),
+            DKRow(@"DKXSSkipAllLive", @"ic_tv_outlined_20"),
+            DKRow(@"DKXSFilterLowLikes", @"ic_thumbsdown_outlined_20"),
+            DKRow(@"DKXSFilterTimeLimit", @"ic_clock_outlined_20"),
+            DKRow(@"DKXSFilterProp", @"ic_text_outlined_20"),
+            DKRow(@"DKXSHDRMode", @"ic_video_outlined_20"),
+            DKRow(@"DKXSHideTeenMode", @"ic_eyeslash_outlined_20"),
+            DKRow(@"DKXSDisableLivePCDN", @"ic_tv_outlined_20"),
+            DKRow(@"DKXSHideAntiAddictedNotice", @"ic_eyeslash_outlined_20"),
         ]),
         DKSection(@"特殊卡片", @[
             DKRow(DKKeyFilterRecommendedSpecialCard, @"ic_squaresplit_outlined_20"),
