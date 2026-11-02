@@ -7,4 +7,6 @@
 + (void)showToast:(NSString *)text;
 + (BOOL)isDarkMode;
 + (UIViewController *)firstAvailableViewControllerFromView:(UIView *)view;
+/// 原 DYYYUtils topView 的 DKXS 版：取 key window 的 rootViewController，再沿 presentedViewController 走到最上层；无窗口时返回 nil。
++ (UIViewController *)topView;
 @end

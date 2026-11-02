@@ -586,7 +586,7 @@ static NSString *const kDKXSFriendShareFriends = @"DKXSFriendShareFeedFriends";
     __weak AWESettingItemModel *weakNoSend = noSend;
     __weak UIViewController *weakQuietRoot = rootViewController;
     noSend.cellTappedBlock = ^{
-        [DKXSAutoMessageQuietHoursPanel showFrom:topView() ?: weakQuietRoot onChange:^{
+        [DKXSAutoMessageQuietHoursPanel showFrom:[DKXSUtils topView] ?: weakQuietRoot onChange:^{
             weakNoSend.detail = [self noSendTimeSummary];
             [weakNoSend refreshCell];
         }];

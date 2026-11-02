@@ -76,6 +76,22 @@ void DKXSNSLog(NSString *format, ...) {
     return style == UIUserInterfaceStyleDark;
 }
 
++ (UIViewController *)topView {
+    UIWindow *window = nil;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if ([scene isKindOfClass:UIWindowScene.class]) {
+            for (UIWindow *w in ((UIWindowScene *)scene).windows) {
+                if (w.isKeyWindow) { window = w; break; }
+            }
+        }
+        if (window) break;
+    }
+    if (!window) return nil;
+    UIViewController *top = window.rootViewController;
+    while (top.presentedViewController) top = top.presentedViewController;
+    return top;
+}
+
 + (UIViewController *)firstAvailableViewControllerFromView:(UIView *)view {
     UIResponder *responder = view;
     while (responder) {

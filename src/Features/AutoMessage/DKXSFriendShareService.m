@@ -169,7 +169,7 @@
     if (UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return NO;
     UIViewController *home = [self shared].home;
     if (!home.isViewLoaded || !home.view.window) return NO;
-    UIViewController *top = topView();
+    UIViewController *top = [DKXSUtils topView];
     for (UIViewController *parent = home; parent; parent = parent.parentViewController) if (parent == top) return YES;
     return NO;
 }
