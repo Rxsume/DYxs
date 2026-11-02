@@ -32,6 +32,7 @@
 #import "DKKeys.h"
 #import "DKSettings.h"
 #import "DKUtils.h"
+#import "DKXSProgressScheduleLabel.h"
 
 // 取值即设置项的选项序号，与 DKProgressTimeOptions 一一对应。
 typedef NS_ENUM(NSInteger, DKProgressTimeStyle) {
@@ -447,17 +448,42 @@ void DKProgressTimeLayoutContainer(UIView *container) {
 
 #pragma mark - Hook
 
+// 第 5a 批合并段第 2 处：两段声明（供片段内调用 slider 的 dkxs_ 方法；%new 方法本身在 DKXSProgressScheduleHooks.xm 里实现）。
+@interface AWEFeedProgressSlider (DKXSProgressSchedule)
+- (void)dkxs_updateScheduleLabelsWithCurrentTime:(CGFloat)currentTime totalDuration:(CGFloat)totalDuration;
+@end
+
+@interface UIView (DKXSProgressLabelLegacy)
+- (void)dkxs_updateScheduleLabelsLegacyWithCurrentTime:(CGFloat)currentTime totalDuration:(CGFloat)totalDuration model:(id)model;
+@end
+
 %hook AWEDProgressCoreContainer
 
 - (void)updateProgressSliderWithTime:(double)time totalDuration:(double)duration {
     %orig;
     [DKProgressTimeViewOf(self.progressSlider.superview) setElapsed:(NSInteger)floor(time)
                                                               total:DKProgressTimeTotal(self, duration)];
+    [self dkxs_syncScheduleLabelsWithCurrentTime:time totalDuration:duration];
 }
 
 - (void)setProgressState:(long long)state {
     %orig;
     DKProgressTimeViewOf(self.progressSlider.superview).wakeup = state == DKProgressStateWakeup;
+}
+
+%new
+- (void)dkxs_syncScheduleLabelsWithCurrentTime:(CGFloat)currentTime totalDuration:(CGFloat)totalDuration {
+    if (!DKXSProgressScheduleOn()) return;
+    id progressSlider = self.progressSlider;
+    if (progressSlider && [progressSlider respondsToSelector:@selector(dkxs_updateScheduleLabelsWithCurrentTime:totalDuration:)]) {
+        [progressSlider dkxs_updateScheduleLabelsWithCurrentTime:currentTime totalDuration:totalDuration];
+        return;
+    }
+    id model = nil;
+    if ([self respondsToSelector:@selector(model)]) model = [self valueForKey:@"model"];
+    if ([progressSlider isKindOfClass:[UIView class]]) {
+        [(UIView *)progressSlider dkxs_updateScheduleLabelsLegacyWithCurrentTime:currentTime totalDuration:totalDuration model:model];
+    }
 }
 
 %end
@@ -481,13 +507,23 @@ void DKProgressTimeLayoutContainer(UIView *container) {
 }
 
 - (void)setAlpha:(CGFloat)alpha {
-    %orig;
+    // 第 5a 批合并段第 5 处：整方法替换（上游语义是改写传入的 alpha，不能在已有 %orig 之后再调一次 %orig；
+    // 替换后仍保留原有的 syncVisibility 调用）。
+    if (DKXSProgressScheduleOn()) {
+        if (DKXSHideVideoProgressOn()) %orig(0);
+        else %orig(1.0);
+    } else {
+        %orig;
+    }
     [DKProgressTimeViewOf(self.superview) syncVisibility];
 }
 
 - (void)setHidden:(BOOL)hidden {
     %orig;
     [DKProgressTimeViewOf(self.superview) syncVisibility];
+    // 第 5a 批合并段第 6 处：显示进度时长且隐藏进度都开、且本次不是隐藏时，把进度条 alpha 压成 0
+    //（时长标签是挂在父视图上的兄弟视图，不受影响，继续显示）。
+    if (DKXSHideVideoProgressOn() && DKXSProgressScheduleOn() && !hidden) self.alpha = 0;
 }
 
 - (void)setValue:(float)value {
