@@ -8,6 +8,7 @@
 #import "DKXSFloatSpeedButton.h"
 #import <UIKit/UIKit.h>
 #import <math.h>
+#import <objc/message.h>
 #import <objc/runtime.h>
 
 @interface DKXSFloatingButtonCoordinator ()

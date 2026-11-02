@@ -8,6 +8,7 @@
 #import <UIKit/UIKit.h>
 #import <float.h>
 #import <math.h>
+#import <objc/message.h>
 #import <objc/runtime.h>
 
 DKXSFloatSpeedButton *dkxsSpeedButton = nil;
@@ -413,7 +414,11 @@ static const CGFloat kDKXSSpeedButtonEdgeSwitchHysteresis = 12.0;
 
     if (self.interactionController) {
         @try {
-            [self.interactionController dkxsSpeedButtonTapped:self];
+            // 上游原调用就是 speedButtonTapped:（接线文件里 %new 在互动控制器上加的方法），
+            // 移植时误改名为 dkxsSpeedButtonTapped: 导致两边对不上（build #48）。
+            // 互动控制器是 id 类型、方法未在任何头文件声明，用 DYxs 已有的
+            // objc_msgSend 转型写法动态调用，不产生声明错误。
+            ((void (*)(id, SEL, id))objc_msgSend)(self.interactionController, @selector(speedButtonTapped:), self);
         } @catch (NSException *exception) {
             self.isResponding = NO;
         }
