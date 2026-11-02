@@ -66,7 +66,7 @@ void DKXSSetConversationRecallEnabled(NSString *conversationID, BOOL enabled) {
     NSString *key = DKXSConversationPreferenceKey(DKXSArchiveCurrentAccountID(), conversationID);
     if (!key.length) return;
     NSMutableDictionary *disabled = [[NSUserDefaults.standardUserDefaults objectForKey:@"DKXSRecallDisabledConversations"] isKindOfClass:NSDictionary.class]
-        ? [[[NSUserDefaults.standardUserDefaults objectForKey:@"DKXSRecallDisabledConversations"] mutableCopy] autorelease] : [NSMutableDictionary dictionary];
+        ? [[NSUserDefaults.standardUserDefaults objectForKey:@"DKXSRecallDisabledConversations"] mutableCopy] : [NSMutableDictionary dictionary];
     if (enabled) [disabled removeObjectForKey:key]; else disabled[key] = @YES;
     DKXSArchiveSet(@"DKXSRecallDisabledConversations", disabled);
 }

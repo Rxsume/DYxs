@@ -192,23 +192,23 @@ static NSDictionary *DKXSMergeEditRecord(NSDictionary *prior, NSDictionary *even
     merged[@"key"] = event[@"key"]; merged[@"account"] = event[@"account"]; merged[@"conversation"] = event[@"conversation"];
     merged[@"serverID"] = event[@"serverID"]; merged[@"messageID"] = event[@"messageID"];
     merged[@"sender"] = event[@"sender"]; merged[@"senderName"] = event[@"senderName"] ?: @"";
-    if (!merged[@"created"]) merged[@"created"] = @(event[@"observedAt"]);
-    merged[@"seen"] = @(event[@"observedAt"]);
+    if (!merged[@"created"]) merged[@"created"] = event[@"observedAt"];
+    merged[@"seen"] = event[@"observedAt"];
     NSMutableArray *versions = [merged[@"versions"] isKindOfClass:NSArray.class] ? [merged[@"versions"] mutableCopy] : [NSMutableArray array];
     if (decision == DKXSEditBaseline) {
-        if (!versions.count) [versions addObject:@{@"text": text, @"at": @(event[@"observedAt"]), @"kind": @"original"}];
+        if (!versions.count) [versions addObject:@{@"text": text, @"at": event[@"observedAt"], @"kind": @"original"}];
         merged[@"lastText"] = text; merged[@"changes"] = @0;
     } else if (decision == DKXSEditFirstSeenEdited) {
-        [versions addObject:@{@"text": @"", @"at": @(event[@"observedAt"]), @"kind": @"unknown-original"}];
-        [versions addObject:@{@"text": text, @"at": editTime > 0 ? @(editTime) : @(event[@"observedAt"]), @"kind": @"edited"}];
+        [versions addObject:@{@"text": @"", @"at": event[@"observedAt"], @"kind": @"unknown-original"}];
+        [versions addObject:@{@"text": text, @"at": editTime > 0 ? @(editTime) : event[@"observedAt"], @"kind": @"edited"}];
         merged[@"lastText"] = text; merged[@"lastEditTime"] = @(editTime); merged[@"changes"] = @1;
     } else if (decision == DKXSEditAppend) {
-        [versions addObject:@{@"text": text, @"at": editTime > 0 ? @(editTime) : @(event[@"observedAt"]), @"kind": @"edited"}];
+        [versions addObject:@{@"text": text, @"at": editTime > 0 ? @(editTime) : event[@"observedAt"], @"kind": @"edited"}];
         merged[@"lastText"] = text; merged[@"lastEditTime"] = @(editTime);
         merged[@"changes"] = @([merged[@"changes"] longLongValue] + 1);
     }
     merged[@"versions"] = versions;
-    merged[@"editedAt"] = @(editTime > 0 ? editTime : event[@"observedAt"]);
+    merged[@"editedAt"] = editTime > 0 ? @(editTime) : event[@"observedAt"];
     return merged;
 }
 void DKXSEditObserveMessage(id message, NSDictionary *content, NSDictionary *editInfo) {
