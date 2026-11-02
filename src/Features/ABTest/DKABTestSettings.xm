@@ -8,6 +8,10 @@
 //
 
 #import "DKSettings.h"
+// DKXSABTestHook.h 只 import Foundation，不带 Aweme 头文件，与 DouyinHeaders 无冲突，
+// 但必须 import 它才能声明 +checkForRemoteConfigUpdate，否则第 27 行的动态调用
+// 会被编译器报成未声明标识符（build #37 的错误）。
+#import "DKXSABTestHook.h"
 
 %ctor {
     DKSettingsRegister(@"DKXSABTestBlockEnabled", ^AWESettingItemModel *{

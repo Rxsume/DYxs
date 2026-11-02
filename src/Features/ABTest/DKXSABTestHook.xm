@@ -1,6 +1,11 @@
 #import "DKXSABTestHook.h"
 #import "DKXSConstants.h"
 #import "DKXSUtils.h"
+// 必须声明 AWEABTestManager 的完整接口（sharedManager / abTestData / setAbTestData），
+// 否则 Logos 的 %hook 只生成 @class 前置声明，编译器会把所有对 manager 的调用报成
+// “forward declaration”错误（build #37 的 8 个错误）。本文件不 import DouyinHeaders，
+// 与 DKXSAwemeHeaders 无重复声明冲突。
+#import "DKXSAwemeHeaders.h"
 #import <objc/runtime.h>
 
 static BOOL s_abTestBlockEnabled = NO;
