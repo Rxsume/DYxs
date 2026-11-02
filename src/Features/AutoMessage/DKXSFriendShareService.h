@@ -1,0 +1,26 @@
+#import <UIKit/UIKit.h>
+
+@interface DKXSFriendShareService : NSObject
++ (NSDictionary *)diagnostics;
++ (void)applicationOpened;
++ (void)applicationEnteredBackground;
++ (void)applicationBecameActive;
++ (void)bindHomeFeed:(UIViewController *)feed;
++ (void)scanWithToast:(BOOL)showToast;
++ (NSArray *)arrangeData:(NSArray *)data controller:(id)controller;
++ (void)homeDidScroll:(UIViewController *)feed;
++ (void)homeDidScroll:(UIViewController *)feed scrollView:(UIScrollView *)scrollView;
++ (void)homeCellDidDisplay:(UIViewController *)cell;
++ (void)homeDidEndScrolling:(UIViewController *)feed scrollView:(UIScrollView *)scrollView;
++ (void)playerPlaybackAdvanced:(UIViewController *)controller time:(NSTimeInterval)time;
++ (void)playerWillLoop:(UIViewController *)controller;
++ (void)homeWillDrag:(UIViewController *)feed scrollView:(UIScrollView *)scrollView;
++ (void)homePlayerWillLeave:(UIViewController *)player;
++ (void)homePlayerDidReturn:(UIViewController *)player;
++ (void)homeDidLeave:(UIViewController *)feed;
++ (void)homeWillLoop:(UIViewController *)feed;
++ (void)homePlaybackTouched:(UIViewController *)feed;
++ (void)homePlaybackAdvanced:(UIViewController *)feed time:(NSTimeInterval)time;
++ (void)clearWatched;
++ (NSDictionary *)shareSourceForItemID:(NSString *)itemID controller:(UIViewController *)controller;
+@end
