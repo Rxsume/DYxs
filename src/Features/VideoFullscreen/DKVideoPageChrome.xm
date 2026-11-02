@@ -13,6 +13,9 @@
 #import "DKVideoFeedTable.h"
 #import "DKUtils.h"
 #import <objc/runtime.h>
+
+// 第 3 批合并段 3c-M1 用：与第 1 批 DKXSFeatureHooks.xm 同款宏。
+#define DKXSGetBool(key) [[NSUserDefaults standardUserDefaults] boolForKey:key]
 #import <math.h>
 
 // 结构签名的统一容差：覆盖 @3x 像素对齐与进度条收放时的亚像素漂移。
@@ -542,6 +545,15 @@ void DKHUDStatusBarCoverSync(UIViewController *interaction) {
 %hook AWEGradientView
 
 - (void)layoutSubviews {
+    // 第 3 批合并段 3c-M1（遮罩渐变）：原片段先门控后 %orig，语义原样并入现有方法入口。
+    if (DKXSGetBool(@"DKXSHideGradient")) {
+        UIView *parent = self.superview;
+        if ([parent.accessibilityLabel isEqualToString:@"暂停，按钮"] || [parent.accessibilityLabel isEqualToString:@"播放，按钮"] || [parent.accessibilityLabel isEqualToString:@"“切换视角，按钮"] ||
+            [parent isKindOfClass:%c(AWEStoryProgressContainerView)]) {
+            self.hidden = YES;
+        }
+        return;
+    }
     %orig;
 
     // ① 视频：Merge 被钉得比父视图高时，容器内非贴底的压暗跟着撑满（旧逻辑，保留）。
