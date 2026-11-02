@@ -140,6 +140,42 @@ static void DKTopChannelRecordTitles(AWEFeedChannelManager *manager) {
 
 #pragma mark - 钩子
 
+// 第 3 批合并段 3b-M4（顶栏频道移除，14 键整块）：原片段为整方法替换，因本文件已 hook 同方法，
+// 改为把片段的 14 键映射表抽为静态函数接入现有过滤循环；现有选中频道重选与 keptIDs 逻辑原样复用。
+static BOOL DKXSBatch3ChannelHidden(NSString *channelID) {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    if ([channelID isEqualToString:@"homepage_hot_container"]) {
+        return [defaults boolForKey:@"DKXSHideHotContainer"];
+    } else if ([channelID isEqualToString:@"homepage_follow"]) {
+        return [defaults boolForKey:@"DKXSHideFollow"];
+    } else if ([channelID isEqualToString:@"homepage_mall"]) {
+        return [defaults boolForKey:@"DKXSHideMall"];
+    } else if ([channelID isEqualToString:@"homepage_nearby"]) {
+        return [defaults boolForKey:@"DKXSHideNearby"];
+    } else if ([channelID isEqualToString:@"homepage_groupon"]) {
+        return [defaults boolForKey:@"DKXSHideGroupon"];
+    } else if ([channelID isEqualToString:@"homepage_tablive"]) {
+        return [defaults boolForKey:@"DKXSHideTabLive"];
+    } else if ([channelID isEqualToString:@"homepage_pad_hot"]) {
+        return [defaults boolForKey:@"DKXSHidePadHot"];
+    } else if ([channelID isEqualToString:@"homepage_hangout"]) {
+        return [defaults boolForKey:@"DKXSHideHangout"];
+    } else if ([channelID isEqualToString:@"homepage_familiar"]) {
+        return [defaults boolForKey:@"DKXSHideFriend"];
+    } else if ([channelID isEqualToString:@"homepage_playlet_stream"]) {
+        return [defaults boolForKey:@"DKXSHidePlaylet"];
+    } else if ([channelID isEqualToString:@"homepage_pad_cinema"]) {
+        return [defaults boolForKey:@"DKXSHideCinema"];
+    } else if ([channelID isEqualToString:@"homepage_pad_kids_v2"]) {
+        return [defaults boolForKey:@"DKXSHideKidsV2"];
+    } else if ([channelID isEqualToString:@"homepage_pad_game"]) {
+        return [defaults boolForKey:@"DKXSHideGame"];
+    } else if ([channelID isEqualToString:@"homepage_mediumvideo"]) {
+        return [defaults boolForKey:@"DKXSHideMediumVideo"];
+    }
+    return NO;
+}
+
 %hook AWEFeedChannelManager
 
 - (void)reloadChannelWithChannelModels:(id)models currentChannelIDList:(id)channelIDs
@@ -156,6 +192,11 @@ static void DKTopChannelRecordTitles(AWEFeedChannelManager *manager) {
     for (id model in models) {
         NSString *channelID = DKModelChannelID(model);
         if (channelID && !DKModelLocked(model) && DKPrefBool(DKTopChannelHideKey(channelID))) {
+            [hidden addObject:channelID];
+            continue;
+        }
+        // 第 3 批 3b-M4 接入：上游 14 个频道移除键（见上方 DKXSBatch3ChannelHidden）。
+        if (channelID && DKXSBatch3ChannelHidden(channelID)) {
             [hidden addObject:channelID];
             continue;
         }
