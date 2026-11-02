@@ -293,6 +293,7 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
             DKRow(@"DKXSHideCollectButton", @"ic_star_outlined_20"),
             DKRow(@"DKXSHideCollectLabel", @"ic_star_outlined_20"),
             DKRow(@"DKXSHideMusicButton", @"ic_quaver_outlined_20"),
+            DKRow(@"DKXSShowExactInteractionCounts", @"ic_text_outlined_20"),
         ]),
     ]);
 
@@ -512,6 +513,28 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
             DKRow(@"DKXSDisableAutoEnterLive", @"ic_tv_outlined_20"),
             DKRow(@"DKXSDisableAutoHideLive", @"ic_tv_outlined_20"),
             DKRow(@"DKXSHideLiveRoomShareCompanion", @"ic_tv_outlined_20"),
+        ]),
+        DKSection(@"悬浮按钮", @[
+            DKRow(@"DKXSEnableFloatSpeedButton", @"ic_playerarrow_outlined"),
+            DKRow(@"DKXSSpeedButtonSize", @"ic_text_outlined_20"),
+            DKRow(@"DKXSHideSpeed", @"ic_eyeslash_outlined_20"),
+            DKRow(@"DKXSAutoHideSpeedButton", @"ic_eyeslash_outlined_20"),
+            DKRow(@"DKXSSpeedButtonStickToEdge", @"ic_eyeslash_outlined_20"),
+            DKRow(@"DKXSSpeedButtonShowX", @"ic_text_outlined_20"),
+        ]),
+        DKSection(@"一键清屏", @[
+            DKRow(@"DKXSEnableFloatClearButton", @"ic_eyeslash_outlined_20"),
+            DKRow(@"DKXSEnableFloatClearButtonSize", @"ic_text_outlined_20"),
+            DKRow(@"DKXSClearButtonStickToEdge", @"ic_eyeslash_outlined_20"),
+            DKRow(@"DKXSHideTabBar", @"ic_eyeslash_outlined_20"),
+            DKRow(@"DKXSHideDanmaku", @"ic_comment_outlined_20"),
+            DKRow(@"DKXSRemoveTimeProgress", @"ic_playertime_outlined_20"),
+            DKRow(@"DKXSHideTimeProgress", @"ic_playertime_outlined_20"),
+            DKRow(@"DKXSHideSlider", @"ic_playertime_outlined_20"),
+            DKRow(@"DKXSHideChapter", @"ic_text_outlined_20"),
+            DKRow(@"DKXSHideClearButtonOnTap", @"ic_eyeslash_outlined_20"),
+            DKRow(@"DKXSHidePauseVideoIcon", @"ic_eyeslash_outlined_20"),
+            DKRow(@"DKXSHideStatusBarOnClear", @"ic_eyeslash_outlined_20"),
         ]),
     ]);
 
