@@ -14,6 +14,9 @@
 #import "DKKeys.h"
 #import "DKSettings.h"
 #import <objc/runtime.h>
+
+// 第 3 批合并段 3b-M3 用：与第 1 批 DKXSFeatureHooks.xm 同款宏。
+#define DKXSGetBool(key) [[NSUserDefaults standardUserDefaults] boolForKey:key]
 #import <math.h>
 
 static char kBarOrigBGKey;   // 底栏原始背景色缓存，便于关闭时还原
@@ -106,6 +109,12 @@ static void DKApplyBarBackground(UIView *view, BOOL clear) {
     if (DKShouldHideDetailBottomBar()) {
         AWEAwemeIMDetailTableViewController *detail = DKFindIMDetailController(self);
         if (detail) [detail setBottomBarHidden:YES];
+    }
+
+    // 第 3 批合并段 3b-M3（底部私信回复）：原片段 %orig 后门控，现有方法已调 %orig，体并入末尾。
+    if (DKXSGetBool(@"DKXSHideReply")) {
+        [self.view removeFromSuperview];
+        return;
     }
 }
 
