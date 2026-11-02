@@ -47,14 +47,17 @@
 
 - (void)viewWillAppear:(BOOL)animated {
     %orig(animated);
-    [DKXSCommentPlaybackCoordinator commentController:self visible:YES];
+    // 本文件不 import DouyinHeaders，Logos 只给本类前置声明，编译器不知道它是
+    // UIViewController 的子类，直接传 self 会报 cannot initialize（build #45）。
+    // 上游与 DouyinHeaders 均声明本类为 UIViewController 子类，故显式转型。
+    [DKXSCommentPlaybackCoordinator commentController:(UIViewController *)self visible:YES];
 }
 
 - (void)viewDidDisappear:(BOOL)animated {
-    BOOL skipsLifecycle = [DKXSCommentPlaybackCoordinator shouldSkipLifecycle:self];
+    BOOL skipsLifecycle = [DKXSCommentPlaybackCoordinator shouldSkipLifecycle:(UIViewController *)self];
     %orig(animated);
     if (skipsLifecycle) return;
-    [DKXSCommentPlaybackCoordinator commentController:self visible:NO];
+    [DKXSCommentPlaybackCoordinator commentController:(UIViewController *)self visible:NO];
 }
 
 %end
