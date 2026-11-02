@@ -9,6 +9,12 @@
 //
 
 #import "DKSettings.h"
+// 这两个头只 import Foundation/UIKit（AWESettingSectionModel 仅 @class 前置声明），
+// 与 DouyinHeaders 无冲突；必须 import 它们才能声明下面动态调用的三个类方法，
+// 否则编译器会把 settingsSections/scanFriendShares/clearWatched 报成未声明
+// （build #38 的 3 个错误，arm64/arm64e 各重复一次）。
+#import "DKXSAutoMessage.h"
+#import "DKXSFriendShareService.h"
 
 %ctor {
     DKSettingsRegister(@"DKXSAutoMessageEnabled", ^AWESettingItemModel *{
