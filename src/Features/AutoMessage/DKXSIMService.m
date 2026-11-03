@@ -6,6 +6,7 @@
 #import "DKXSIMSendLedger.h"
 
 @interface DKXSIMService ()
++ (NSString *)learningAccountID;
 @property (nonatomic, strong) NSMapTable *services;
 @property (nonatomic, strong) NSMutableDictionary *pending;
 @property (nonatomic, strong) NSMutableDictionary *textTypes;
@@ -18,6 +19,10 @@
 @property (nonatomic) NSUInteger historyResultCount;
 @property (nonatomic) NSUInteger sendAttempts;
 @property (nonatomic, strong) NSMutableDictionary *lastSendDiagnostics;
+@property (nonatomic, copy) NSDictionary *lastObservation;
+@property (nonatomic) NSUInteger observationCount;
+@property (nonatomic, copy) NSDictionary *lastLearned;
+@property (nonatomic, copy) NSDictionary *sendInputHookState;
 @end
 
 @implementation DKXSIMService
@@ -259,6 +264,13 @@
     result[@"lastValidation"] = [self shared].lastValidation ?: @{};
     result[@"lastFailure"] = [self shared].lastFailure ?: @"";
     result[@"knownTextFormats"] = @([self shared].textTypes.count);
+    result[@"observationCount"] = @([self shared].observationCount);
+    result[@"lastObservation"] = [self shared].lastObservation ?: @{};
+    result[@"lastLearned"] = [self shared].lastLearned ?: @{};
+    result[@"sendInputHookState"] = [self shared].sendInputHookState ?: @{};
+    NSString *gateAccount = [self learningAccountID];
+    result[@"gateAccountLength"] = @(gateAccount.length);
+    result[@"gateAccountLearned"] = @(gateAccount.length > 0 && [self shared].textTypes[gateAccount] != nil);
     result[@"lastHistoryResultCount"] = @([self shared].historyResultCount);
     result[@"conversationStore"] = [DKXSIMConversationStore diagnostics];
     result[@"lastScan"] = [[self shared].scanState copy] ?: @{};
@@ -455,6 +467,7 @@
 
 + (void)rememberTextType:(NSNumber *)type account:(NSString *)account {
     if (!account.length || !type) return;
+    [self shared].lastLearned = @{@"accountLength": @(account.length), @"type": type};
     [self shared].textTypes[account] = type;
     NSString *key = [self textTypeCacheKey];
     NSMutableDictionary *known = [[NSUserDefaults.standardUserDefaults dictionaryForKey:key] mutableCopy] ?: [NSMutableDictionary dictionary];
@@ -476,11 +489,45 @@
     [NSUserDefaults.standardUserDefaults setObject:ids.array forKey:key];
 }
 
+// 诊断用观测快照：只记对象形态（类名、键存在性、类型数值有无、是否含文字、
+// 是否带媒体标记、是否已找到类型），不记消息正文内容与账户 ID。
++ (NSDictionary *)observationSnapshot:(NSString *)hook object:(id)object {
+    NSMutableDictionary *snap = [NSMutableDictionary dictionary];
+    snap[@"hook"] = hook;
+    snap[@"class"] = NSStringFromClass([object class]) ?: @"nil";
+    NSMutableArray *keys = [NSMutableArray array];
+    for (NSString *key in @[@"messageContentDict", @"content", @"messageContent", @"contentDict", @"message", @"messageModel", @"model", @"sendMessage", @"request"]) {
+        id v = [self value:object key:key];
+        if (v) [keys addObject:[NSString stringWithFormat:@"%@:%@", key, NSStringFromClass([v class])]];
+    }
+    snap[@"keys"] = keys;
+    for (NSString *key in @[@"messageType", @"type", @"msgType"]) {
+        id v = [self value:object key:key];
+        if ([v isKindOfClass:NSNumber.class]) { snap[@"numberKey"] = key; snap[@"number"] = v; break; }
+    }
+    return snap;
+}
+
++ (void)recordObservation:(NSString *)hook object:(id)object body:(id)body number:(NSNumber *)number typeFound:(BOOL)typeFound {
+    NSMutableDictionary *snap = [[self observationSnapshot:hook object:object] mutableCopy];
+    snap[@"textFound"] = @([self dkxs_textForBody:body].length > 0);
+    snap[@"mediaMarked"] = @([self dkxs_bodyHasMediaMarkers:body]);
+    snap[@"typeFound"] = @(typeFound);
+    [self shared].observationCount++;
+    [self shared].lastObservation = snap;
+}
+
++ (void)recordSendInputHookStateConversation:(BOOL)conversation sender:(BOOL)sender {
+    [self shared].sendInputHookState = @{@"conversation": @(conversation), @"sender": @(sender)};
+}
+
 + (void)observeConversationSend:(id)model conversation:(id)conversation {
     NSNumber *number = [self dkxs_messageTypeNumber:model];
-    NSNumber *type = [self textTypeForBody:[self value:model key:@"content"] number:number];
-    if (!type) type = [self textTypeForBody:[self value:model key:@"messageContentDict"] number:number];
-    if (!type) type = [self textTypeForBody:[self value:model key:@"messageContent"] number:number];
+    id body = [self value:model key:@"content"];
+    NSNumber *type = [self textTypeForBody:body number:number];
+    if (!type) { body = [self value:model key:@"messageContentDict"]; type = [self textTypeForBody:body number:number]; }
+    if (!type) { body = [self value:model key:@"messageContent"]; type = [self textTypeForBody:body number:number]; }
+    [self recordObservation:@"conversationSend" object:model body:body number:number typeFound:type != nil];
     if (!type) return;
     id root = [self value:conversation key:@"r"];
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -503,10 +550,12 @@
     // （带 aweme/image/resource/video/item_id 的一律拒收），不会把媒体/分享卡片
     // 的类型误学成文字类型。
     NSNumber *number = [self dkxs_messageTypeNumber:model];
-    NSNumber *type = [self textTypeForBody:[self value:model key:@"messageContentDict"] number:number];
-    if (!type) type = [self textTypeForBody:[self value:model key:@"content"] number:number];
-    if (!type) type = [self textTypeForBody:[self value:model key:@"messageContent"] number:number];
-    if (!type) type = [self textTypeForBody:[self value:model key:@"contentDict"] number:number];
+    id body = [self value:model key:@"messageContentDict"];
+    NSNumber *type = [self textTypeForBody:body number:number];
+    if (!type) { body = [self value:model key:@"content"]; type = [self textTypeForBody:body number:number]; }
+    if (!type) { body = [self value:model key:@"messageContent"]; type = [self textTypeForBody:body number:number]; }
+    if (!type) { body = [self value:model key:@"contentDict"]; type = [self textTypeForBody:body number:number]; }
+    [self recordObservation:@"textModel" object:model body:body number:number typeFound:type != nil];
     if (!type) return;
     dispatch_async(dispatch_get_main_queue(), ^{
         NSString *account = [self learningAccountID];
@@ -531,17 +580,20 @@
     NSNumber *inputNumber = [self dkxs_messageTypeNumber:input];
     for (id candidate in candidates) {
         NSNumber *number = [self dkxs_messageTypeNumber:candidate] ?: inputNumber;
-        NSNumber *type = [self textTypeForBody:[self value:candidate key:@"messageContentDict"] number:number];
-        if (!type) type = [self textTypeForBody:[self value:candidate key:@"content"] number:number];
-        if (!type) type = [self textTypeForBody:[self value:candidate key:@"messageContent"] number:number];
-        if (!type) type = [self textTypeForBody:[self value:candidate key:@"contentDict"] number:number];
+        id body = [self value:candidate key:@"messageContentDict"];
+        NSNumber *type = [self textTypeForBody:body number:number];
+        if (!type) { body = [self value:candidate key:@"content"]; type = [self textTypeForBody:body number:number]; }
+        if (!type) { body = [self value:candidate key:@"messageContent"]; type = [self textTypeForBody:body number:number]; }
+        if (!type) { body = [self value:candidate key:@"contentDict"]; type = [self textTypeForBody:body number:number]; }
         if (!type) continue;
+        [self recordObservation:@"sendInput" object:candidate body:body number:number typeFound:YES];
         dispatch_async(dispatch_get_main_queue(), ^{
             NSString *account = [self learningAccountID];
             if (account.length) [self rememberTextType:type account:account];
         });
         return;
     }
+    [self recordObservation:@"sendInput" object:input body:[self value:input key:@"content"] number:inputNumber typeFound:NO];
 }
 
 + (void)observeHistoryQuery:(id)conversation manager:(id)manager {
@@ -623,6 +675,7 @@
     // 不触发历史读取、不改发送行为、不碰待确认 pending 逻辑。
     if (!error) {
         NSNumber *receiptType = [self textTypeForBody:[self value:message key:@"content"] number:[self dkxs_messageTypeNumber:message]];
+        [self recordObservation:@"receipt" object:message body:[self value:message key:@"content"] number:[self dkxs_messageTypeNumber:message] typeFound:receiptType != nil];
         id senderValue = [self value:message key:@"sender"];
         NSString *senderID = [senderValue respondsToSelector:@selector(stringValue)] ? [senderValue stringValue] : nil;
         if (![senderID isKindOfClass:NSString.class] || !senderID.length) {
