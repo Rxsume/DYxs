@@ -448,13 +448,18 @@ void DKProgressTimeLayoutContainer(UIView *container) {
 
 #pragma mark - Hook
 
-// 第 5a 批合并段第 2 处：两段声明（供片段内调用 slider 的 dkxs_ 方法；%new 方法本身在 DKXSProgressScheduleHooks.xm 里实现）。
+// 第 5a 批合并段第 2 处：三段声明（供片段内调用 slider 的 dkxs_ 方法；%new 方法本身在 DKXSProgressScheduleHooks.xm 里实现；
+// 第三段声明本文件 %hook 内 %new 实现的 dkxs_syncScheduleLabels 方法，供同一 %hook 内更早的调用处使用）。
 @interface AWEFeedProgressSlider (DKXSProgressSchedule)
 - (void)dkxs_updateScheduleLabelsWithCurrentTime:(CGFloat)currentTime totalDuration:(CGFloat)totalDuration;
 @end
 
 @interface UIView (DKXSProgressLabelLegacy)
 - (void)dkxs_updateScheduleLabelsLegacyWithCurrentTime:(CGFloat)currentTime totalDuration:(CGFloat)totalDuration model:(id)model;
+@end
+
+@interface AWEDProgressCoreContainer (DKXSProgressSync)
+- (void)dkxs_syncScheduleLabelsWithCurrentTime:(CGFloat)currentTime totalDuration:(CGFloat)totalDuration;
 @end
 
 %hook AWEDProgressCoreContainer
