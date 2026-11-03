@@ -11,6 +11,7 @@
 /// 仅返回当前账户已捕获的 root/消息管理器，不解析服务容器。
 + (NSDictionary *)capturedExpiryContext:(id)conversation;
 + (void)observeTextModel:(id)model sender:(id)sender;
++ (void)observeSendInput:(id)input host:(id)host;
 + (void)observeConversationSend:(id)model conversation:(id)conversation;
 + (void)observeHistoryQuery:(id)conversation manager:(id)manager;
 + (void)observeHistoryResults:(id)results manager:(id)manager;
