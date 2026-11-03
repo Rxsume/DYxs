@@ -15,6 +15,11 @@
 static char kDKRowHostHiddenKey;
 static char kDKRowRemovedKey;
 
+BOOL DKElementRowHostHidden(UIView *row) {
+    NSNumber *host = objc_getAssociatedObject(row, &kDKRowHostHiddenKey);
+    return host ? host.boolValue : row.hidden;
+}
+
 BOOL DKElementRowShouldRemove(UIView *row) {
     return DKPlaybackCleanRowRemoved(row) || DKInteractionRowRemoved(row);
 }

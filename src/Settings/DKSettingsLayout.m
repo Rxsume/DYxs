@@ -7,6 +7,7 @@
 
 #import "DKSettingsLayout.h"
 #import "DKKeys.h"
+#import "DKPlaybackCatalog.h"
 
 @implementation DKSettingsRow
 - (instancetype)initWithKey:(NSString *)key icon:(NSString *)icon {
@@ -178,6 +179,7 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     DKRow(DKKeyDetailHideBottomBar, @"ic_xmark_outlined_20"),
                 ]),
                 DKSection(@"锚点标签", @[
+                    DKRow(DKKeyPlaybackAnchorsPage, @"ic_tag_outlined_20"),
                     DKRow(DKKeyPlaybackRemoveAllAnchors, @"ic_eyeslash_outlined_20"),
                     DKRow(DKKeyPlaybackGameTagMode, @"ic_module_outlined_20"),
                     DKRow(DKKeyPlaybackMusicAnchorMode, @"ic_quaver_outlined_20"),
@@ -206,6 +208,7 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     DKRow(@"DKXSHideRecommendAppDownload", @"ic_boxarrowdown_outlined"),
                 ]),
                 DKSection(@"底部栏目", @[
+                    DKRow(DKKeyPlaybackBottomBarsPage, @"ic_collection_outlined_20"),
                     DKRow(DKKeyPlaybackRemoveAllBottomBars, @"ic_eyeslash_outlined_20"),
                     DKRow(DKKeyPlaybackRelatedSearchMode, @"ic_videosearch_outlined_20"),
                     DKRow(DKKeyPlaybackRelatedVideoMode, @"ic_playsquarestack_outlined_20"),
@@ -511,6 +514,7 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                 ]),
             ]),
             DKRow(DKKeyProgressOffset, @"ic_doublearrowup_outlined_20"),
+            DKRow(DKKeyRelatedBarOffset, @"ic_doublearrowup_outlined_20"),
             DKRow(DKKeyStoryIndicatorOffset, @"ic_doublearrowup_outlined_20"),
         ]),
     ]);
@@ -519,6 +523,11 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                                                              icon:@"ic_rectangleonrectangleup_outlined_20"
                                                        identifier:DKKeySettingsPageGlass
                                                          sections:@[
+        DKSection(@"顶栏", @[
+            DKRow(DKKeyTopBarGlass, @"ic_module_outlined_20"),
+            DKRow(DKKeyTopBarGlassHeight, @"ic_zoomout_outlined_20"),
+            DKRow(DKKeyTopBarGlassLength, @"ic_zoomoutrectangle_outlined"),
+        ]),
         DKSection(@"底栏", @[
             DKRow(DKKeyGlassTabBar, @"ic_module_outlined_20"),
             DKRow(DKKeyGlassTabBarCapsuleHeight, @"ic_zoomout_outlined_20"),
@@ -932,6 +941,8 @@ NSArray<NSString *> *DKSettingsLayoutRequires(NSString *key) {
             DKKeyGlassTabBarCapsuleHeight: @[ DKKeyGlassTabBar ],
             DKKeyGlassTabBarCapsuleLength: @[ DKKeyGlassTabBar ],
             DKKeyGlassTabBarPlusSize:    @[ DKKeyGlassTabBar ],
+            DKKeyTopBarGlassHeight:      @[ DKKeyTopBarGlass ],
+            DKKeyTopBarGlassLength:      @[ DKKeyTopBarGlass ],
             DKKeyAudioVizStyle:          @[ DKKeyAudioVizPosition ],
             DKKeyInnerNotiCorner:        @[ DKKeyInnerNotiGlass ],
             DKKeyChatTopCustomPage:      @[ DKKeyChatInputGlass ],
@@ -1012,6 +1023,7 @@ NSArray<DKSettingsBlocker *> *DKSettingsLayoutBlockers(NSString *key) {
         NSMutableDictionary *table = [NSMutableDictionary dictionary];
         [table addEntriesFromDictionary:@{
             DKKeySearchRemoveRankFooter: @[ DKBlockOn(DKKeySearchRemoveAllRanks, @"已移除全部榜单") ],
+            DKKeyPlaybackBottomBarTransparent: @[ DKBlockNotEqual(DKKeyPlaybackAllBottomBarsMode, 0, @"已由「全部底栏相关」统一隐藏或移除") ],
             DKKeyFeedMenu: @[ DKBlockOn(DKKeyFeedMenuNoPanel, @"已开启「长按不弹出长按面板」") ],
             DKKeyPlusStyle: @[ DKBlockOn(DKKeyHidePlusButton, removedPlus) ],
             DKKeyPlusIcon: @[ DKBlockNotEqual(DKKeyPlusStyle, 3, @"需先在「拍摄按钮」中选择「自定义图片」"),
@@ -1058,5 +1070,21 @@ NSArray<DKSettingsBlocker *> *DKSettingsLayoutBlockers(NSString *key) {
         ], 2, @"已由「移除全部评论区分页」统一移除");
         blockers = [table copy];
     });
-    return (key ? blockers[key] : nil) ?: @[];
+    NSArray<DKSettingsBlocker *> *result = (key ? blockers[key] : nil) ?: @[];
+    // 动态目录的统一档位阻断：前缀族与旧设置键都按统一档位显示；与 DYxs「移除全部」阻断并存。
+    NSString *master = ([key hasPrefix:DKKeyPlaybackAnchorModePrefix]
+        || [DKPlaybackCatalogLegacyKeys(DKPlaybackCatalogAnchors) containsObject:key]) ? DKKeyPlaybackAllAnchorsMode
+        : ([key hasPrefix:DKKeyPlaybackBottomBarModePrefix]
+        || [DKPlaybackCatalogLegacyKeys(DKPlaybackCatalogBottomBars) containsObject:key]) ? DKKeyPlaybackAllBottomBarsMode : nil;
+    if (master) {
+        NSString *title = [master isEqualToString:DKKeyPlaybackAllAnchorsMode] ? @"全部昵称上方标签" : @"全部底栏相关";
+        NSArray<DKSettingsBlocker *> *masterBlockers = @[
+            [[DKSettingsBlocker alloc] initWithKey:master match:DKSettingsBlockerWhenEqual value:1
+                reason:[NSString stringWithFormat:@"已由「%@」统一隐藏", title] shownValue:@1],
+            [[DKSettingsBlocker alloc] initWithKey:master match:DKSettingsBlockerWhenEqual value:2
+                reason:[NSString stringWithFormat:@"已由「%@」统一移除", title] shownValue:@2],
+        ];
+        result = [masterBlockers arrayByAddingObjectsFromArray:result];
+    }
+    return result;
 }
