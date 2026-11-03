@@ -9,13 +9,12 @@ static NSSet<NSString *> *DKGlassGatedKeySet(void) {
     static NSSet<NSString *> *set;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
+        // 长按菜单玻璃不在此表：低系统走经典毛玻璃兜底，设置值需保留。
         set = [NSSet setWithObjects:
                DKKeyCommentGlass,
                DKKeyCommentGlassClear,
                DKKeySharePanelGlass,
                DKKeySharePanelGlassClear,
-               DKKeyFeedMenuGlass,
-               DKKeyFeedMenuGlassClear,
                DKKeyInnerNotiGlass,
                DKKeyInnerNotiGlassClear,
                DKKeyInnerNotiCorner,

@@ -43,6 +43,10 @@ NSInteger DKLongPressMenuColumns(DKLongPressMenuKind kind);
 /// source 不是 AWELongPressPanelViewGroupModel 时返回 nil。
 id DKFeedMenuCopyGroup(id source, NSArray *items);
 
+/// 复制失败时的兜底：直接改原分组的 groupArr 与行数（KVC，失败返回 NO）。
+/// 39.6.0 上分组类名/形态变化时复制可能返回 nil，此时原地改写是唯一能让移除生效的路径。
+BOOL DKFeedMenuSetGroupItems(id group, NSArray *items, NSUInteger originalCount);
+
 /// 记下最近一次菜单的处理摘要，供诊断输出。
 void DKLongPressMenuNote(DKLongPressMenuKind kind, NSString *note);
 

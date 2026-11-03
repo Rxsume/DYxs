@@ -374,6 +374,17 @@ static NSString *const DKKeyFeedMenuGlassClear    = @"DYxsFeedMenuGlassClear";
 // 复制评论时去掉开头的「@用户名: 」，只复制评论内容。
 static NSString *const DKKeyCommentCopyWithoutName = @"DYxsCommentCopyWithoutName";
 
+#pragma mark - 功能组：字体
+
+// 自定义字体：设置子页入口的 identifier，NSUserDefaults 里不写值。
+static NSString *const DKKeyFont              = @"DYxsFont";
+// 导入/恢复两个动作行的 identifier，NSUserDefaults 里不写值。
+static NSString *const DKKeyFontImport        = @"DYxsFontImport";
+static NSString *const DKKeyFontRestore       = @"DYxsFontRestore";
+// 已导入字体文件的原文件名与 PostScript 名（恢复默认时一并清除）。
+static NSString *const DKKeyFontFileName      = @"DYxsFontFileName";
+static NSString *const DKKeyFontPostScript    = @"DYxsFontPostScriptName";
+
 #pragma mark - 功能组：个人主页
 
 static NSString *const DKKeyProfileHideUGCGuide = @"DYxsHideProfileUGCGuide";

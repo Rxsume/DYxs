@@ -645,6 +645,7 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
             DKRow(@"DKXSLongPressPanelBlur", @"ic_squaresplit_outlined_20"),
             DKRow(@"DKXSEnableSheetBlur", @"ic_squaresplit_outlined_20"),
             DKRow(@"DKXSSheetBlurTransparent", @"ic_text_outlined_20"),
+            DKRow(DKKeyFont, @"ic_text_outlined_20"),
         ]),
         // 第 5a 批：进度时长（8 键）。
         DKSection(@"进度时长", @[
