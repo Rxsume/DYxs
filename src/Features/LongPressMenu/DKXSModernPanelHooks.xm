@@ -10,13 +10,12 @@
 //  与第 4 批的划分：第 4 批做长按面板的菜单项/过滤（DKXSLongPressPanelHooks），
 //  不含本文件的现代风开关与风格模式；两边无重叠。
 //
-//  偏离（必须真机验证，见 REPORT）：上游 modernLongPressPanelStyleMode
-//  在“仅开玻璃、不开深色”与“仅开深色、不开玻璃”两种情况下都没有 return，
-//  属于上游原样缺口（设置依赖里玻璃与深色互斥，玻璃单开是正常用法）。
-//  本移植把单开情况明确返回 2（上游已定义的另一个风格值；不开玻璃不开深色
-//  且浅色模式时也是 2），避免未定义返回值。深色键 DKXSLongPressPanelDark
-//  本批未登记（用户未点名），读不到即为 NO；若真机上玻璃效果不对，
-//  优先试把单开返回值由 2 改为 1。
+//  偏离（39.6.0 实测修正）：上游 modernLongPressPanelStyleMode 在“仅开玻璃、
+//  不开深色”与“仅开深色、不开玻璃”两种情况下都没有 return，属于上游原样缺口
+//  （设置依赖里玻璃与深色互斥，玻璃单开是正常用法）。39.6.0 上只开玻璃时玻璃
+//  完全不生效，且玻璃开关还被现代面板总开关 gate 住。改为：玻璃/深色任一开关
+//  打开即独立于总开关生效，单开取样式 1（玻璃+深色共用的样式值）；三者全关
+//  时返回原生样式。深色键 DKXSLongPressPanelDark 未登记，读不到即为 NO。
 //
 
 #import <UIKit/UIKit.h>
@@ -44,41 +43,35 @@
 
 %hook AWELongPressPanelABSettings
 + (NSUInteger)modernLongPressPanelStyleMode {
-    if (!DKXSGetBool(@"DKXSEnableModernPanel")) {
+    BOOL forceBlur = DKXSGetBool(@"DKXSLongPressPanelBlur");
+    BOOL forceDark = DKXSGetBool(@"DKXSLongPressPanelDark");
+    // 玻璃/深色开关独立于现代面板总开关：只开玻璃时此前直接返回原生样式，
+    // 玻璃表现为完全不生效。任一单开都取玻璃样式 1（见文件头说明）。
+    if (!DKXSGetBool(@"DKXSEnableModernPanel") && !forceBlur && !forceDark) {
         return %orig;
     }
 
-    BOOL forceBlur = DKXSGetBool(@"DKXSLongPressPanelBlur");
-    BOOL forceDark = DKXSGetBool(@"DKXSLongPressPanelDark");
-
-    if (forceBlur && forceDark) {
+    if (forceBlur || forceDark) {
         return 1;
-    } else if (!forceBlur && !forceDark) {
-        BOOL isDarkMode = [DKXSUtils isDarkMode];
-        return isDarkMode ? 1 : 2;
     }
-    // 上游原样在此缺口（单开无 return）；本移植明确返回 2，见文件头说明。
-    return 2;
+    BOOL isDarkMode = [DKXSUtils isDarkMode];
+    return isDarkMode ? 1 : 2;
 }
 %end
 
 %hook AWEModernLongPressPanelUIConfig
 + (NSUInteger)modernLongPressPanelStyleMode {
-    if (!DKXSGetBool(@"DKXSEnableModernPanel")) {
+    BOOL forceBlur = DKXSGetBool(@"DKXSLongPressPanelBlur");
+    BOOL forceDark = DKXSGetBool(@"DKXSLongPressPanelDark");
+    if (!DKXSGetBool(@"DKXSEnableModernPanel") && !forceBlur && !forceDark) {
         return %orig;
     }
 
-    BOOL forceBlur = DKXSGetBool(@"DKXSLongPressPanelBlur");
-    BOOL forceDark = DKXSGetBool(@"DKXSLongPressPanelDark");
-
-    if (forceBlur && forceDark) {
+    if (forceBlur || forceDark) {
         return 1;
-    } else if (!forceBlur && !forceDark) {
-        BOOL isDarkMode = [DKXSUtils isDarkMode];
-        return isDarkMode ? 1 : 2;
     }
-    // 同上，单开明确返回 2。
-    return 2;
+    BOOL isDarkMode = [DKXSUtils isDarkMode];
+    return isDarkMode ? 1 : 2;
 }
 %end
 

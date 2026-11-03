@@ -91,6 +91,23 @@ id DKFeedMenuCopyGroup(id source, NSArray *items) {
     return group;
 }
 
+BOOL DKFeedMenuSetGroupItems(id group, NSArray *items, NSUInteger originalCount) {
+    if (!group || ![items isKindOfClass:NSArray.class]) return NO;
+    @try {
+        [group setValue:items forKey:@"groupArr"];
+    } @catch (__unused NSException *exception) {
+        return NO;
+    }
+    @try {
+        id rows = [group valueForKey:@"numberOfRowsInSection"];
+        if ([rows isKindOfClass:NSNumber.class] && [rows longLongValue] == (long long)originalCount) {
+            [group setValue:@((long long)items.count) forKey:@"numberOfRowsInSection"];
+        }
+    } @catch (__unused NSException *exception) {
+    }
+    return YES;
+}
+
 #pragma mark - 诊断
 
 static NSMutableDictionary<NSNumber *, NSString *> *DKNotes(void) {

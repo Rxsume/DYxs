@@ -89,7 +89,11 @@ static NSArray *DKFeedMenuFilter(NSArray *groups) {
         if (!items || keptItems.count == items.count) {
             [result addObject:group];
         } else if (keptItems.count) {
-            [result addObject:DKFeedMenuCopyGroup(group, keptItems) ?: group];
+            // 复制失败时原地改写原分组（39.6.0 分组形态变化时复制可能返回 nil，
+            // 此前退回未过滤的原分组，移除表现为完全不生效）。
+            id copied = DKFeedMenuCopyGroup(group, keptItems);
+            if (!copied && DKFeedMenuSetGroupItems(group, keptItems, items.count)) copied = group;
+            [result addObject:copied ?: group];
         }
     }
     if (kept == 0) {
@@ -107,6 +111,12 @@ static NSArray *DKFeedMenuFilter(NSArray *groups) {
 
 - (void)setDataArray:(NSArray *)dataArray {
     %orig(DKFeedMenuFilter(dataArray));
+}
+
+// 取数时再过滤一次：面板经其它路径刷新（未走 setDataArray:）时移除仍然生效。
+// 未勾选移除时 DKFeedMenuFilter 原样返回同一数组，不产生新分组。
+- (NSArray *)dataArray {
+    return DKFeedMenuFilter(%orig);
 }
 
 %end

@@ -254,21 +254,82 @@ static void DKFeedApplyGlass(UIVisualEffectView *shell, UIView *anchor, BOOL fol
                    plate ? @"已隐藏" : @"未找到", themed ? @"跟随全局" : @"未跟随"];
 }
 
+// iOS 26 以下没有液态玻璃：用经典 UIBlurEffect 给同一个外壳加毛玻璃，
+// 与液态玻璃共用外壳接管/还原状态，开关关闭时同样还原。
+static void DKFeedApplyLegacyBlur(UIVisualEffectView *shell, UIView *anchor, BOOL followTheme) {
+    UIView *host = shell.contentView;
+    if (CGRectGetWidth(host.bounds) < 8.0 || CGRectGetHeight(host.bounds) < 8.0) return;
+
+    if (!objc_getAssociatedObject(shell, &kDKShellEffectKey)) {
+        objc_setAssociatedObject(shell, &kDKShellEffectKey, shell.effect ?: (id)NSNull.null,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [gShells addObject:shell];
+    }
+    if (shell.effect) shell.effect = nil;
+
+    UIVisualEffectView *blurView = objc_getAssociatedObject(shell, &kDKShellGlassKey);
+    if (![blurView isKindOfClass:UIVisualEffectView.class]) blurView = nil;
+    UIUserInterfaceStyle style = DKFeedPanelStyle(anchor);
+    UIBlurEffect *effect = [UIBlurEffect effectWithStyle:style == UIUserInterfaceStyleDark ? UIBlurEffectStyleDark : UIBlurEffectStyleLight];
+    if (!blurView) {
+        blurView = [[UIVisualEffectView alloc] initWithEffect:effect];
+        blurView.userInteractionEnabled = NO;
+        blurView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        blurView.tag = 9998;
+        objc_setAssociatedObject(shell, &kDKShellGlassKey, blurView, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    } else {
+        blurView.effect = effect;
+    }
+    if (!CGRectEqualToRect(blurView.frame, host.bounds)) blurView.frame = host.bounds;
+    if (host.subviews.firstObject != blurView) [host insertSubview:blurView atIndex:0];
+
+    UIView *plate = objc_getAssociatedObject(shell, &kDKShellPlateKey) ?: DKFeedPlate(host, blurView);
+    if (plate) {
+        objc_setAssociatedObject(shell, &kDKShellPlateKey, plate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (!plate.hidden) plate.hidden = YES;
+    }
+    if (followTheme) {
+        DKFeedFollowTheme(shell.superview);
+        DKFeedFollowTheme(host);
+    }
+    DKFeedContentBackground(anchor, YES);
+    DKFeedRefreshCards(anchor);
+
+    BOOL themed = DKFeedCanFollowTheme(host) && ![host awe_hasPreferredTheme];
+    gLastStatus = [NSString stringWithFormat:@"已接管 经典毛玻璃 %@ 外壳 %@ 底色%@ 主题%@",
+                   style == UIUserInterfaceStyleDark ? @"深色" : @"浅色", NSStringFromCGRect(shell.frame),
+                   plate ? @"已隐藏" : @"未找到", themed ? @"跟随全局" : @"未跟随"];
+}
+
 static void DKFeedSyncGlass(UIViewController *panel) {
     if (!panel.isViewLoaded) return;
     UIVisualEffectView *shell = DKFeedShell(panel.view);
     if (!shell) return;
-    if (!DKFeedGlassEnabled()) {
+    BOOL followTheme = [panel isKindOfClass:NSClassFromString(@"AWEVideoLongPressPanelViewController")];
+    if (DKGlassOSAvailable()) {
+        if (!DKFeedGlassEnabled()) {
+            DKFeedContentBackground(panel.view, NO);
+            DKFeedRestoreShell(shell);
+            return;
+        }
+        if (@available(iOS 26.0, *)) DKFeedApplyGlass(shell, panel.view, followTheme);
+        return;
+    }
+    // iOS 26 以下：液态玻璃开关改走经典毛玻璃（DKKeyFeedMenuGlass 已移出低系统守卫表，设置值可保留）。
+    if (!DKPrefBool(DKKeyFeedMenuGlass)) {
         DKFeedContentBackground(panel.view, NO);
         DKFeedRestoreShell(shell);
         return;
     }
-    BOOL followTheme = [panel isKindOfClass:NSClassFromString(@"AWEVideoLongPressPanelViewController")];
-    if (@available(iOS 26.0, *)) DKFeedApplyGlass(shell, panel.view, followTheme);
+    DKFeedApplyLegacyBlur(shell, panel.view, followTheme);
 }
 
 NSString *DKFeedMenuGlassStatus(void) {
-    if (!DKGlassOSAvailable()) return @"系统低于 iOS 26，不安装";
+    if (!DKGlassOSAvailable()) {
+        NSString *setting = !DKPrefBool(DKKeyFeedMenuGlass) ? @"关闭" : @"经典毛玻璃";
+        return [NSString stringWithFormat:@"设置 %@  在场外壳 %lu  %@", setting,
+                (unsigned long)gShells.allObjects.count, gLastStatus];
+    }
     NSString *setting = !DKPrefBool(DKKeyFeedMenuGlass) ? @"关闭"
                       : (DKPrefBool(DKKeyFeedMenuGlassClear) ? @"清透玻璃" : @"模糊玻璃");
     return [NSString stringWithFormat:@"设置 %@  在场外壳 %lu  %@", setting,
@@ -391,7 +452,7 @@ NSString *DKFeedMenuGlassStatus(void) {
             @"开启后菜单文字与图标跟随抖音的深浅色：浅色模式为黑色，深色模式为白色。"
             @"下次打开长按菜单时生效。评论的长按菜单跟随「分享面板液态玻璃」。");
     });
-    if (!DKGlassOSAvailable()) return;
+    // 低系统也安装：iOS 26 走液态玻璃，以下走经典毛玻璃兜底。
     %init(DKFeedMenuGlassHooks);
     if ([UIView instancesRespondToSelector:@selector(awe_preferDarkTheme)]
         && [UIView instancesRespondToSelector:@selector(awe_cancelPreferredTheme)]
