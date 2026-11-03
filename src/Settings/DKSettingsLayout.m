@@ -153,6 +153,8 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
             DKRow(@"DKXSHideNearbyCapsuleView", @"ic_location_outlined_20"),
             DKRow(@"DKXSHideEnterLive", @"ic_tv_outlined_20"),
             DKRow(@"DKXSHideLiveCapsuleView", @"ic_tv_outlined_20"),
+            // 第 7 批（DYads-，1 键）：首页限时日常过滤，重启生效。
+            DKRow(@"DKXSHideHomeDaily", @"ic_eyeslash_outlined_20"),
         ]),
         DKSection(@"视频播放", @[
             DKPage(@"播放页精简", @"ic_eyeslash_outlined_20", @[
@@ -162,6 +164,9 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     // 第 3 批 3c（5 键）：头像与遮罩。
                     DKRow(@"DKXSHideAvatarButton", @"ic_personcircleclean_outlined_20"),
                     DKRow(@"DKXSHideAvatarLive", @"ic_tv_outlined_20"),
+                    // 第 7 批（DYads-，2 键）：头像光圈、音乐文字。
+                    DKRow(@"DKXSHideAvatarColorRing", @"ic_personcircleclean_outlined_20"),
+                    DKRow(@"DKXSHideSameStyleButton", @"ic_quaver_outlined_20"),
                     DKRow(@"DKXSHideLOTAnimationView", @"ic_pluscircle_outlined_20"),
                     DKRow(@"DKXSHideFollowPromptView", @"ic_pluscircle_outlined_20"),
                     DKRow(@"DKXSHideGradient", @"ic_eyeslash_outlined_20"),
@@ -746,6 +751,8 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
         DKSection(@"全屏协调", @[
             DKRow(@"DKXSEnableFullScreen", @"ic_fullscreen_outlined_16"),
             DKRow(@"DKXSHideBottomBg", @"ic_eyeslash_outlined_20"),
+            // 第 7 批（DYads-，1 键）：展开评论区时不缩小视频，独立于全屏/毛玻璃开关。
+            DKRow(@"DKXSDisableCommentVideoShrink", @"ic_fullscreen_outlined_16"),
         ]),
     ]);
 

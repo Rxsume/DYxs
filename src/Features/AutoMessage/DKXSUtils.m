@@ -101,4 +101,47 @@ void DKXSNSLog(NSString *format, ...) {
     return nil;
 }
 
+// 原 DYYYUtils getActiveWindow 的 DKXS 版（仅窗口查找，无业务依赖）。
++ (UIWindow *)getActiveWindow {
+    UIWindow *fallbackWindow = [UIApplication sharedApplication].keyWindow ?: [UIApplication sharedApplication].delegate.window ?: [UIApplication sharedApplication].windows.firstObject;
+
+    if (@available(iOS 13.0, *)) {
+        UIWindowScene *activeScene = nil, *inactiveScene = nil;
+        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if ([scene isKindOfClass:[UIWindowScene class]]) {
+                UISceneActivationState state = scene.activationState;
+                if (state == UISceneActivationStateForegroundActive) {
+                    activeScene = (UIWindowScene *)scene;
+                    break;
+                } else if (state == UISceneActivationStateForegroundInactive) {
+                    if (inactiveScene == nil) {
+                        inactiveScene = (UIWindowScene *)scene;
+                    }
+                }
+            }
+        }
+
+        UIWindowScene *targetScene = activeScene ?: inactiveScene;
+        if (targetScene) {
+            if (@available(iOS 15.0, *)) {
+                return targetScene.keyWindow ?: targetScene.windows.firstObject ?: fallbackWindow;
+            } else {
+                UIWindow *firstVisibleWindow = nil;
+
+                for (UIWindow *window in targetScene.windows) {
+                    if (window.isKeyWindow) {
+                        return window;
+                    } else if (firstVisibleWindow == nil && !window.isHidden && window.rootViewController) {
+                        firstVisibleWindow = window;
+                    }
+                }
+
+                return firstVisibleWindow ?: targetScene.windows.firstObject ?: fallbackWindow;
+            }
+        }
+    }
+
+    return fallbackWindow;
+}
+
 @end
