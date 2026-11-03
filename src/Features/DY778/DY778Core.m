@@ -11,6 +11,18 @@ NSNotificationName const DY778PreferencesChangedNotification = @"DY778Preference
 NSNotificationName const DY778RecallChangedNotification = @"DY778RecallChanged";
 NSNotificationName const DY778RecallDetectedNotification = @"DY778RecallDetected";
 
+NSUserDefaults *DY778MigratedPreferences(void) {
+    NSString *domain = @"com.dy778.douyin";
+    NSUserDefaults *preferences = [[NSUserDefaults alloc] initWithSuiteName:domain];
+    if (![preferences boolForKey:@"data.preferencesMigrated"]) {
+        NSMutableDictionary *merged = [[preferences persistentDomainForName:@"com.chengguang.douyin"] mutableCopy] ?: [NSMutableDictionary dictionary];
+        [merged addEntriesFromDictionary:[preferences persistentDomainForName:domain] ?: @{}];
+        merged[@"data.preferencesMigrated"] = @YES;
+        [preferences setPersistentDomain:merged forName:domain];
+    }
+    return preferences;
+}
+
 NSUserDefaults *DY778Preferences(void) {
     static NSUserDefaults *preferences;
     static dispatch_once_t once;

@@ -10,6 +10,7 @@ FOUNDATION_EXPORT NSNotificationName const DY778RecallDetectedNotification;
 FOUNDATION_EXPORT void DY778RegisterDefaults(void);
 FOUNDATION_EXPORT void DY778ResetSettings(void);
 FOUNDATION_EXPORT NSUserDefaults *DY778Preferences(void);
+FOUNDATION_EXPORT NSUserDefaults *DY778MigratedPreferences(void);
 FOUNDATION_EXPORT BOOL DY778Bool(NSString *key);
 FOUNDATION_EXPORT double DY778Number(NSString *key);
 FOUNDATION_EXPORT NSString *DY778String(NSString *key);
