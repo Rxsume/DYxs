@@ -315,13 +315,14 @@
                     if (numbers[key]) [numberParts addObject:[NSString stringWithFormat:@"%@=%@", key, numbers[key]]];
                 }
             }
-            [lines addObject:[NSString stringWithFormat:@"%@ 最近一次：%@ · %@ · 键 %@ · 类型 %@ · 有文字 %@ · 媒体标记 %@ · 已找到类型 %@",
+            [lines addObject:[NSString stringWithFormat:@"%@ 最近一次：%@ · 键 %@ · 类型 %@ · 有文字 %@ · 媒体标记 %@ · 已找到类型 %@ · 正文形态 %@",
                               hook, snap[@"class"] ?: @"?",
                               [snapKeys isKindOfClass:NSArray.class] ? [snapKeys componentsJoinedByString:@", "] : @"无",
                               numberParts.count ? [numberParts componentsJoinedByString:@", "] : @"无",
                               [snap[@"textFound"] boolValue] ? @"是" : @"否",
                               [snap[@"mediaMarked"] boolValue] ? @"是" : @"否",
-                              [snap[@"typeFound"] boolValue] ? @"是" : @"否"]];
+                              [snap[@"typeFound"] boolValue] ? @"是" : @"否",
+                              [snap[@"bodyShape"] isKindOfClass:NSString.class] && [(NSString *)snap[@"bodyShape"] length] ? snap[@"bodyShape"] : @"无"]];
         }
     }
     NSString *failure = diagnostics[@"lastFailure"];

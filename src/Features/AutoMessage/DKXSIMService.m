@@ -393,30 +393,43 @@
     return [NSString stringWithFormat:@"DKXSIMTextType.%@.%@", info[@"CFBundleShortVersionString"] ?: @"", info[@"CFBundleVersion"] ?: @""];
 }
 
++ (NSString *)dkxs_stringFromTextValue:(id)value {
+    if ([value isKindOfClass:NSString.class]) return value;
+    if ([value isKindOfClass:NSAttributedString.class]) return [(NSAttributedString *)value string];
+    if ([value isKindOfClass:NSData.class]) return [[NSString alloc] initWithData:value encoding:NSUTF8StringEncoding];
+    return nil;
+}
+
 + (NSString *)dkxs_textForBody:(id)body {
-    // 39.6.0 上 SDK 消息的正文未必是 @{@"text": ...} 字典：可能是带 text 属性的
-    // 正文对象，也可能包在 content/messageContent 字典里一层。只取纯文本；
-    // 裸字符串正文不认，避免把分享链接等误当成文字。
+    // 39.6.0 上 SDK 消息的正文未必是 @{@"text": NSString} 字典：字典里的
+    // 正文可能在 text/content/message/textContent/body 键下，值可能是
+    // NSString、NSAttributedString 或 NSData，也可能再包一层字典；对象
+    // 形态则可能经 text/attributedText/content 属性。只取纯文本；裸字符
+    // 串正文不认，避免把分享链接等误当成文字；媒体/分享形态仍由
+    // dkxs_bodyHasMediaMarkers 拒收。
     if ([body isKindOfClass:NSDictionary.class]) {
-        id text = body[@"text"];
-        if ([text isKindOfClass:NSString.class]) return text;
+        for (NSString *key in @[@"text", @"content", @"message", @"textContent", @"body"]) {
+            NSString *text = [self dkxs_stringFromTextValue:body[key]];
+            if (text.length) return text;
+        }
         for (NSString *key in @[@"content", @"messageContent", @"contentDict", @"messageContentDict"]) {
             id nested = body[key];
             if ([nested isKindOfClass:NSDictionary.class]) {
-                id inner = nested[@"text"];
-                if ([inner isKindOfClass:NSString.class]) return inner;
+                for (NSString *innerKey in @[@"text", @"content", @"message", @"textContent", @"body"]) {
+                    NSString *text = [self dkxs_stringFromTextValue:nested[innerKey]];
+                    if (text.length) return text;
+                }
             }
         }
         return nil;
     }
     if (!body || [body isKindOfClass:NSString.class]) return nil;
-    id text = [self value:body key:@"text"];
-    if ([text isKindOfClass:NSString.class]) return text;
-    id nested = [self value:body key:@"content"];
-    if ([nested isKindOfClass:NSDictionary.class]) {
-        id inner = nested[@"text"];
-        if ([inner isKindOfClass:NSString.class]) return inner;
+    for (NSString *key in @[@"text", @"attributedText", @"content"]) {
+        NSString *text = [self dkxs_stringFromTextValue:[self value:body key:key]];
+        if (text.length) return text;
     }
+    id nested = [self value:body key:@"content"];
+    if ([nested isKindOfClass:NSDictionary.class]) return [self dkxs_textForBody:nested];
     return nil;
 }
 
@@ -518,6 +531,27 @@
     for (NSString *key in @[@"messageType", @"type", @"msgType"]) {
         id v = [self value:object key:key];
         if ([v isKindOfClass:NSNumber.class]) { snap[@"numberKey"] = key; snap[@"number"] = v; break; }
+    }
+    // 正文形态：只记正文字典的键名与值类型（不记键值），定位 39.6.0 上
+    // 正文实际所在的键。
+    for (NSString *key in @[@"messageContentDict", @"content", @"messageContent", @"contentDict"]) {
+        id v = [self value:object key:key];
+        if (![v isKindOfClass:NSDictionary.class]) continue;
+        NSMutableArray *parts = [NSMutableArray array];
+        for (id dictKey in [(NSDictionary *)v allKeys]) {
+            if (![dictKey isKindOfClass:NSString.class]) continue;
+            id val = v[dictKey];
+            NSString *desc = NSStringFromClass([val class]);
+            if ([val isKindOfClass:NSDictionary.class]) {
+                NSMutableArray *sub = [NSMutableArray array];
+                for (id subKey in [(NSDictionary *)val allKeys]) if ([subKey isKindOfClass:NSString.class]) [sub addObject:subKey];
+                desc = [NSString stringWithFormat:@"NSDictionary{%@}", [sub componentsJoinedByString:@","]];
+            }
+            [parts addObject:[NSString stringWithFormat:@"%@:%@", dictKey, desc]];
+            if (parts.count >= 20) break;
+        }
+        snap[@"bodyShape"] = [parts componentsJoinedByString:@", "];
+        break;
     }
     return snap;
 }
