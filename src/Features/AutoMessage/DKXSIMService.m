@@ -434,10 +434,20 @@
 }
 
 + (BOOL)dkxs_dictHasMediaKeys:(NSDictionary *)dict {
+    // 39.6.0 上每条消息的正文字典都自带 related_share_video:{}、mention_users:[]
+    // 这类空占位键：只有值非空时才算媒体标记，否则纯文字会被误拒。
     for (id key in dict) if ([key isKindOfClass:NSString.class]) {
         NSString *lower = [key lowercaseString];
-        if ([lower containsString:@"aweme"] || [lower containsString:@"image"] || [lower containsString:@"resource"] ||
-            [lower isEqual:@"item_id"] || [lower isEqual:@"itemid"] || [lower containsString:@"video"]) return YES;
+        BOOL keyMatches = [lower containsString:@"aweme"] || [lower containsString:@"image"] || [lower containsString:@"resource"] ||
+            [lower isEqual:@"item_id"] || [lower isEqual:@"itemid"] || [lower containsString:@"video"];
+        if (!keyMatches) continue;
+        id value = dict[key];
+        if (!value || [value isKindOfClass:NSNull.class]) continue;
+        if ([value isKindOfClass:NSDictionary.class]) { if ([(NSDictionary *)value count] == 0) continue; }
+        else if ([value isKindOfClass:NSArray.class]) { if ([(NSArray *)value count] == 0) continue; }
+        else if ([value isKindOfClass:NSString.class]) { if ([(NSString *)value length] == 0) continue; }
+        else if ([value isKindOfClass:NSNumber.class]) { if ([(NSNumber *)value longLongValue] == 0) continue; }
+        return YES;
     }
     return NO;
 }
@@ -558,8 +568,17 @@
 
 + (void)recordObservation:(NSString *)hook object:(id)object body:(id)body number:(NSNumber *)number typeFound:(BOOL)typeFound {
     NSMutableDictionary *snap = [[self observationSnapshot:hook object:object] mutableCopy];
-    snap[@"textFound"] = @([self dkxs_textForBody:body].length > 0);
-    snap[@"mediaMarked"] = @([self dkxs_bodyHasMediaMarkers:body]);
+    // 有文字/媒体标记按第一个非空正文字典算：观测函数传来的 body 可能是最后
+    // 一个试过的空键，拿它算会掩盖真正的拒绝原因。
+    id shapeBody = body;
+    if (!shapeBody) {
+        for (NSString *key in @[@"messageContentDict", @"content", @"messageContent", @"contentDict"]) {
+            id v = [self value:object key:key];
+            if (v) { shapeBody = v; break; }
+        }
+    }
+    snap[@"textFound"] = @([self dkxs_textForBody:shapeBody].length > 0);
+    snap[@"mediaMarked"] = @([self dkxs_bodyHasMediaMarkers:shapeBody]);
     snap[@"typeFound"] = @(typeFound);
     [self shared].observationCount++;
     if (![self shared].hookCounts) [self shared].hookCounts = [NSMutableDictionary dictionary];
