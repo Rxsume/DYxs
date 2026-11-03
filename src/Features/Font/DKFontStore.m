@@ -55,7 +55,7 @@ static BOOL DKFontRegisterURL(NSURL *url) {
     if (!url) return NO;
     if (gDKFontRegisteredURL && [gDKFontRegisteredURL isEqual:url]) return YES;
     CFErrorRef error = NULL;
-    BOOL ok = CTFontManagerRegisterFontsWithURL((__bridge CFURLRef)url, kCTFontManagerScopeProcess, &error);
+    BOOL ok = CTFontManagerRegisterFontsForURL((__bridge CFURLRef)url, kCTFontManagerScopeProcess, &error);
     if (ok) gDKFontRegisteredURL = url;
     return ok;
 }
@@ -108,7 +108,7 @@ void DKFontRegisterStoredFont(void) {
 
 void DKFontRestoreDefault(void) {
     if (gDKFontRegisteredURL) {
-        CTFontManagerUnregisterFontsWithURL((__bridge CFURLRef)gDKFontRegisteredURL, kCTFontManagerScopeProcess, NULL);
+        CTFontManagerUnregisterFontsForURL((__bridge CFURLRef)gDKFontRegisteredURL, kCTFontManagerScopeProcess, NULL);
         gDKFontRegisteredURL = nil;
     }
     NSURL *url = DKFontFileURL();
