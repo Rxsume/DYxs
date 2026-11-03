@@ -373,15 +373,83 @@
     return [NSString stringWithFormat:@"DKXSIMTextType.%@.%@", info[@"CFBundleShortVersionString"] ?: @"", info[@"CFBundleVersion"] ?: @""];
 }
 
-+ (NSNumber *)textTypeForBody:(id)body number:(id)number {
-    if (![body isKindOfClass:NSDictionary.class] || ![body[@"text"] isKindOfClass:NSString.class] ||
-        ![number isKindOfClass:NSNumber.class] || [number longLongValue] <= 0) return nil;
-    // 分享卡片、图片消息也可能带 text 字段，不能拿它们的类型当作普通文字。
-    for (id key in body) if ([key isKindOfClass:NSString.class]) {
++ (NSString *)dkxs_textForBody:(id)body {
+    // 39.6.0 上 SDK 消息的正文未必是 @{@"text": ...} 字典：可能是带 text 属性的
+    // 正文对象，也可能包在 content/messageContent 字典里一层。只取纯文本；
+    // 裸字符串正文不认，避免把分享链接等误当成文字。
+    if ([body isKindOfClass:NSDictionary.class]) {
+        id text = body[@"text"];
+        if ([text isKindOfClass:NSString.class]) return text;
+        for (NSString *key in @[@"content", @"messageContent", @"contentDict", @"messageContentDict"]) {
+            id nested = body[key];
+            if ([nested isKindOfClass:NSDictionary.class]) {
+                id inner = nested[@"text"];
+                if ([inner isKindOfClass:NSString.class]) return inner;
+            }
+        }
+        return nil;
+    }
+    if (!body || [body isKindOfClass:NSString.class]) return nil;
+    id text = [self value:body key:@"text"];
+    if ([text isKindOfClass:NSString.class]) return text;
+    id nested = [self value:body key:@"content"];
+    if ([nested isKindOfClass:NSDictionary.class]) {
+        id inner = nested[@"text"];
+        if ([inner isKindOfClass:NSString.class]) return inner;
+    }
+    return nil;
+}
+
++ (BOOL)dkxs_dictHasMediaKeys:(NSDictionary *)dict {
+    for (id key in dict) if ([key isKindOfClass:NSString.class]) {
         NSString *lower = [key lowercaseString];
         if ([lower containsString:@"aweme"] || [lower containsString:@"image"] || [lower containsString:@"resource"] ||
-            [lower isEqual:@"item_id"] || [lower isEqual:@"itemid"] || [lower containsString:@"video"]) return nil;
+            [lower isEqual:@"item_id"] || [lower isEqual:@"itemid"] || [lower containsString:@"video"]) return YES;
     }
+    return NO;
+}
+
++ (BOOL)dkxs_bodyHasMediaMarkers:(id)body {
+    // 分享卡片、图片消息也可能带 text 字段，不能拿它们的类型当作普通文字。
+    // 字典按 key 拒收（嵌套一层也查），对象按类名与媒体属性拒收。
+    if (!body) return NO;
+    if ([body isKindOfClass:NSDictionary.class]) {
+        if ([self dkxs_dictHasMediaKeys:body]) return YES;
+        for (NSString *key in @[@"content", @"messageContent", @"contentDict", @"messageContentDict"]) {
+            id nested = body[key];
+            if ([nested isKindOfClass:NSDictionary.class] && [self dkxs_dictHasMediaKeys:nested]) return YES;
+        }
+        return NO;
+    }
+    if ([body isKindOfClass:NSString.class]) return NO;
+    NSString *className = NSStringFromClass([body class]);
+    if ([className containsString:@"Image"] || [className containsString:@"Video"] || [className containsString:@"Aweme"]) return YES;
+    for (NSString *key in @[@"aweme", @"awemeModel", @"image", @"imageURL", @"imageUrl", @"video", @"videoURL", @"videoUrl", @"resource", @"itemId", @"item_id"]) {
+        id marker = [self value:body key:key];
+        if (!marker) continue;
+        if ([marker isKindOfClass:NSString.class]) { if ([marker length]) return YES; }
+        else if ([marker isKindOfClass:NSNumber.class]) { if ([marker longLongValue] != 0) return YES; }
+        else return YES;
+    }
+    id nested = [self value:body key:@"content"];
+    if ([nested isKindOfClass:NSDictionary.class] && [self dkxs_dictHasMediaKeys:nested]) return YES;
+    return NO;
+}
+
++ (NSNumber *)dkxs_messageTypeNumber:(id)object {
+    // 类型属性名随版本可能不同：messageType 优先，其次 type/msgType。
+    for (NSString *key in @[@"messageType", @"type", @"msgType"]) {
+        id number = [self value:object key:key];
+        if ([number isKindOfClass:NSNumber.class] && [number longLongValue] > 0) return number;
+    }
+    return nil;
+}
+
++ (NSNumber *)textTypeForBody:(id)body number:(id)number {
+    if (![number isKindOfClass:NSNumber.class] || [number longLongValue] <= 0) return nil;
+    NSString *text = [self dkxs_textForBody:body];
+    if (!text.length) return nil;
+    if ([self dkxs_bodyHasMediaMarkers:body]) return nil;
     return number;
 }
 
@@ -409,8 +477,10 @@
 }
 
 + (void)observeConversationSend:(id)model conversation:(id)conversation {
-    id body = [self value:model key:@"content"] ?: [self value:model key:@"messageContentDict"];
-    NSNumber *type = [self textTypeForBody:body number:[self value:model key:@"messageType"]];
+    NSNumber *number = [self dkxs_messageTypeNumber:model];
+    NSNumber *type = [self textTypeForBody:[self value:model key:@"content"] number:number];
+    if (!type) type = [self textTypeForBody:[self value:model key:@"messageContentDict"] number:number];
+    if (!type) type = [self textTypeForBody:[self value:model key:@"messageContent"] number:number];
     if (!type) return;
     id root = [self value:conversation key:@"r"];
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -428,11 +498,15 @@
 
 + (void)observeTextModel:(id)model sender:(id)sender {
     [self captureService:sender role:@"sender"];
-    // 40.8.0 下发送模型可能把正文放在 content 而非 messageContentDict；两处都试，
-    // 但仍过 textTypeForBody 的纯文字过滤（带 aweme/image/resource/video/item_id 的一律拒收），
-    // 不会把媒体/分享卡片的类型误学成文字类型。
-    NSNumber *type = [self textTypeForBody:[self value:model key:@"messageContentDict"] number:[self value:model key:@"messageType"]];
-    if (!type) type = [self textTypeForBody:[self value:model key:@"content"] number:[self value:model key:@"messageType"]];
+    // 40.8.0 下发送模型可能把正文放在 content 而非 messageContentDict；39.6.0 上
+    // 正文还可能是对象形态。四个候选位置都试，仍过 textTypeForBody 的纯文字过滤
+    // （带 aweme/image/resource/video/item_id 的一律拒收），不会把媒体/分享卡片
+    // 的类型误学成文字类型。
+    NSNumber *number = [self dkxs_messageTypeNumber:model];
+    NSNumber *type = [self textTypeForBody:[self value:model key:@"messageContentDict"] number:number];
+    if (!type) type = [self textTypeForBody:[self value:model key:@"content"] number:number];
+    if (!type) type = [self textTypeForBody:[self value:model key:@"messageContent"] number:number];
+    if (!type) type = [self textTypeForBody:[self value:model key:@"contentDict"] number:number];
     if (!type) return;
     dispatch_async(dispatch_get_main_queue(), ^{
         NSString *account = [self learningAccountID];
@@ -462,10 +536,12 @@
         if (!account.length || !root || [self shared].textTypes[account]) return;
         for (id message in sample) {
             NSString *cid = [self value:message key:@"belongingConversationIdentifier"];
+            if (![cid isKindOfClass:NSString.class]) cid = [self value:message key:@"conversationIdentifier"];
+            if (![cid isKindOfClass:NSString.class]) cid = [self value:message key:@"conversationId"];
             if (![cid isKindOfClass:NSString.class]) continue;
             NSArray *parts = [cid componentsSeparatedByCharactersInSet:NSCharacterSet.decimalDigitCharacterSet.invertedSet];
             if (![parts containsObject:account]) continue;
-            NSNumber *type = [self textTypeForBody:[self value:message key:@"content"] number:[self value:message key:@"messageType"]];
+            NSNumber *type = [self textTypeForBody:[self value:message key:@"content"] number:[self dkxs_messageTypeNumber:message]];
             if (type) { [self rememberTextType:type account:account]; break; }
         }
     });
@@ -516,9 +592,14 @@
     // 写入 textTypes/缓存统一放主队列（与现有观测点一致，避免 NSMutableDictionary 跨线程写）。
     // 不触发历史读取、不改发送行为、不碰待确认 pending 逻辑。
     if (!error) {
-        NSNumber *receiptType = [self textTypeForBody:[self value:message key:@"content"] number:[self value:message key:@"messageType"]];
+        NSNumber *receiptType = [self textTypeForBody:[self value:message key:@"content"] number:[self dkxs_messageTypeNumber:message]];
         id senderValue = [self value:message key:@"sender"];
         NSString *senderID = [senderValue respondsToSelector:@selector(stringValue)] ? [senderValue stringValue] : nil;
+        if (![senderID isKindOfClass:NSString.class] || !senderID.length) {
+            id uid = [self value:senderValue key:@"uid"] ?: [self value:senderValue key:@"userID"] ?: [self value:senderValue key:@"userId"];
+            if ([uid isKindOfClass:NSNumber.class]) senderID = [uid stringValue];
+            else if ([uid isKindOfClass:NSString.class]) senderID = uid;
+        }
         if (receiptType && senderID.length) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 NSString *account = [self learningAccountID];
