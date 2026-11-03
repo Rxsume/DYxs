@@ -264,6 +264,35 @@
 %end
 %end
 
+// 另一条请求式发送路径 sendMessageWithRequest:completion:（独立 AutoMessage
+// 插件也引用该选择器），DYxs 此前未 hook。同样按类是否响应再安装。
+%group DKXSSendRequestSenderHooks
+%hook IESIMMessageSender
+- (void)sendMessageWithRequest:(id)request completion:(id)completion {
+    [DKXSIMService observeSendRequest:request host:self];
+    %orig;
+}
+%end
+%end
+
+%group DKXSSendRequestConversationHooks
+%hook TIMXOConversation
+- (void)sendMessageWithRequest:(id)request completion:(id)completion {
+    [DKXSIMService observeSendRequest:request host:self];
+    %orig;
+}
+%end
+%end
+
+%group DKXSSendRequestManagerHooks
+%hook TIMXOConversationManager
+- (void)sendMessageWithRequest:(id)request completion:(id)completion {
+    [DKXSIMService observeSendRequest:request host:self];
+    %orig;
+}
+%end
+%end
+
 // 自动消息仅由前台通知调度，不在切页和返回设置时重复执行。
 
 %ctor {
@@ -289,6 +318,20 @@
         %init(DKXSSendInputSenderHooks);
     }
     [DKXSIMService recordSendInputHookStateConversation:conversationResponds sender:senderResponds];
+    BOOL requestConversationResponds = conversationClass && [conversationClass instancesRespondToSelector:@selector(sendMessageWithRequest:completion:)];
+    if (requestConversationResponds) {
+        %init(DKXSSendRequestConversationHooks);
+    }
+    BOOL requestSenderResponds = senderClass && [senderClass instancesRespondToSelector:@selector(sendMessageWithRequest:completion:)];
+    if (requestSenderResponds) {
+        %init(DKXSSendRequestSenderHooks);
+    }
+    Class managerClass = NSClassFromString(@"TIMXOConversationManager");
+    BOOL requestManagerResponds = managerClass && [managerClass instancesRespondToSelector:@selector(sendMessageWithRequest:completion:)];
+    if (requestManagerResponds) {
+        %init(DKXSSendRequestManagerHooks);
+    }
+    [DKXSIMService recordSendRequestHookStateConversation:requestConversationResponds sender:requestSenderResponds manager:requestManagerResponds];
     [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
         [DKXSFriendShareService applicationBecameActive];
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{

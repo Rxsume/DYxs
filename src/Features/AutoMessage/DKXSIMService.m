@@ -22,7 +22,9 @@
 @property (nonatomic, copy) NSDictionary *lastObservation;
 @property (nonatomic) NSUInteger observationCount;
 @property (nonatomic, copy) NSDictionary *lastLearned;
-@property (nonatomic, copy) NSDictionary *sendInputHookState;
+@property (nonatomic, strong) NSMutableDictionary *hookCounts;
+@property (nonatomic, strong) NSMutableDictionary *hookTypeFound;
+@property (nonatomic, copy) NSDictionary *sendRequestHookState;
 @end
 
 @implementation DKXSIMService
@@ -268,6 +270,9 @@
     result[@"lastObservation"] = [self shared].lastObservation ?: @{};
     result[@"lastLearned"] = [self shared].lastLearned ?: @{};
     result[@"sendInputHookState"] = [self shared].sendInputHookState ?: @{};
+    result[@"sendRequestHookState"] = [self shared].sendRequestHookState ?: @{};
+    result[@"hookCounts"] = [self shared].hookCounts ?: @{};
+    result[@"hookTypeFound"] = [self shared].hookTypeFound ?: @{};
     NSString *gateAccount = [self learningAccountID];
     result[@"gateAccountLength"] = @(gateAccount.length);
     result[@"gateAccountLearned"] = @(gateAccount.length > 0 && [self shared].textTypes[gateAccount] != nil);
@@ -514,11 +519,21 @@
     snap[@"mediaMarked"] = @([self dkxs_bodyHasMediaMarkers:body]);
     snap[@"typeFound"] = @(typeFound);
     [self shared].observationCount++;
+    if (![self shared].hookCounts) [self shared].hookCounts = [NSMutableDictionary dictionary];
+    [self shared].hookCounts[hook] = @([[self shared].hookCounts[hook] unsignedIntegerValue] + 1);
+    if (typeFound) {
+        if (![self shared].hookTypeFound) [self shared].hookTypeFound = [NSMutableDictionary dictionary];
+        [self shared].hookTypeFound[hook] = @YES;
+    }
     [self shared].lastObservation = snap;
 }
 
 + (void)recordSendInputHookStateConversation:(BOOL)conversation sender:(BOOL)sender {
     [self shared].sendInputHookState = @{@"conversation": @(conversation), @"sender": @(sender)};
+}
+
++ (void)recordSendRequestHookStateConversation:(BOOL)conversation sender:(BOOL)sender manager:(BOOL)manager {
+    [self shared].sendRequestHookState = @{@"conversation": @(conversation), @"sender": @(sender), @"manager": @(manager)};
 }
 
 + (void)observeConversationSend:(id)model conversation:(id)conversation {
@@ -563,11 +578,12 @@
     });
 }
 
-+ (void)observeSendInput:(id)input host:(id)host {
++ (void)observeSendObject:(id)input host:(id)host hook:(NSString *)hook {
     // 39.6.0 上原生发送可能走 sendMessageWithInput:queue:（独立 AutoMessage
-    // 插件的 hook 点），而不经过已 hook 的 sendMessage: 系列。输入对象可能是
-    // TIMXOSendMessage / IESIMSendMessageModel 形态：类型与正文可能分在输入
-    // 对象与其内层 message/model 上，两种位置都试，仍过纯文字过滤。
+    // 插件的 hook 点）或 sendMessageWithRequest:completion:，而不经过已 hook
+    // 的 sendMessage: 系列。输入/请求对象可能是 TIMXOSendMessage /
+    // IESIMSendMessageModel 形态：类型与正文可能分在对象与其内层
+    // message/model 上，两种位置都试，仍过纯文字过滤。
     if (host && [NSStringFromClass([host class]) isEqualToString:@"IESIMMessageSender"]) {
         [self captureService:host role:@"sender"];
     }
@@ -586,14 +602,22 @@
         if (!type) { body = [self value:candidate key:@"messageContent"]; type = [self textTypeForBody:body number:number]; }
         if (!type) { body = [self value:candidate key:@"contentDict"]; type = [self textTypeForBody:body number:number]; }
         if (!type) continue;
-        [self recordObservation:@"sendInput" object:candidate body:body number:number typeFound:YES];
+        [self recordObservation:hook object:candidate body:body number:number typeFound:YES];
         dispatch_async(dispatch_get_main_queue(), ^{
             NSString *account = [self learningAccountID];
             if (account.length) [self rememberTextType:type account:account];
         });
         return;
     }
-    [self recordObservation:@"sendInput" object:input body:[self value:input key:@"content"] number:inputNumber typeFound:NO];
+    [self recordObservation:hook object:input body:[self value:input key:@"content"] number:inputNumber typeFound:NO];
+}
+
++ (void)observeSendInput:(id)input host:(id)host {
+    [self observeSendObject:input host:host hook:@"sendInput"];
+}
+
++ (void)observeSendRequest:(id)request host:(id)host {
+    [self observeSendObject:request host:host hook:@"sendRequest"];
 }
 
 + (void)observeHistoryQuery:(id)conversation manager:(id)manager {
