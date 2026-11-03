@@ -206,6 +206,8 @@ static NSString *const DKKeyAudioVizStyle = @"DYxsAudioVizStyle";
 #pragma mark - 功能组：播放体验
 
 static NSString *const DKKeyDoubleTapOpenComment = @"DYxsDoubleTapOpenComment";
+// 双指在播放页长按打开 DYxs 设置面板。
+static NSString *const DKKeyTwoFingerLongPressOpenSettings = @"DYxsTwoFingerLongPressOpenSettings";
 // 播放页长按左下昵称复制「@昵称」、长按文案复制作品完整文案。
 static NSString *const DKKeyLongPressCopyNickname = @"DYxsLongPressCopyNickname";
 static NSString *const DKKeyLongPressCopyDescription = @"DYxsLongPressCopyDescription";

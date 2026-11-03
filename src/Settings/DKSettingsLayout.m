@@ -681,6 +681,7 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
         ]),
         DKSection(@"手势", @[
             DKRow(DKKeyDoubleTapOpenComment, @"ic_comment_outlined_20"),
+            DKRow(DKKeyTwoFingerLongPressOpenSettings, @"ic_gearsimplify_outlined_20"),
             DKRow(DKKeyLongPressCopyNickname, @"ic_user_outlined_20"),
             DKRow(DKKeyLongPressCopyDescription, @"ic_text_outlined_20"),
         ]),
