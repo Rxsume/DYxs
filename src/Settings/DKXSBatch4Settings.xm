@@ -48,7 +48,8 @@
                             @"开启后隐藏所有原始面板选项，只保留自定义功能与 DYxs 保存项。");
     });
     DKSettingsRegister(@"DKXSHidePanelItems", ^AWESettingItemModel *{
-        return DKMakeTextInput(@"DKXSHidePanelItems", @"隐藏面板项目", @"例如：举报,倍速,投屏,弹幕", 64);
+        // 隐藏面板项目不限长度：maxWidth 传 0，写多少个项目都存得下。
+        return DKMakeTextInput(@"DKXSHidePanelItems", @"隐藏面板项目", @"例如：举报,倍速,投屏,弹幕", 0);
     });
     DKSettingsRegister(@"DKXSHideCommentLongPressFavorite", ^AWESettingItemModel *{
         return DKMakeSwitch(@"DKXSHideCommentLongPressFavorite", @"隐藏评论收藏",

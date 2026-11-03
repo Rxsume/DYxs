@@ -53,12 +53,12 @@ NSUInteger DKSettingsTextWidth(NSString *text);
 @property (nonatomic, readonly) NSUInteger maxSide;                          // Image：像素
 @property (nonatomic, readonly) BOOL square;                                 // Image
 @property (nonatomic, readonly) NSUInteger minimumColorCount;             // Color：1 单色 / 2 渐变
-@property (nonatomic, readonly) NSUInteger maxWidth;                         // String：DKSettingsTextWidth 上限
+@property (nonatomic, readonly) NSUInteger maxWidth;                         // String：DKSettingsTextWidth 上限，0 为不限长度
 
 + (instancetype)boolWithKey:(NSString *)key;
 + (instancetype)integerWithKey:(NSString *)key minimum:(long long)minimum maximum:(long long)maximum;
 + (instancetype)idSetWithPrefix:(NSString *)prefix;
-/// 单行文字：去掉首尾空白后存，空串视为未设置；不允许换行与控制字符。
+/// 单行文字：去掉首尾空白后存，空串视为未设置；不允许换行与控制字符。maxWidth 为 0 时不限长度。
 + (instancetype)stringWithKey:(NSString *)key maxWidth:(NSUInteger)maxWidth;
 /// 颜色方案：gradient=NO 为单色，YES 为 2–8 色渐变。八位 AARRGGBB 输入忽略 alpha。
 + (instancetype)colorWithKey:(NSString *)key gradient:(BOOL)gradient;

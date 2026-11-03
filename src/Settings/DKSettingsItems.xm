@@ -297,7 +297,7 @@ AWESettingItemModel *DKMakeChoice(NSString *key, NSString *title, NSArray<NSStri
 
 #pragma mark - 文字输入
 
-// 输入弹窗的文案：message 为空时按长度上限生成说明；留空时行右侧显示 emptyDetail，清空按钮标题为 resetTitle。
+// 输入弹窗的文案：message 为空时按长度上限生成说明（maxWidth 为 0 时不写上限）；留空时行右侧显示 emptyDetail，清空按钮标题为 resetTitle。
 @interface _DKTextPrompt : NSObject
 @property (nonatomic, copy) NSString *placeholder;
 @property (nonatomic, copy) NSString *message;
@@ -327,8 +327,10 @@ static void DKPresentTextInput(AWESettingItemModel *item, DKSettingsValue *value
     UIViewController *presenter = DKSettingsCurrentPage();
     if (!presenter) return;
     NSUInteger maxWidth = value.maxWidth;
-    NSString *hint = prompt.message ?: [NSString stringWithFormat:@"最多 %lu 个汉字或 %lu 个字母数字，留空为「%@」。",
-                      (unsigned long)(maxWidth / 2), (unsigned long)maxWidth, prompt.placeholder];
+    NSString *hint = prompt.message ?: (maxWidth == 0
+        ? [NSString stringWithFormat:@"留空为「%@」。", prompt.placeholder]
+        : [NSString stringWithFormat:@"最多 %lu 个汉字或 %lu 个字母数字，留空为「%@」。",
+           (unsigned long)(maxWidth / 2), (unsigned long)maxWidth, prompt.placeholder]);
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
                                                                    message:problem ? [NSString stringWithFormat:@"%@\n%@", problem, hint] : hint
                                                             preferredStyle:UIAlertControllerStyleAlert];

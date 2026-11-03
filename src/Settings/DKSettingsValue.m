@@ -175,7 +175,8 @@ NSUInteger DKSettingsTextWidth(NSString *text) {
         DKSetReason(reason, @"包含换行或控制字符");
         return nil;
     }
-    if (DKSettingsTextWidth(text) > self.maxWidth) {
+    // maxWidth 为 0 时不限长度（隐藏面板项目用，项目数量不设上限）。
+    if (self.maxWidth > 0 && DKSettingsTextWidth(text) > self.maxWidth) {
         DKSetReason(reason, @"文字过长");
         return nil;
     }
