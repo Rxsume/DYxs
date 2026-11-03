@@ -9,4 +9,6 @@
 + (UIViewController *)firstAvailableViewControllerFromView:(UIView *)view;
 /// 原 DYYYUtils topView 的 DKXS 版：取 key window 的 rootViewController，再沿 presentedViewController 走到最上层；无窗口时返回 nil。
 + (UIViewController *)topView;
+/// 原 DYYYUtils getActiveWindow 的 DKXS 版：前台 active 场景的 key window 优先，退回 keyWindow / delegate.window / 首个 window。
++ (UIWindow *)getActiveWindow;
 @end
