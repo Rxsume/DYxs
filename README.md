@@ -7,7 +7,6 @@
 ## 致谢
 
 ### 作者
-
 - @huami1314
 - @Wtrwx
 - @VexCove
@@ -26,7 +25,7 @@
 
 本项目基于 [MIT License](LICENSE) 开源。
 
-Copyright (c) 2026 Hierarch by：酸甜贤
+Copyright (c) 2026 Hierarch
 
 
 > 发布频道 https://t.me/DYxs0
