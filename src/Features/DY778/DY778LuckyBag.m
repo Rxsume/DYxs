@@ -681,7 +681,7 @@ static UIColor *DY778LuckyButtonTitleColor(void) {
     NSInteger seconds = MAX(0,(NSInteger)ceil(c.deadline-CACurrentMediaTime()));
     self.detailLabel.text = c.paused ? @"已暂停" : c.lotteryID.length && c.deadline > 0 && c.phase != DY778LuckyEnded ?
         [NSString stringWithFormat:@"%02ld:%02ld",(long)(seconds/60),(long)(seconds%60)] : @"福袋";
-    self.accessibilityLabel = [NSString stringWithFormat:@"DY778福袋，%@，%@", c.status ?: @"等待福袋", [c countdown]];
+    self.accessibilityLabel = [NSString stringWithFormat:@"DYxs福袋，%@，%@", c.status ?: @"等待福袋", [c countdown]];
 }
 - (void)held:(UILongPressGestureRecognizer *)gesture {
     if (gesture.state != UIGestureRecognizerStateBegan) return;

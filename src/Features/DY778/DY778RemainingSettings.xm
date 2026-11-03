@@ -6,6 +6,8 @@
 //  DYxs 设置页写标准 defaults 的 DKXS* 键。本文件在 %ctor 里做一次同步，
 //  每次改值后通过 DKSettingsOnChange 再同步一次；DY778Set 会钳制数值范围
 //  并发出 DY778PreferencesChangedNotification，模块按原逻辑响应。
+//  直播自动点赞（liveLike.*，上游 1.0-2 新增）同按此桥接：开关默认关，
+//  次数 / 间隔 / 休息沿用 DY778RegisterDefaults 注册的默认值（100 次 / 1 秒 / 1.5 秒）。
 //  未在 DYxs 设置里动过的键沿用 DY778RegisterDefaults 注册的默认值（全部关闭）。
 //  死键不登记：lucky.autoPhrase / lucky.autoJoin 只出现在 DY778 默认值表里，
 //  本 commit 的福袋代码并不读取它们。
@@ -23,6 +25,7 @@ static void DY778SyncRemainingSettings(void) {
         {@"DKXSLuckyPrompt", @"lucky.prompt"},
         {@"DKXSLuckyShowStatus", @"lucky.showStatus"},
         {@"DKXSLuckyCompact", @"lucky.compact"},
+        {@"DKXSLiveLikeEnabled", @"liveLike.enabled"},
     };
     for (NSUInteger i = 0; i < sizeof(boolKeys) / sizeof(boolKeys[0]); i++) {
         if ([defaults objectForKey:boolKeys[i][0]]) {
@@ -36,6 +39,9 @@ static void DY778SyncRemainingSettings(void) {
     // 数值（文字输入，存字符串；同步时解析为 double，空值则清除回默认值）
     static NSString *const numberKeys[][2] = {
         {@"DKXSLuckyDelay", @"lucky.delay"},
+        {@"DKXSLiveLikeTarget", @"liveLike.target"},
+        {@"DKXSLiveLikeInterval", @"liveLike.interval"},
+        {@"DKXSLiveLikePause", @"liveLike.pause"},
     };
     for (NSUInteger i = 0; i < sizeof(numberKeys) / sizeof(numberKeys[0]); i++) {
         id value = [defaults objectForKey:numberKeys[i][0]];
@@ -77,6 +83,26 @@ static void DY778SyncRemainingSettings(void) {
     });
     DKSettingsRegister(@"DKXSLuckyDelay", ^AWESettingItemModel *{
         return DKSettingsOnChange(DKMakeTextInput(@"DKXSLuckyDelay", @"福袋参与延迟（秒）", @"1.2", 6),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLiveLikeEnabled", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSLiveLikeEnabled", @"启用自动点赞", @""),
+            @"开启后，在正在观看的直播画面双击开始一轮，再次双击可随时停止。离开或切换直播间、进入后台、修改次数或节奏、关闭开关都会结束本轮，返回后需重新双击。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLiveLikeTarget", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeTextInput(@"DKXSLiveLikeTarget", @"每轮点赞次数", @"100", 4),
+            @"1–9999 次，默认 100 次。达到目标并完成提交后停止；修改次数会结束正在进行的任务。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLiveLikeInterval", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeTextInput(@"DKXSLiveLikeInterval", @"点赞间隔（秒）", @"1", 4),
+            @"0.6–2 秒，默认 1 秒，以 0.1 秒调整。间隔越短、连续使用越频繁，越容易触发频率限制，建议优先使用默认节奏。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLiveLikePause", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeTextInput(@"DKXSLiveLikePause", @"每 20 次休息（秒）", @"1.5", 4),
+            @"1–3 秒，默认 1.5 秒，以 0.1 秒调整。每完成 20 次自动点赞，下一次间隔取点赞间隔与休息时间中的较大值，之后恢复普通节奏。"),
             ^{ DY778SyncRemainingSettings(); });
     });
 

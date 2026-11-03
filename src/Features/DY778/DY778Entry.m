@@ -1,9 +1,9 @@
 //
 //  DY778Entry.m
-//  DYxs — DY778（jijiang2333/DY778，commit 4c26f4f）仅保留福袋助手。
+//  DYxs — DY778（jijiang2333/DY778，commit 37550ee，1.0-2）仅保留福袋助手与直播自动点赞。
 //  2026-11-03 用户决定删除 DY778 其余部分：消息留存/编辑历史
 //  （src/Features/MessageArchive/）、缓存清理、Feed 过滤、播放倍速均已删除，
-//  只留福袋助手及其共用的 Core/Toast/Avatar 基础（PlaybackPolicy.h 仅作
+//  只留福袋助手、直播自动点赞及其共用的 Core/Toast/Avatar 基础（PlaybackPolicy.h 仅作
 //  倍速标签格式化头文件保留，供 DY778Toast.m 使用）。
 //  偏好键：DY778 模块读 DY778 专用 suite（com.dy778.douyin）的点分键，
 //  DYxs 设置页的 DKXS* 键由 DY778RemainingSettings.xm 同步过去。
@@ -11,10 +11,12 @@
 
 #import "DY778Core.h"
 #import "DY778LuckyBag.h"
+#import "DY778LiveLike.h"
 
 static void DY778InstallRemainingModules(void) {
     DY778InstallCoreHooks();
     DY778InstallLuckyBagHooks();
+    DY778InstallLiveLikeHooks();
 }
 
 __attribute__((constructor)) static void DY778Start(void) {
