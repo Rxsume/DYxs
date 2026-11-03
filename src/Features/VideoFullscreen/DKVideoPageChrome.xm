@@ -658,6 +658,7 @@ static void DKRestoreUnusedRichCollectionState(
 }
 
 static void DKSyncRichCollection(AWEStoryContainerCollectionView *collection) {
+    NSArray<UIView *> *media = DKRichContentCenterCollection(collection);
     CGFloat contentHeight = CGRectGetHeight(collection.bounds);
     CGFloat fullHeight = DKVideoFullscreenOn() ? DKFullCellHeight(collection) : 0.0;
     if (contentHeight <= 0.0
@@ -668,6 +669,13 @@ static void DKSyncRichCollection(AWEStoryContainerCollectionView *collection) {
 
     NSMutableSet<UIView *> *activeGradients = [NSMutableSet set];
     NSMutableSet<UIView *> *activeClipViews = [NSMutableSet set];
+    for (UIView *content in media) {
+        UIView *canvas = DKCellContentView(content);
+        for (UIView *ancestor = content.superview; ancestor && ancestor != canvas; ancestor = ancestor.superview) {
+            DKAllowRichOverflow(ancestor);
+            if (objc_getAssociatedObject(ancestor, &kDKRichClipKey)) [activeClipViews addObject:ancestor];
+        }
+    }
     for (UIView *gradient in DKRichBottomGradients(collection)) {
         UIView *contentView = DKCellContentView(gradient);
         UIView *parent = gradient.superview;

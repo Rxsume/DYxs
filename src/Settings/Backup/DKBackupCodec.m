@@ -112,6 +112,8 @@ NSData *DKBackupEncode(NSArray<DKBackupEntry *> *entries, id<DKSettingsStore> st
             switch (value.kind) {
                 case DKSettingsValueKindBool:
                 case DKSettingsValueKindInteger:
+                case DKSettingsValueKindIntegerMap:
+                case DKSettingsValueKindStringMap:
                 case DKSettingsValueKindColor:
                 case DKSettingsValueKindString: settings[value.key] = current; break;
                 case DKSettingsValueKindIDSet: sets[value.key] = current; break;
@@ -289,6 +291,8 @@ DKBackupDocument *DKBackupDefaultsDocument(NSArray<DKBackupEntry *> *entries) {
                 case DKSettingsValueKindInteger:
                 case DKSettingsValueKindColor:
                 case DKSettingsValueKindString: settings[value.key] = NSNull.null; break;
+                case DKSettingsValueKindIntegerMap: settings[value.key] = @{}; break;
+                case DKSettingsValueKindStringMap: settings[value.key] = @{}; break;
                 case DKSettingsValueKindIDSet: sets[value.key] = @[]; break;
                 case DKSettingsValueKindImage: files[value.key] = NSNull.null; break;
             }

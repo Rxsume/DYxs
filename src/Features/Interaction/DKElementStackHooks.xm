@@ -13,6 +13,8 @@
 #import "DKInteractionAppearance.h"
 #import "DKPlaybackClean.h"
 #import "DKPublishInfo.h"
+#import "DKRelatedBarBackground.h"
+#import "DKRelatedBarOffset.h"
 
 // 第 5b–5e 批合并段 DKXSElementScale（辅助函数段，粘到 import 区之后）：
 // 上游 DYYYUtils firstAvailableViewControllerFromView / containsSubviewOfClass 的本地静态函数等价实现，不新增 import。
@@ -120,6 +122,8 @@ static void DKXSBatch5RestApplyElementScale(UIView *stackView) {
     DKInfoAppearanceApplyStack(self);
     DKInfoLongPressCopyApplyStack(self);
     DKPublishInfoApplyStack(self);
+    DKRelatedBarOffsetApplyStack(self);
+    DKRelatedBarBackgroundApplyStack(self);
     DKXSBatch5RestApplyElementScale(self);
 }
 
