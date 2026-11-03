@@ -38,6 +38,12 @@
 - (id)model;
 @end
 
+// hideButton 是运行时经 KVC 取到的对象（具体类未知），只读 isElementsHidden；
+// 用协议声明该 getter，ARC 才能编译通过，调用前已有 respondsToSelector 守卫。
+@protocol DKXSIsElementsHidden <NSObject>
+- (BOOL)isElementsHidden;
+@end
+
 static BOOL DKXSMisc5eGetBool(NSString *key) {
     return [[NSUserDefaults standardUserDefaults] boolForKey:key];
 }
@@ -53,7 +59,7 @@ static BOOL DKXSStatusBarHiddenByClear(id vc) {
     }
     if (!hideButton || ![hideButton respondsToSelector:@selector(isElementsHidden)]) return NO;
     @try {
-        return [hideButton isElementsHidden];
+        return [(id<DKXSIsElementsHidden>)hideButton isElementsHidden];
     } @catch (__unused NSException *exception) {
         return NO;
     }
