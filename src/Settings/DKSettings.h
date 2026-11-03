@@ -72,7 +72,7 @@ AWESettingItemModel *DKMakeChoiceConfirm(NSString *key, NSString *title, NSArray
                                          void (^confirm)(NSInteger index, UIViewController *presenter, dispatch_block_t commit));
 
 /// 单行文字：点击弹输入框（取消 / 恢复默认 / 保存），行右侧显示当前文字或「默认」。
-/// placeholder 是留空时显示的默认文字；maxWidth 按 DKSettingsTextWidth 计。值自动声明为 String，空串即未设置。
+/// placeholder 是留空时显示的默认文字；maxWidth 按 DKSettingsTextWidth 计，0 为不限长度。值自动声明为 String，空串即未设置。
 AWESettingItemModel *DKMakeTextInput(NSString *key, NSString *title, NSString *placeholder, NSUInteger maxWidth);
 
 /// 同 DKMakeTextInput，另指定输入弹窗的说明 message、留空时行右侧显示的 emptyDetail 与清空按钮标题 resetTitle。
