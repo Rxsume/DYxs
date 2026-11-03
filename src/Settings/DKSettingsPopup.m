@@ -7,8 +7,8 @@
 #import "DKSettingsInternal.h"
 
 static NSString *const kDKAuthorName   = @"Hierarch";
-static NSString *const kDKAuthorRole   = @"DYxs 作者";
-static NSString *const kDKAuthorHandle = @"@Hierarch";
+static NSString *const kDKAuthorRole   = @"By:酸甜贤 作者";
+static NSString *const kDKAuthorHandle = @"@DYxs";
 static NSString *const kDKRepoTitle    = @"GitHub · DYxs";
 static NSString *const kDKRepoURL      = @"https://github.com/HierarchThurs/DYxs";
 static NSString *const kDKTelegramName  = @"Telegram";
