@@ -20,6 +20,7 @@
 
 @interface AWEUserActionSheetView : UIView
 @property (nonatomic, strong) UIView *containerView;
+- (void)applyBlurEffectAndWhiteText;
 @end
 
 static void DKXSApplyBlurEffectToView(UIView *view, float userTransparency, NSInteger tag) {
