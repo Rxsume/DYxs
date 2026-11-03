@@ -267,6 +267,10 @@
 // 自动消息仅由前台通知调度，不在切页和返回设置时重复执行。
 
 %ctor {
+    // 文件里既有未分组 hook 又有 %group：一旦用了 %group，未分组 hook
+    // 不再自动安装，必须显式初始化 _ungrouped（否则编译报
+    // non-initialized hook group: _ungrouped）。
+    %init(_ungrouped);
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     if (![defaults boolForKey:@"DKXSFriendShareLaunchRefreshConfigured"]) {
         [defaults setBool:YES forKey:@"DKXSFriendShareAutoRefreshEnabled"];
