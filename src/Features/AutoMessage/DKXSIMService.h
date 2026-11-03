@@ -12,7 +12,9 @@
 + (NSDictionary *)capturedExpiryContext:(id)conversation;
 + (void)observeTextModel:(id)model sender:(id)sender;
 + (void)observeSendInput:(id)input host:(id)host;
++ (void)observeSendRequest:(id)request host:(id)host;
 + (void)recordSendInputHookStateConversation:(BOOL)conversation sender:(BOOL)sender;
++ (void)recordSendRequestHookStateConversation:(BOOL)conversation sender:(BOOL)sender manager:(BOOL)manager;
 + (void)observeConversationSend:(id)model conversation:(id)conversation;
 + (void)observeHistoryQuery:(id)conversation manager:(id)manager;
 + (void)observeHistoryResults:(id)results manager:(id)manager;

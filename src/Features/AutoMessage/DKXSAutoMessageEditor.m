@@ -264,7 +264,24 @@
                           [hookState[@"conversation"] boolValue] ? @"已装" : @"未装",
                           [hookState[@"sender"] boolValue] ? @"已装" : @"未装"]];
     }
+    NSDictionary *requestState = diagnostics[@"sendRequestHookState"];
+    if ([requestState isKindOfClass:NSDictionary.class]) {
+        [lines addObject:[NSString stringWithFormat:@"发送请求 hook：会话 %@ · 发送器 %@ · 管理器 %@",
+                          [requestState[@"conversation"] boolValue] ? @"已装" : @"未装",
+                          [requestState[@"sender"] boolValue] ? @"已装" : @"未装",
+                          [requestState[@"manager"] boolValue] ? @"已装" : @"未装"]];
+    }
     [lines addObject:[NSString stringWithFormat:@"观测次数：%@", diagnostics[@"observationCount"] ?: @"0"]];
+    NSDictionary *hookCounts = diagnostics[@"hookCounts"];
+    NSDictionary *hookFound = diagnostics[@"hookTypeFound"];
+    if ([hookCounts isKindOfClass:NSDictionary.class] && hookCounts.count) {
+        NSMutableArray<NSString *> *parts = [NSMutableArray array];
+        for (NSString *hook in @[@"conversationSend", @"textModel", @"sendInput", @"sendRequest", @"receipt"]) {
+            NSNumber *count = hookCounts[hook];
+            if (count) [parts addObject:[NSString stringWithFormat:@"%@ %@次%@", hook, count, [hookFound[hook] boolValue] ? @"·已找到类型" : @""]];
+        }
+        if (parts.count) [lines addObject:[NSString stringWithFormat:@"各 hook 观测：%@", [parts componentsJoinedByString:@" · "]]];
+    }
     NSDictionary *learned = diagnostics[@"lastLearned"];
     if ([learned isKindOfClass:NSDictionary.class] && learned.count) {
         [lines addObject:[NSString stringWithFormat:@"最近一次学习：类型 %@ · 账户长度 %@",
