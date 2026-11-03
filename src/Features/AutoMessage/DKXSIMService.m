@@ -22,6 +22,7 @@
 @property (nonatomic, copy) NSDictionary *lastObservation;
 @property (nonatomic) NSUInteger observationCount;
 @property (nonatomic, copy) NSDictionary *lastLearned;
+@property (nonatomic, copy) NSDictionary *sendInputHookState;
 @property (nonatomic, strong) NSMutableDictionary *hookCounts;
 @property (nonatomic, strong) NSMutableDictionary *hookTypeFound;
 @property (nonatomic, copy) NSDictionary *sendRequestHookState;
