@@ -14,6 +14,12 @@
 
 #import <UIKit/UIKit.h>
 
+// 以下 C 函数在 DKXSProgressScheduleLabel.m（ObjC）中定义，供 .xm（ObjC++）调用：
+// 用 extern "C" 声明，避免 C++ 名称修饰导致链接时找不到 C 符号。
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /// 显示进度时长总开关（DKXSShowScheduleDisplay，默认关）。
 BOOL DKXSProgressScheduleOn(void);
 
@@ -35,5 +41,9 @@ UIColor *DKXSProgressLabelColor(void);
 /// 进度纵轴位置：读 DKXSTimelineVerticalPosition 的文本并取 floatValue。
 /// 上游原样：缺省 -12.5；配置为 0 时仍取 -12.5（上游 `if (configuredOffset != 0)` 的行为，0 写不进去）。
 CGFloat DKXSProgressVerticalOffset(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
