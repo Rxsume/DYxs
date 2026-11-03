@@ -23,13 +23,6 @@ static void DY778SyncRemainingSettings(void) {
         {@"DKXSLuckyPrompt", @"lucky.prompt"},
         {@"DKXSLuckyShowStatus", @"lucky.showStatus"},
         {@"DKXSLuckyCompact", @"lucky.compact"},
-        {@"DKXSPlaybackStopAtEnd", @"playback.stopAtEnd"},
-        {@"DKXSPlaybackLongPressEnabled", @"playback.longPressEnabled"},
-        {@"DKXSPlaybackDefaultEnabled", @"playback.defaultEnabled"},
-        {@"DKXSCacheEnabled", @"cache.enabled"},
-        {@"DKXSCacheOnLaunch", @"cache.onLaunch"},
-        {@"DKXSCacheOnReturn", @"cache.onReturn"},
-        {@"DKXSExperimentalSkipAds", @"experimental.skipAds"},
     };
     for (NSUInteger i = 0; i < sizeof(boolKeys) / sizeof(boolKeys[0]); i++) {
         if ([defaults objectForKey:boolKeys[i][0]]) {
@@ -43,10 +36,6 @@ static void DY778SyncRemainingSettings(void) {
     // 数值（文字输入，存字符串；同步时解析为 double，空值则清除回默认值）
     static NSString *const numberKeys[][2] = {
         {@"DKXSLuckyDelay", @"lucky.delay"},
-        {@"DKXSPlaybackLongPressRate", @"playback.longPressRate"},
-        {@"DKXSPlaybackDefaultRate", @"playback.defaultRate"},
-        {@"DKXSCacheMaxMB", @"cache.maxMB"},
-        {@"DKXSCacheMaxAgeHours", @"cache.maxAgeHours"},
     };
     for (NSUInteger i = 0; i < sizeof(numberKeys) / sizeof(numberKeys[0]); i++) {
         id value = [defaults objectForKey:numberKeys[i][0]];
@@ -91,51 +80,6 @@ static void DY778SyncRemainingSettings(void) {
             ^{ DY778SyncRemainingSettings(); });
     });
 
-    DKSettingsRegister(@"DKXSPlaybackDefaultEnabled", ^AWESettingItemModel *{
-        return DKSettingsOnChange(DKMakeSwitch(@"DKXSPlaybackDefaultEnabled", @"默认倍速", @"视频作品按默认倍速播放，直播和图文不调整。"),
-            ^{ DY778SyncRemainingSettings(); });
-    });
-    DKSettingsRegister(@"DKXSPlaybackDefaultRate", ^AWESettingItemModel *{
-        return DKSettingsOnChange(DKMakeTextInput(@"DKXSPlaybackDefaultRate", @"默认倍速值", @"1.25", 6),
-            ^{ DY778SyncRemainingSettings(); });
-    });
-    DKSettingsRegister(@"DKXSPlaybackLongPressEnabled", ^AWESettingItemModel *{
-        return DKSettingsOnChange(DKMakeSwitch(@"DKXSPlaybackLongPressEnabled", @"长按倍速", @"长按视频时按设定倍速播放，松开恢复。"),
-            ^{ DY778SyncRemainingSettings(); });
-    });
-    DKSettingsRegister(@"DKXSPlaybackLongPressRate", ^AWESettingItemModel *{
-        return DKSettingsOnChange(DKMakeTextInput(@"DKXSPlaybackLongPressRate", @"长按倍速值", @"2", 6),
-            ^{ DY778SyncRemainingSettings(); });
-    });
-    DKSettingsRegister(@"DKXSPlaybackStopAtEnd", ^AWESettingItemModel *{
-        return DKSettingsOnChange(DKMakeSwitch(@"DKXSPlaybackStopAtEnd", @"播放结束暂停", @"视频作品播放结束后自动暂停。"),
-            ^{ DY778SyncRemainingSettings(); });
-    });
 
-    DKSettingsRegister(@"DKXSCacheEnabled", ^AWESettingItemModel *{
-        return DKSettingsOnChange(DKMakeSwitch(@"DKXSCacheEnabled", @"缓存管理", @"查看缓存用量并按容量/时长限制清理；插件自身的配置与数据不删。"),
-            ^{ DY778SyncRemainingSettings(); });
-    });
-    DKSettingsRegister(@"DKXSCacheOnLaunch", ^AWESettingItemModel *{
-        return DKSettingsOnChange(DKMakeSwitch(@"DKXSCacheOnLaunch", @"启动时清理缓存", @""),
-            ^{ DY778SyncRemainingSettings(); });
-    });
-    DKSettingsRegister(@"DKXSCacheOnReturn", ^AWESettingItemModel *{
-        return DKSettingsOnChange(DKMakeSwitch(@"DKXSCacheOnReturn", @"返回前台时清理缓存", @""),
-            ^{ DY778SyncRemainingSettings(); });
-    });
-    DKSettingsRegister(@"DKXSCacheMaxMB", ^AWESettingItemModel *{
-        return DKSettingsOnChange(DKMakeTextInput(@"DKXSCacheMaxMB", @"缓存容量上限（MB，0 不限）", @"0", 8),
-            ^{ DY778SyncRemainingSettings(); });
-    });
-    DKSettingsRegister(@"DKXSCacheMaxAgeHours", ^AWESettingItemModel *{
-        return DKSettingsOnChange(DKMakeTextInput(@"DKXSCacheMaxAgeHours", @"缓存最长保留（小时，0 不限）", @"0", 8),
-            ^{ DY778SyncRemainingSettings(); });
-    });
 
-    DKSettingsRegister(@"DKXSExperimentalSkipAds", ^AWESettingItemModel *{
-        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSExperimentalSkipAds", @"跳过推广内容（实验）", @""),
-            @"实验功能：按文案与价格特征识别推广内容并跳过。误判可能跳过正常视频，默认关闭。"),
-            ^{ DY778SyncRemainingSettings(); });
-    });
 }
