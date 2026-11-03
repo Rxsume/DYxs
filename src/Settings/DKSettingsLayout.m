@@ -340,7 +340,7 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     DKRow(@"DKXSHideShareContentView", @"ic_share_outlined"),
                 ]),
                 // DY778 福袋助手（仅保留福袋；其余 DY778 模块已删除。键见 DY778RemainingSettings.xm）。
-                DKSection(@"DY778 福袋", @[
+                DKSection(@"DYxs 福袋", @[
                     DKRow(@"DKXSLuckyEnabled", @"ic_star_outlined_20"),
                     DKRow(@"DKXSLuckyMode", @"ic_star_outlined_20"),
                     DKRow(@"DKXSLuckyPrompt", @"ic_star_outlined_20"),
@@ -348,6 +348,13 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     DKRow(@"DKXSLuckyShowStatus", @"ic_star_outlined_20"),
                     DKRow(@"DKXSLuckyCompact", @"ic_star_outlined_20"),
                     DKRow(@"DKXSLuckyDelay", @"ic_clock_outlined_20"),
+                ]),
+                // DY778 直播自动点赞（1.0-2 新增；键见 DY778RemainingSettings.xm）。
+                DKSection(@"直播自动点赞", @[
+                    DKRow(@"DKXSLiveLikeEnabled", @"ic_thumbsup_outlined_20"),
+                    DKRow(@"DKXSLiveLikeTarget", @"ic_thumbsup_outlined_20"),
+                    DKRow(@"DKXSLiveLikeInterval", @"ic_clock_outlined_20"),
+                    DKRow(@"DKXSLiveLikePause", @"ic_clock_outlined_20"),
                 ]),
             ]),
         ]),
