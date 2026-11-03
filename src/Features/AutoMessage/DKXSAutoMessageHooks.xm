@@ -277,15 +277,18 @@
         [defaults setBool:YES forKey:@"DKXSFriendShareLaunchRefreshConfigured"];
     }
     Class conversationClass = NSClassFromString(@"TIMXOConversation");
-    if (conversationClass && ([conversationClass instancesRespondToSelector:@selector(sendMessageWithInput:queue:)] ||
-                              [conversationClass instancesRespondToSelector:@selector(sendMessageWithInput:)])) {
+    BOOL conversationResponds = conversationClass && ([conversationClass instancesRespondToSelector:@selector(sendMessageWithInput:queue:)] ||
+                              [conversationClass instancesRespondToSelector:@selector(sendMessageWithInput:)]);
+    if (conversationResponds) {
         %init(DKXSSendInputConversationHooks);
     }
     Class senderClass = NSClassFromString(@"IESIMMessageSender");
-    if (senderClass && ([senderClass instancesRespondToSelector:@selector(sendMessageWithInput:queue:)] ||
-                        [senderClass instancesRespondToSelector:@selector(sendMessageWithInput:)])) {
+    BOOL senderResponds = senderClass && ([senderClass instancesRespondToSelector:@selector(sendMessageWithInput:queue:)] ||
+                        [senderClass instancesRespondToSelector:@selector(sendMessageWithInput:)]);
+    if (senderResponds) {
         %init(DKXSSendInputSenderHooks);
     }
+    [DKXSIMService recordSendInputHookStateConversation:conversationResponds sender:senderResponds];
     [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
         [DKXSFriendShareService applicationBecameActive];
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{

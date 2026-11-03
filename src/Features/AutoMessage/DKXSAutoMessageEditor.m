@@ -247,6 +247,47 @@
 }
 - (void)buildHelp {
     [self.body addArrangedSubview:[self label:@"功能逻辑\n首次打开或返回抖音时检查已启用配置，每位好友每天最多一次。已有本插件发送或待确认记录，或本机已观察到当天原生发送回执时不重复发送。不会主动读取聊天历史；其他设备或停用期间发出的消息无法据此判断。\n\n添加配置\n填写用户 ID 或从互关好友中选择。支持按抖音号、昵称及备注匹配本地好友；重名时请使用 ID。完整或简化的一对一会话 ID 必须包含当前账户。群聊尚未适配。\n\n配置管理\n点击好友编辑，左滑删除；开关控制是否参与自动发送。批量修改内容可选择部分或全部已添加好友，统一替换固定/每日随机文字，保存后用于后续发送；备注、启用状态、图片和已有发送记录保留。测试按钮会实际请求发送，可随时重复测试，不受每日次数、启用开关及免打扰时段限制，也不写入自动发送的每日记录。\n\n文字\n支持固定内容、每日随机及日期等变量。随机内容每天保持一致。{n} 为成功发送序号，{d} 为配置创建后的日历天数。\n\n图片\n支持本地选择、预览和保存；原生图片上传发送尚未接通，含图模式不会发送。\n\n账户\n配置绑定保存时的登录账户，切换账户不会发送给另一账户的联系人。" secondary:NO]];
+    [self.body addArrangedSubview:[self label:[self diagnosticsText] secondary:YES]];
+}
+
+- (NSString *)diagnosticsText {
+    NSDictionary *diagnostics = [DKXSIMService diagnostics];
+    NSMutableArray<NSString *> *lines = [NSMutableArray arrayWithObject:@"诊断（先正常发一条文字消息，再打开这里看；只记录对象形态，不记录消息内容）"];
+    [lines addObject:[NSString stringWithFormat:@"服务实例：联系人 %@ · 会话 %@ · 消息 %@ · 发送器 %@",
+                      diagnostics[@"contacts"] ?: @"?", diagnostics[@"conversations"] ?: @"?",
+                      diagnostics[@"messages"] ?: @"?", diagnostics[@"sender"] ?: @"?"]];
+    [lines addObject:[NSString stringWithFormat:@"已学格式账户数：%@ · 当前账户已学：%@",
+                      diagnostics[@"knownTextFormats"] ?: @"?", [diagnostics[@"gateAccountLearned"] boolValue] ? @"是" : @"否"]];
+    NSDictionary *hookState = diagnostics[@"sendInputHookState"];
+    if ([hookState isKindOfClass:NSDictionary.class]) {
+        [lines addObject:[NSString stringWithFormat:@"发送输入 hook：会话 %@ · 发送器 %@",
+                          [hookState[@"conversation"] boolValue] ? @"已装" : @"未装",
+                          [hookState[@"sender"] boolValue] ? @"已装" : @"未装"]];
+    }
+    [lines addObject:[NSString stringWithFormat:@"观测次数：%@", diagnostics[@"observationCount"] ?: @"0"]];
+    NSDictionary *learned = diagnostics[@"lastLearned"];
+    if ([learned isKindOfClass:NSDictionary.class] && learned.count) {
+        [lines addObject:[NSString stringWithFormat:@"最近一次学习：类型 %@ · 账户长度 %@",
+                          learned[@"type"] ?: @"?", learned[@"accountLength"] ?: @"?"]];
+    } else {
+        [lines addObject:@"最近一次学习：无"];
+    }
+    NSDictionary *observation = diagnostics[@"lastObservation"];
+    if ([observation isKindOfClass:NSDictionary.class] && observation.count) {
+        NSArray *keys = observation[@"keys"];
+        [lines addObject:[NSString stringWithFormat:@"最近一次观测：%@ · %@ · 键 %@ · 类型键 %@=%@ · 有文字 %@ · 媒体标记 %@ · 已找到类型 %@",
+                          observation[@"hook"] ?: @"?", observation[@"class"] ?: @"?",
+                          [keys isKindOfClass:NSArray.class] ? [keys componentsJoinedByString:@", "] : @"无",
+                          observation[@"numberKey"] ?: @"无", observation[@"number"] ?: @"无",
+                          [observation[@"textFound"] boolValue] ? @"是" : @"否",
+                          [observation[@"mediaMarked"] boolValue] ? @"是" : @"否",
+                          [observation[@"typeFound"] boolValue] ? @"是" : @"否"]];
+    } else {
+        [lines addObject:@"最近一次观测：无（发送 hook 没有触发）"];
+    }
+    NSString *failure = diagnostics[@"lastFailure"];
+    if ([failure isKindOfClass:NSString.class] && failure.length) [lines addObject:[NSString stringWithFormat:@"最近失败：%@", failure]];
+    return [lines componentsJoinedByString:@"\n"];
 }
 - (void)modeChanged {
     BOOL imageOnly = self.sendMode.selectedSegmentIndex == 2;
