@@ -55,6 +55,17 @@
 @interface AWELeftSideBarModel : NSObject
 - (id)filterModuleItems:(id)moduleModel;
 @end
+// 上游 AwemeHeaders.h 中 AWELeftSideBarModuleModel / AWELeftSideBarItemModel 的声明：
+// 本文件以 id 接收模块/条目对象，ARC 下调用未声明的方法会报
+// "no known instance method for selector"（见 run 41512492199），故在此补最小声明。
+@interface AWELeftSideBarModuleModel : NSObject
+- (NSArray *)items;
+- (NSString *)moduleID;
+- (void)setItems:(NSArray *)items;
+@end
+@interface AWELeftSideBarItemModel : NSObject
+- (NSString *)businessType;
+@end
 
 #define DKXSGetBool(key) [[NSUserDefaults standardUserDefaults] boolForKey:key]
 
