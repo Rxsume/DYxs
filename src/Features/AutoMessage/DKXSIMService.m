@@ -20,6 +20,7 @@
 @property (nonatomic) NSUInteger sendAttempts;
 @property (nonatomic, strong) NSMutableDictionary *lastSendDiagnostics;
 @property (nonatomic, copy) NSDictionary *lastObservation;
+@property (nonatomic, strong) NSMutableDictionary *lastObservationByHook;
 @property (nonatomic) NSUInteger observationCount;
 @property (nonatomic, copy) NSDictionary *lastLearned;
 @property (nonatomic, copy) NSDictionary *sendInputHookState;
@@ -269,6 +270,7 @@
     result[@"knownTextFormats"] = @([self shared].textTypes.count);
     result[@"observationCount"] = @([self shared].observationCount);
     result[@"lastObservation"] = [self shared].lastObservation ?: @{};
+    result[@"lastObservationByHook"] = [self shared].lastObservationByHook ?: @{};
     result[@"lastLearned"] = [self shared].lastLearned ?: @{};
     result[@"sendInputHookState"] = [self shared].sendInputHookState ?: @{};
     result[@"sendRequestHookState"] = [self shared].sendRequestHookState ?: @{};
@@ -502,11 +504,17 @@
     snap[@"hook"] = hook;
     snap[@"class"] = NSStringFromClass([object class]) ?: @"nil";
     NSMutableArray *keys = [NSMutableArray array];
-    for (NSString *key in @[@"messageContentDict", @"content", @"messageContent", @"contentDict", @"message", @"messageModel", @"model", @"sendMessage", @"request"]) {
+    for (NSString *key in @[@"messageContentDict", @"content", @"messageContent", @"contentDict", @"message", @"messageModel", @"model", @"sendMessage", @"request", @"pbModel", @"body", @"messageBody", @"ext", @"payload"]) {
         id v = [self value:object key:key];
         if (v) [keys addObject:[NSString stringWithFormat:@"%@:%@", key, NSStringFromClass([v class])]];
     }
     snap[@"keys"] = keys;
+    NSMutableDictionary *numbers = [NSMutableDictionary dictionary];
+    for (NSString *key in @[@"messageType", @"type", @"msgType"]) {
+        id v = [self value:object key:key];
+        if (v) numbers[key] = [v isKindOfClass:NSNumber.class] ? v : NSStringFromClass([v class]);
+    }
+    if (numbers.count) snap[@"numbers"] = numbers;
     for (NSString *key in @[@"messageType", @"type", @"msgType"]) {
         id v = [self value:object key:key];
         if ([v isKindOfClass:NSNumber.class]) { snap[@"numberKey"] = key; snap[@"number"] = v; break; }
@@ -526,6 +534,8 @@
         if (![self shared].hookTypeFound) [self shared].hookTypeFound = [NSMutableDictionary dictionary];
         [self shared].hookTypeFound[hook] = @YES;
     }
+    if (![self shared].lastObservationByHook) [self shared].lastObservationByHook = [NSMutableDictionary dictionary];
+    [self shared].lastObservationByHook[hook] = snap;
     [self shared].lastObservation = snap;
 }
 

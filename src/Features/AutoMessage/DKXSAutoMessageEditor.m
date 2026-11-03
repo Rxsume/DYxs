@@ -302,6 +302,28 @@
     } else {
         [lines addObject:@"最近一次观测：无（发送 hook 没有触发）"];
     }
+    NSDictionary *byHook = diagnostics[@"lastObservationByHook"];
+    if ([byHook isKindOfClass:NSDictionary.class]) {
+        for (NSString *hook in @[@"conversationSend", @"textModel", @"sendInput", @"sendRequest"]) {
+            NSDictionary *snap = byHook[hook];
+            if (![snap isKindOfClass:NSDictionary.class] || !snap.count) continue;
+            NSArray *snapKeys = snap[@"keys"];
+            NSDictionary *numbers = snap[@"numbers"];
+            NSMutableArray<NSString *> *numberParts = [NSMutableArray array];
+            if ([numbers isKindOfClass:NSDictionary.class]) {
+                for (NSString *key in @[@"messageType", @"type", @"msgType"]) {
+                    if (numbers[key]) [numberParts addObject:[NSString stringWithFormat:@"%@=%@", key, numbers[key]]];
+                }
+            }
+            [lines addObject:[NSString stringWithFormat:@"%@ 最近一次：%@ · %@ · 键 %@ · 类型 %@ · 有文字 %@ · 媒体标记 %@ · 已找到类型 %@",
+                              hook, snap[@"class"] ?: @"?",
+                              [snapKeys isKindOfClass:NSArray.class] ? [snapKeys componentsJoinedByString:@", "] : @"无",
+                              numberParts.count ? [numberParts componentsJoinedByString:@", "] : @"无",
+                              [snap[@"textFound"] boolValue] ? @"是" : @"否",
+                              [snap[@"mediaMarked"] boolValue] ? @"是" : @"否",
+                              [snap[@"typeFound"] boolValue] ? @"是" : @"否"]];
+        }
+    }
     NSString *failure = diagnostics[@"lastFailure"];
     if ([failure isKindOfClass:NSString.class] && failure.length) [lines addObject:[NSString stringWithFormat:@"最近失败：%@", failure]];
     return [lines componentsJoinedByString:@"\n"];
