@@ -514,6 +514,36 @@
     });
 }
 
++ (void)observeSendInput:(id)input host:(id)host {
+    // 39.6.0 上原生发送可能走 sendMessageWithInput:queue:（独立 AutoMessage
+    // 插件的 hook 点），而不经过已 hook 的 sendMessage: 系列。输入对象可能是
+    // TIMXOSendMessage / IESIMSendMessageModel 形态：类型与正文可能分在输入
+    // 对象与其内层 message/model 上，两种位置都试，仍过纯文字过滤。
+    if (host && [NSStringFromClass([host class]) isEqualToString:@"IESIMMessageSender"]) {
+        [self captureService:host role:@"sender"];
+    }
+    if (!input) return;
+    NSMutableArray *candidates = [NSMutableArray arrayWithObject:input];
+    for (NSString *key in @[@"message", @"messageModel", @"model", @"sendMessage", @"request"]) {
+        id nested = [self value:input key:key];
+        if (nested && nested != input) [candidates addObject:nested];
+    }
+    NSNumber *inputNumber = [self dkxs_messageTypeNumber:input];
+    for (id candidate in candidates) {
+        NSNumber *number = [self dkxs_messageTypeNumber:candidate] ?: inputNumber;
+        NSNumber *type = [self textTypeForBody:[self value:candidate key:@"messageContentDict"] number:number];
+        if (!type) type = [self textTypeForBody:[self value:candidate key:@"content"] number:number];
+        if (!type) type = [self textTypeForBody:[self value:candidate key:@"messageContent"] number:number];
+        if (!type) type = [self textTypeForBody:[self value:candidate key:@"contentDict"] number:number];
+        if (!type) continue;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSString *account = [self learningAccountID];
+            if (account.length) [self rememberTextType:type account:account];
+        });
+        return;
+    }
+}
+
 + (void)observeHistoryQuery:(id)conversation manager:(id)manager {
     NSString *kind = nil;
     if ([conversation isKindOfClass:NSString.class]) kind = @"identifier";

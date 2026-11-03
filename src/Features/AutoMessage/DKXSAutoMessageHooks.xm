@@ -234,6 +234,36 @@
 }
 %end
 
+// 39.6.0 原生发送的另一条路径：独立 AutoMessage 插件 hook 的
+// sendMessageWithInput:queue:（及单参形态），DYxs 此前只 hook 了 sendMessage:
+// 系列，观测不到这条路径上的原生发送。按类是否响应再安装，避免在没有该
+// 方法的版本上建 hook。
+%group DKXSSendInputConversationHooks
+%hook TIMXOConversation
+- (id)sendMessageWithInput:(id)input queue:(id)queue {
+    [DKXSIMService observeSendInput:input host:self];
+    return %orig;
+}
+- (id)sendMessageWithInput:(id)input {
+    [DKXSIMService observeSendInput:input host:self];
+    return %orig;
+}
+%end
+%end
+
+%group DKXSSendInputSenderHooks
+%hook IESIMMessageSender
+- (id)sendMessageWithInput:(id)input queue:(id)queue {
+    [DKXSIMService observeSendInput:input host:self];
+    return %orig;
+}
+- (id)sendMessageWithInput:(id)input {
+    [DKXSIMService observeSendInput:input host:self];
+    return %orig;
+}
+%end
+%end
+
 // 自动消息仅由前台通知调度，不在切页和返回设置时重复执行。
 
 %ctor {
@@ -241,6 +271,16 @@
     if (![defaults boolForKey:@"DKXSFriendShareLaunchRefreshConfigured"]) {
         [defaults setBool:YES forKey:@"DKXSFriendShareAutoRefreshEnabled"];
         [defaults setBool:YES forKey:@"DKXSFriendShareLaunchRefreshConfigured"];
+    }
+    Class conversationClass = NSClassFromString(@"TIMXOConversation");
+    if (conversationClass && ([conversationClass instancesRespondToSelector:@selector(sendMessageWithInput:queue:)] ||
+                              [conversationClass instancesRespondToSelector:@selector(sendMessageWithInput:)])) {
+        %init(DKXSSendInputConversationHooks);
+    }
+    Class senderClass = NSClassFromString(@"IESIMMessageSender");
+    if (senderClass && ([senderClass instancesRespondToSelector:@selector(sendMessageWithInput:queue:)] ||
+                        [senderClass instancesRespondToSelector:@selector(sendMessageWithInput:)])) {
+        %init(DKXSSendInputSenderHooks);
     }
     [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
         [DKXSFriendShareService applicationBecameActive];
