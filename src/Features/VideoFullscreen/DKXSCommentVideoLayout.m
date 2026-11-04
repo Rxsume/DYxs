@@ -114,23 +114,6 @@ static char kDKXSCommentVideoStateKey;
         state.gradient = nil;
     } @finally { state.busy = NO; }
 }
-+ (CGRect)adjustedFrame:(CGRect)frame view:(UIView *)view {
-    if (!NSThread.isMainThread || ![self enabled] || !isfinite(frame.origin.x) || !isfinite(frame.origin.y) ||
-        !isfinite(frame.size.width) || !isfinite(frame.size.height) || frame.size.width <= 0 || frame.size.height <= 0) return frame;
-    // 只处理控制器自己的根视图，绝不把播放器子树、按钮或文字拉成全屏。
-    UIResponder *owner = view.nextResponder;
-    if (![owner isKindOfClass:UIViewController.class] || ((UIViewController *)owner).viewIfLoaded != view ||
-        ![self eligibleController:(id)owner]) return frame;
-    DKXSCommentVideoState *state = [self stateForView:view create:YES];
-    if (state.busy) return frame;
-    CGRect target = [self targetFrameForView:view proposed:frame];
-    if (CGRectIsNull(target)) return frame;
-    state.nativeFrame = frame;
-    state.appliedFrame = target;
-    state.hasFrame = YES;
-    // 原生 setFrame 仍执行，只在唯一背景容器上换算来意，避免布局请求被吞掉。
-    return target;
-}
 + (void)synchronizeController:(UIViewController *)controller {
     if (!NSThread.isMainThread || ![self isContentController:controller]) return;
     UIView *view = controller.viewIfLoaded;
