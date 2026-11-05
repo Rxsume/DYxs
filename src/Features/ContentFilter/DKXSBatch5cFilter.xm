@@ -137,7 +137,9 @@ static NSNumber *DKXSFilterResolvedDiggCount(id aweme) {
         if (skipFriendsVideo && [refer isEqualToString:@"homepage_hot"] &&
             DKXSFilterSafeBool(m, @"isFamiliarItem")) continue;
         if (skipLive && DKXSFilterSafeValue(m, @"cellRoom") != nil) continue;
-        if (skipHotSpot && DKXSFilterSafeValue(m, @"hotSpotLynxCardModel") != nil) continue;
+        // 上游 5e9a5c0 的推广卡判断：除 hotSpotLynxCardModel 外，推荐页的 dCardModel（POI 动态卡）也算推广卡。
+        if (skipHotSpot && (DKXSFilterSafeValue(m, @"hotSpotLynxCardModel") != nil ||
+            (isRecommend && DKXSFilterSafeValue(m, @"dCardModel") != nil))) continue;
         if (skipPhotoText && DKXSFilterSafeBool(m, @"isNewTextMode") && isRecommend) continue;
         if (skipPhoto && [DKXSFilterSafeValue(m, @"awemeType") integerValue] == 68 && isRecommend) continue;
         if (skipMusic && isRecommend && DKXSFilterSafeValue(m, @"musicCard") != nil) continue;
