@@ -49,6 +49,14 @@ static NSDictionary *DY778DefaultValues(void) {
         @"lucky.compact": @YES,
         @"liveLike.enabled": @NO, @"liveLike.target": @(DY778LiveLikeDefaultTarget), @"liveLike.interval": @1,
         @"liveLike.pause": @1.5,
+        // DY778 1.0-3 新增（b41e81b）：推荐页直播信息、星牌查询、数字自定义。
+        // liveInfo.duration 仅作 suite 内一致性登记：直播间开播时长悬浮
+        // DYxs 已有等价实现 DKXSLiveDuration.xm，开关仍走 DKXSShowLiveDuration。
+        @"liveInfo.viewers": @NO, @"liveInfo.countFormat": @"compact", @"liveInfo.refresh": @3,
+        @"liveInfo.duration": @NO, @"liveInfo.cardDuration": @NO, @"liveInfo.textColor": @"#FFFFFF",
+        @"liveInfo.backgroundColor": @"#000000", @"liveInfo.opacity": @0.64, @"liveInfo.fontSize": @13,
+        @"fans.enabled": @NO,
+        @"displayStats.enabled": @NO,
         @"playback.stopAtEnd": @NO, @"playback.longPressEnabled": @NO, @"playback.longPressRate": @2,
         @"playback.defaultEnabled": @NO, @"playback.defaultRate": @1.25, @"experimental.skipAds": @NO,
         @"cache.enabled": @NO, @"cache.onLaunch": @NO, @"cache.onReturn": @NO, @"cache.maxMB": @0, @"cache.maxAgeHours": @0,
@@ -99,6 +107,7 @@ void DY778Set(NSString *key, id value) {
         if (value) value = @(DY778LiveLikePause([value doubleValue]));
     }
     NSDictionary *ranges = @{@"time.fontSize": @[@9, @17], @"time.opacity": @[@0.35, @1],
+        @"liveInfo.refresh": @[@2, @10], @"liveInfo.fontSize": @[@11, @19], @"liveInfo.opacity": @[@0.15, @1],
         @"lucky.delay": @[@0.5, @5], @"recall.retentionDays": @[@0, @36500],
         @"recall.maxRecords": @[@0, @10000000], @"edit.retentionDays": @[@0, @36500], @"edit.maxRecords": @[@0, @10000000],
         @"playback.longPressRate": @[@1, @3], @"playback.defaultRate": @[@1, @3], @"cache.maxMB": @[@0, @1048576], @"cache.maxAgeHours": @[@0, @876000]};

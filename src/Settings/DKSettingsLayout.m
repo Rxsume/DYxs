@@ -364,6 +364,15 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     DKRow(@"DKXSLiveLikeInterval", @"ic_clock_outlined_20"),
                     DKRow(@"DKXSLiveLikePause", @"ic_clock_outlined_20"),
                 ]),
+                // DY778 星牌查询（1.0-3 新增；键见 DY778RemainingSettings.xm）。
+                DKSection(@"星牌查询", @[
+                    DKRow(@"DKXSFansEnabled", @"ic_star_outlined_20"),
+                ]),
+                // DY778 数字自定义（1.0-3 新增；键见 DY778RemainingSettings.xm）。
+                DKSection(@"数字自定义", @[
+                    DKRow(@"DKXSDisplayStatsEnabled", @"ic_text_outlined_20"),
+                    DKRow(@"DKXSDisplayStatsPage", @"ic_text_outlined_20"),
+                ]),
             ]),
         ]),
         DKSection(@"个人主页", @[
@@ -728,6 +737,13 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
             // 第 5b 批（2 键）：直播间真实人数、开播时长。
             DKRow(@"DKXSEnableLiveRealCount", @"ic_tv_outlined_20"),
             DKRow(@"DKXSShowLiveDuration", @"ic_clock_outlined_20"),
+            // DY778 1.0-3（4 键）：推荐页直播信息。在线人数与开播时长显示在
+            // 推荐页直播卡片上，与上面两项不重复：上面两项只作用于已进入的
+            // 直播间内（真实人数改写间内人数、开播时长为间内悬浮窗）。
+            DKRow(@"DKXSLivePreviewViewers", @"ic_tv_outlined_20"),
+            DKRow(@"DKXSLivePreviewCountFormat", @"ic_text_outlined_20"),
+            DKRow(@"DKXSLivePreviewRefresh", @"ic_clock_outlined_20"),
+            DKRow(@"DKXSLivePreviewCardDuration", @"ic_clock_outlined_20"),
         ]),
         DKSection(@"悬浮按钮", @[
             DKRow(@"DKXSEnableFloatSpeedButton", @"ic_playerarrow_outlined"),

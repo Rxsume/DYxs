@@ -8,6 +8,10 @@
 //  并发出 DY778PreferencesChangedNotification，模块按原逻辑响应。
 //  直播自动点赞（liveLike.*，上游 1.0-2 新增）同按此桥接：开关默认关，
 //  次数 / 间隔 / 休息沿用 DY778RegisterDefaults 注册的默认值（100 次 / 1 秒 / 1.5 秒）。
+//  1.0-3 新增（b41e81b）同按此桥接：推荐页直播信息（liveInfo.*）、星牌查询
+//  （fans.enabled）、数字自定义（displayStats.enabled）。liveInfo.duration
+//  只作 suite 内一致性同步：直播间开播时长悬浮 DYxs 已有等价实现
+//  DKXSLiveDuration.xm，开关仍走 DKXSShowLiveDuration，不另设开关。
 //  未在 DYxs 设置里动过的键沿用 DY778RegisterDefaults 注册的默认值（全部关闭）。
 //  死键不登记：lucky.autoPhrase / lucky.autoJoin 只出现在 DY778 默认值表里，
 //  本 commit 的福袋代码并不读取它们。
@@ -15,6 +19,7 @@
 
 #import "DKSettings.h"
 #import "DY778Core.h"
+#import "DY778DisplayStats.h"
 
 static void DY778SyncRemainingSettings(void) {
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
@@ -26,6 +31,14 @@ static void DY778SyncRemainingSettings(void) {
         {@"DKXSLuckyShowStatus", @"lucky.showStatus"},
         {@"DKXSLuckyCompact", @"lucky.compact"},
         {@"DKXSLiveLikeEnabled", @"liveLike.enabled"},
+        // 1.0-3 新增：推荐页直播信息、星牌查询、数字自定义。
+        {@"DKXSLivePreviewViewers", @"liveInfo.viewers"},
+        {@"DKXSLivePreviewCardDuration", @"liveInfo.cardDuration"},
+        {@"DKXSFansEnabled", @"fans.enabled"},
+        {@"DKXSDisplayStatsEnabled", @"displayStats.enabled"},
+        // 桥接用：DKXSShowLiveDuration 登记在 DKXSBatch5RestSettings.xm，
+        // 这里只把它的值同步进 DY778 suite，保持 liveInfo.duration 一致。
+        {@"DKXSShowLiveDuration", @"liveInfo.duration"},
     };
     for (NSUInteger i = 0; i < sizeof(boolKeys) / sizeof(boolKeys[0]); i++) {
         if ([defaults objectForKey:boolKeys[i][0]]) {
@@ -36,12 +49,18 @@ static void DY778SyncRemainingSettings(void) {
     if ([defaults objectForKey:@"DKXSLuckyMode"]) {
         DY778Set(@"lucky.mode", [defaults integerForKey:@"DKXSLuckyMode"] == 1 ? @"auto" : @"confirm");
     }
+    // 人数格式：选择下标 0 = 简洁（compact），1 = 完整（exact）
+    if ([defaults objectForKey:@"DKXSLivePreviewCountFormat"]) {
+        DY778Set(@"liveInfo.countFormat", [defaults integerForKey:@"DKXSLivePreviewCountFormat"] == 1 ? @"exact" : @"compact");
+    }
     // 数值（文字输入，存字符串；同步时解析为 double，空值则清除回默认值）
     static NSString *const numberKeys[][2] = {
         {@"DKXSLuckyDelay", @"lucky.delay"},
         {@"DKXSLiveLikeTarget", @"liveLike.target"},
         {@"DKXSLiveLikeInterval", @"liveLike.interval"},
         {@"DKXSLiveLikePause", @"liveLike.pause"},
+        // 1.0-3 新增：人数刷新间隔（秒），DY778Set 钳制在 2–10 秒。
+        {@"DKXSLivePreviewRefresh", @"liveInfo.refresh"},
     };
     for (NSUInteger i = 0; i < sizeof(numberKeys) / sizeof(numberKeys[0]); i++) {
         id value = [defaults objectForKey:numberKeys[i][0]];
@@ -106,6 +125,45 @@ static void DY778SyncRemainingSettings(void) {
             ^{ DY778SyncRemainingSettings(); });
     });
 
+    // ---------- DY778 1.0-3 新增：推荐页直播信息 ----------
+    DKSettingsRegister(@"DKXSLivePreviewViewers", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSLivePreviewViewers", @"推荐页显示在线人数", @""),
+            @"在推荐页直播卡片上显示实时在线人数，无需进入直播间。人数以本次可读取的数据为准，可能随直播间刷新节奏变化。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLivePreviewCountFormat", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKMakeChoice(@"DKXSLivePreviewCountFormat", @"推荐页人数格式", @[@"简洁 · 1.2万", @"完整 · 12345"]),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLivePreviewRefresh", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeTextInput(@"DKXSLivePreviewRefresh", @"人数刷新间隔（秒）", @"3", 4),
+            @"2–10 秒，默认 3 秒。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLivePreviewCardDuration", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSLivePreviewCardDuration", @"推荐页显示开播时长", @""),
+            @"在推荐页直播卡片上显示开播时长，独立于在线人数开关。开播时长依据房间返回的开播时间计算。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
 
+    // ---------- DY778 1.0-3 新增：星牌查询 ----------
+    DKSettingsRegister(@"DKXSFansEnabled", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSFansEnabled", @"启用星牌查询", @""),
+            @"开启后，用户主页左上角出现“星牌”按钮，可查询该用户在某主播那里的粉丝灯牌与消费等级。只展示当前可查询且归属匹配的资料。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+
+    // ---------- DY778 1.0-3 新增：数字自定义 ----------
+    DKSettingsRegister(@"DKXSDisplayStatsEnabled", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSDisplayStatsEnabled", @"启用数字自定义", @""),
+            @"开启后，已填写的主页和本人作品数字直接生效。仅改变本机显示，不修改真实数据；不同账号分别保存。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSDisplayStatsPage", ^AWESettingItemModel *{
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSDisplayStatsPage", @"数字自定义设置", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+            (void)item;
+            DY778PresentController(presenter, DY778DisplayStatsController());
+        }));
+    });
 
 }
