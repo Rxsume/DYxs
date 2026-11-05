@@ -10,12 +10,21 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
+#import <QuartzCore/QuartzCore.h>
 #import "DKXSUtils.h"
+#import "DY778LiveInfo.h"
 
 
 static const void *kDKXSLiveDurationViewKey = &kDKXSLiveDurationViewKey;
 static const void *kDKXSLiveDurationTimerKey = &kDKXSLiveDurationTimerKey;
 static const void *kDKXSLiveDurationRoomKey = &kDKXSLiveDurationRoomKey;
+// DY778 1.0-3（LiveClock）网络兜底的状态：联网取到的开播时间及取数节流。
+static const void *kDKXSLiveDurationFetchedStartKey = &kDKXSLiveDurationFetchedStartKey;
+static const void *kDKXSLiveDurationFetchedRoomIDKey = &kDKXSLiveDurationFetchedRoomIDKey;
+static const void *kDKXSLiveDurationRoomIDKey = &kDKXSLiveDurationRoomIDKey;
+static const void *kDKXSLiveDurationFetchActiveKey = &kDKXSLiveDurationFetchActiveKey;
+static const void *kDKXSLiveDurationFetchAttemptsKey = &kDKXSLiveDurationFetchAttemptsKey;
+static const void *kDKXSLiveDurationFetchLastKey = &kDKXSLiveDurationFetchLastKey;
 static NSString *const kDKXSLiveDurationCenterXPercentKey = @"DKXSLiveDurationCenterXPercent";
 static NSString *const kDKXSLiveDurationCenterYPercentKey = @"DKXSLiveDurationCenterYPercent";
 static NSString *const kDKXSLiveDurationPositionLockedKey = @"DKXSLiveDurationPositionLocked";
@@ -409,7 +418,15 @@ static void DKXSLiveDurationRemoveFromView(UIView *root) {
     [durationView removeFromSuperview];
     objc_setAssociatedObject(root, kDKXSLiveDurationViewKey, nil, OBJC_ASSOCIATION_ASSIGN);
     objc_setAssociatedObject(root, kDKXSLiveDurationRoomKey, nil, OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(root, kDKXSLiveDurationFetchedStartKey, nil, OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(root, kDKXSLiveDurationFetchedRoomIDKey, nil, OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(root, kDKXSLiveDurationRoomIDKey, nil, OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(root, kDKXSLiveDurationFetchActiveKey, nil, OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(root, kDKXSLiveDurationFetchAttemptsKey, nil, OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(root, kDKXSLiveDurationFetchLastKey, nil, OBJC_ASSOCIATION_ASSIGN);
 }
+
+static void DKXSLiveDurationFetchStart(UIView *root, id roomModel);
 
 static void DKXSLiveDurationUpdateView(UIView *root) {
     if (!root) {
@@ -423,9 +440,20 @@ static void DKXSLiveDurationUpdateView(UIView *root) {
 
     id roomModel = objc_getAssociatedObject(root, kDKXSLiveDurationRoomKey);
     NSTimeInterval elapsed = DKXSLiveDurationElapsedSeconds(roomModel);
+    if (elapsed < 0.0) {
+        // DY778 1.0-3（LiveClock）网络兜底：本地模型无开播时间时，用上次联网
+        // 取到的开播时间；没有则发起一次联网取数（见 DKXSLiveDurationFetchStart）。
+        NSString *roomID = DY778LiveRoomIdentifier(roomModel);
+        NSNumber *fetchedStart = objc_getAssociatedObject(root, kDKXSLiveDurationFetchedStartKey);
+        NSString *fetchedRoomID = objc_getAssociatedObject(root, kDKXSLiveDurationFetchedRoomIDKey);
+        if (roomID.length && fetchedStart && [fetchedRoomID isEqualToString:roomID]) {
+            elapsed = fmax(0.0, DKXSLiveDurationNowSeconds() - fetchedStart.doubleValue);
+        }
+    }
     DKXSLiveDurationView *durationView = objc_getAssociatedObject(root, kDKXSLiveDurationViewKey);
     if (elapsed < 0.0) {
         durationView.hidden = YES;
+        DKXSLiveDurationFetchStart(root, roomModel);
         return;
     }
 
@@ -439,6 +467,123 @@ static void DKXSLiveDurationUpdateView(UIView *root) {
     }
     durationView.hidden = NO;
     [root bringSubviewToFront:durationView];
+}
+
+// DY778 1.0-3（LiveClock）网络兜底：本地房间模型取不到开播时间时，用
+// HTSLiveRoomAPI 联网取一次（最多 3 次、间隔 ≥10 秒、8 秒超时），
+// 用 DY778LiveRoomStart 从返回里解析开播时间。接口可用性先按
+// DY778LiveRoomAPIAvailable 做签名校验，39.6.0 上不存在时直接跳过。
+static void DKXSLiveDurationFetchStart(UIView *root, id roomModel) {
+    if (!root || !roomModel) {
+        return;
+    }
+
+    NSString *roomID = DY778LiveRoomIdentifier(roomModel);
+    if (!roomID.length) {
+        return;
+    }
+    if ([objc_getAssociatedObject(root, kDKXSLiveDurationFetchActiveKey) boolValue]) {
+        return;
+    }
+    NSUInteger attempts = [objc_getAssociatedObject(root, kDKXSLiveDurationFetchAttemptsKey) unsignedIntegerValue];
+    if (attempts >= 3) {
+        return;
+    }
+    NSNumber *lastRequest = objc_getAssociatedObject(root, kDKXSLiveDurationFetchLastKey);
+    if (lastRequest && CACurrentMediaTime() - lastRequest.doubleValue < 10.0) {
+        return;
+    }
+
+    Class apiClass = NSClassFromString(@"HTSLiveRoomAPI");
+    if (!DY778LiveRoomAPIAvailable(apiClass)) {
+        return;
+    }
+    NSNumber *roomNumber = @(roomID.longLongValue);
+    if (roomNumber.longLongValue <= 0) {
+        return;
+    }
+    id api = ((id (*)(id, SEL))objc_msgSend)((id)apiClass, @selector(alloc));
+    api = ((id (*)(id, SEL, id))objc_msgSend)(api, @selector(initWithRoomID:), roomNumber);
+    if (!api) {
+        return;
+    }
+
+    objc_setAssociatedObject(root, kDKXSLiveDurationFetchActiveKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(root, kDKXSLiveDurationFetchAttemptsKey, @(attempts + 1), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(root, kDKXSLiveDurationFetchLastKey, @(CACurrentMediaTime()), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+    __weak UIView *weakRoot = root;
+    void (^completion)(id, id) = ^(id first, id second) {
+      dispatch_async(dispatch_get_main_queue(), ^{
+        UIView *strongRoot = weakRoot;
+        if (!strongRoot) {
+            return;
+        }
+        objc_setAssociatedObject(strongRoot, kDKXSLiveDurationFetchActiveKey, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        NSString *currentRoomID = objc_getAssociatedObject(strongRoot, kDKXSLiveDurationRoomIDKey);
+        if (![currentRoomID isEqualToString:roomID]) {
+            return;
+        }
+        double start = DY778LiveRoomStart(first, roomID, 0);
+        if (!start) {
+            start = DY778LiveRoomStart(second, roomID, 0);
+        }
+        if (start > 0.0) {
+            objc_setAssociatedObject(strongRoot, kDKXSLiveDurationFetchedStartKey, @(start), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(strongRoot, kDKXSLiveDurationFetchedRoomIDKey, roomID, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        DKXSLiveDurationUpdateView(strongRoot);
+      });
+    };
+    ((void (*)(id, SEL, id, id))objc_msgSend)(api, @selector(fetchRoomInfoWithRoomID:completion:), roomNumber, (id)completion);
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+      UIView *strongRoot = weakRoot;
+      if (!strongRoot) {
+          return;
+      }
+      NSString *currentRoomID = objc_getAssociatedObject(strongRoot, kDKXSLiveDurationRoomIDKey);
+      if ([currentRoomID isEqualToString:roomID] && [objc_getAssociatedObject(strongRoot, kDKXSLiveDurationFetchActiveKey) boolValue]) {
+          objc_setAssociatedObject(strongRoot, kDKXSLiveDurationFetchActiveKey, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+          DKXSLiveDurationUpdateView(strongRoot);
+      }
+    });
+}
+
+// 与 DKXSLiveDurationRoomFromCarrier 相同的载体键走查，但只要求对象带房间 ID
+// （不要求本地模型已有开播时间），供网络兜底取房间 ID。
+static id DKXSLiveDurationRoomByIdentifierFromCarrierDepth(id obj, NSUInteger depth) {
+    if (!obj || depth > 3) {
+        return nil;
+    }
+
+    if ([DY778LiveRoomIdentifier(obj) length]) {
+        return obj;
+    }
+
+    NSArray<NSString *> *keys = @[
+        @"rawHTSLiveRoomModel", @"rawDataRoomModel", @"roomModel", @"rawRoom", @"liveRoom", @"room", @"currentRoom",
+        @"containerContext", @"roomDI", @"roomConfig", @"roomAisle"
+    ];
+    for (NSString *key in keys) {
+        id value = DKXSLiveDurationSafeValue(obj, key);
+        if (!value || value == obj) {
+            continue;
+        }
+        id found = DKXSLiveDurationRoomByIdentifierFromCarrierDepth(value, depth + 1);
+        if (found) {
+            return found;
+        }
+    }
+
+    NSArray<NSString *> *carrierKeys = @[ @"itemModel", @"awemeModel", @"aweme", @"model", @"item" ];
+    for (NSString *key in carrierKeys) {
+        id found = DKXSLiveDurationRoomByIdentifierFromCarrierDepth(DKXSLiveDurationSafeValue(obj, key), depth + 1);
+        if (found) {
+            return found;
+        }
+    }
+    return nil;
 }
 
 @interface DKXSLiveDurationTicker : NSObject
@@ -502,13 +647,36 @@ static void DKXSLiveDurationInstallOnView(UIView *root, id carrier) {
           UIViewController *viewController = [DKXSUtils firstAvailableViewControllerFromView:root];
           room = DKXSLiveDurationRoomFromCarrier(viewController);
       }
+      if (!DKXSLiveDurationHasValidLiveTime(room)) {
+          // DY778 1.0-3 补件：本地模型没有开播时间时，退而取带房间 ID 的模型，
+          // 走 HTSLiveRoomAPI 网络兜底（见 DKXSLiveDurationFetchStart）。
+          id roomByID = DKXSLiveDurationRoomByIdentifierFromCarrierDepth(carrier, 0);
+          if (!roomByID) {
+              UIViewController *viewController = [DKXSUtils firstAvailableViewControllerFromView:root];
+              roomByID = DKXSLiveDurationRoomByIdentifierFromCarrierDepth(viewController, 0);
+          }
+          if (roomByID) {
+              room = roomByID;
+          }
+      }
 
-      if (DKXSLiveDurationHasValidLiveTime(room)) {
+      if (room) {
+          NSString *previousRoomID = objc_getAssociatedObject(root, kDKXSLiveDurationRoomIDKey);
+          NSString *roomID = DY778LiveRoomIdentifier(room);
           objc_setAssociatedObject(root, kDKXSLiveDurationRoomKey, room, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+          if (roomID.length && ![roomID isEqualToString:previousRoomID]) {
+              objc_setAssociatedObject(root, kDKXSLiveDurationRoomIDKey, roomID, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+              objc_setAssociatedObject(root, kDKXSLiveDurationFetchedStartKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+              objc_setAssociatedObject(root, kDKXSLiveDurationFetchedRoomIDKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+              objc_setAssociatedObject(root, kDKXSLiveDurationFetchAttemptsKey, @0, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+              objc_setAssociatedObject(root, kDKXSLiveDurationFetchActiveKey, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+              objc_setAssociatedObject(root, kDKXSLiveDurationFetchLastKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+          }
       }
 
       DKXSLiveDurationUpdateView(root);
-      if (DKXSLiveDurationHasValidLiveTime(objc_getAssociatedObject(root, kDKXSLiveDurationRoomKey))) {
+      if (DKXSLiveDurationHasValidLiveTime(objc_getAssociatedObject(root, kDKXSLiveDurationRoomKey)) ||
+          [DY778LiveRoomIdentifier(objc_getAssociatedObject(root, kDKXSLiveDurationRoomKey)) length]) {
           DKXSLiveDurationEnsureTimer(root);
       }
     };
