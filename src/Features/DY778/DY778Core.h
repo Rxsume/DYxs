@@ -30,6 +30,7 @@ FOUNDATION_EXPORT UIUserInterfaceStyle DY778InterfaceStyle(void);
 FOUNDATION_EXPORT UIColor *DY778Accent(void);
 FOUNDATION_EXPORT UIColor *DY778Background(void);
 FOUNDATION_EXPORT UIColor *DY778CardBackground(void);
+FOUNDATION_EXPORT UIImage *DY778MenuIcon(NSString *symbol);
 FOUNDATION_EXPORT UIColor *DY778ColorFromHex(NSString *hex, UIColor *fallback);
 FOUNDATION_EXPORT void DY778StyleController(UIViewController *controller);
 FOUNDATION_EXPORT void DY778PresentController(UIViewController *source, UIViewController *controller);

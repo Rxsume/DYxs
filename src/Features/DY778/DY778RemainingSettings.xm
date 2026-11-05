@@ -58,7 +58,7 @@ static void DY778SyncRemainingSettings(void) {
 
     DKSettingsRegister(@"DKXSLuckyEnabled", ^AWESettingItemModel *{
         return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSLuckyEnabled", @"福袋助手", @""),
-            @"只处理当前直播间的普通免费福袋。需要灯牌、送礼、付费等额外条件时自动跳过，不代为点亮、升级或消费。"),
+            @"只处理当前直播间的普通免费福袋，暂不支持超级福袋。需要灯牌、送礼、付费等额外条件时自动跳过，不代为点亮、升级或消费。"),
             ^{ DY778SyncRemainingSettings(); });
     });
     DKSettingsRegister(@"DKXSLuckyMode", ^AWESettingItemModel *{
