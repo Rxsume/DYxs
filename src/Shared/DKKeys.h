@@ -363,6 +363,9 @@ static NSString *const DKKeyChatPlayEntryMode           = @"DYxsChatPlayEntryMod
 static NSString *const DKKeyChatRemovePlusPhotos        = @"DYxsChatRemovePlusPhotos";
 static NSString *const DKKeyChatInputGlass              = @"DYxsChatInputGlass";
 static NSString *const DKKeyChatInputGlassClear         = @"DYxsChatInputGlassClear";
+// 图文详情页液态玻璃的材质单选（DKMakeGlassChoice）：总开关 + 清透档两个 BOOL，清透档关即系统 Regular。
+static NSString *const DKKeyNoteDetailGlass      = @"DYxsNoteDetailGlass";
+static NSString *const DKKeyNoteDetailGlassClear = @"DYxsNoteDetailGlassClear";
 static NSString *const DKKeyChatRemoveBack              = @"DYxsChatRemoveBack";
 static NSString *const DKKeyChatRemoveUnread            = @"DYxsChatRemoveUnread";
 static NSString *const DKKeyChatRemoveOnline            = @"DYxsChatRemoveOnline";
