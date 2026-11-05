@@ -339,6 +339,14 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     DKRow(@"DKXSHideReply", @"ic_msg_outlined_20"),
                     DKRow(@"DKXSHideShareContentView", @"ic_share_outlined"),
                 ]),
+                // 第 8 批（DYads- 5e9a5c0，5 键）：聊天增强，默认关闭。
+                DKSection(@"聊天增强", @[
+                    DKRow(@"DKXSAutoTranslateAudio", @"ic_comment_outlined_20"),
+                    DKRow(@"DKXSSwipeToQuote", @"ic_comment_outlined_20"),
+                    DKRow(@"DKXSDisableInputStateReport", @"ic_comment_outlined_20"),
+                    DKRow(@"DKXSDisableOnlineUpload", @"ic_comment_outlined_20"),
+                    DKRow(@"DKXSPreventWatchOnceDestroy", @"ic_comment_outlined_20"),
+                ]),
                 // DY778 福袋助手（仅保留福袋；其余 DY778 模块已删除。键见 DY778RemainingSettings.xm）。
                 DKSection(@"DYxs 福袋", @[
                     DKRow(@"DKXSLuckyEnabled", @"ic_star_outlined_20"),

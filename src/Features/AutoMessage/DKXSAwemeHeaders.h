@@ -149,6 +149,7 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @property(nonatomic, assign) long long isMomentStory;
 @property(nonatomic, strong) NSString *shareURL;
 @property(nonatomic, strong) id hotSpotLynxCardModel;
+@property(nonatomic, strong) id dCardModel; // POI 动态卡模型，上游 5e9a5c0 新增声明，推广卡判断用。
 @property(nonatomic, strong) AWELiveFollowFeedCellModel *cellRoom;
 @property(nonatomic, strong) NSString *videoFeedTag;
 @property(nonatomic, strong) id shareRecExtra;  // 收藏/喜欢以外的视频专有属性

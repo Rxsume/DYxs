@@ -1,5 +1,6 @@
 // 移植自 Si-yi/DYads- (fb78fd91)：改名一律 DYYY -> DKXS，设置键同步改名；逻辑原样。
 #import "DKXSFeedTagGlass.h"
+#import "DKXSFriendShareBadgeView.h"
 #import "DKXSUtils.h"
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
@@ -113,6 +114,7 @@ static char kDKXSFeedTagRefreshKey;
 
 + (void)decorateTag:(UIView *)tag {
     if (!NSThread.isMainThread || !tag) return;
+    [DKXSFriendShareBadgeView nativeTagUpdated:tag];
     if ([objc_getAssociatedObject(tag, &kDKXSFeedTagUpdateDepthKey) unsignedIntegerValue] > 0) return;
     DKXSFeedTagGlassState *state = objc_getAssociatedObject(tag, &kDKXSFeedTagGlassKey);
     if (state.busy) return;
@@ -214,6 +216,7 @@ static char kDKXSFeedTagRefreshKey;
 
 + (void)decorateStack:(UIView *)stack {
     if (!NSThread.isMainThread || !stack) return;
+    [DKXSFriendShareBadgeView nativeTagUpdated:stack];
     NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithArray:stack.subviews];
     for (NSUInteger index = 0; index < queue.count && index < 96; index++) {
         UIView *view = queue[index];
