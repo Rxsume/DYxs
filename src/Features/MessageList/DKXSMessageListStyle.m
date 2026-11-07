@@ -38,19 +38,24 @@
 @end
 @implementation DKXSMessageHeaderState @end
 
-// 最小接口声明：DKXSAwemeHeaders 只声明了 AWEIMChatListCommonCell 的 renderWithHolder: 与
-// AWEIMChatListViewController 的 tableView；其余本文件直接调用的方法在此补充（不用 DouyinHeaders）。
+// 最小接口声明：DKXSAwemeHeaders（39.5 导出）里的 AWEIMChatListViewController 是空接口、
+// AWEIMChatListCommonCell 只有 renderWithHolder:；上游 DYads- 的 AwemeHeaders.h 则声明了
+// tableView/chatList 与 AWEIMChatCellViewModel.chat。本文件直接调用的方法在此补充（不用 DouyinHeaders）。
 @interface AWEIMChatModel : NSObject
 @property (nonatomic, assign, readonly) BOOL stickOnTop;
 @property (nonatomic, copy, readonly) NSString *name;
 + (BOOL)isNoticeChat:(id)chat;
 @end
+@interface AWEIMChatCellViewModel : NSObject
+@property (nonatomic, strong, readonly) AWEIMChatModel *chat;
+@end
 @interface AWEIMChatListCommonCell (DKXSMessageList)
-- (id)cellViewModel;
+- (AWEIMChatCellViewModel *)cellViewModel;
 @property (nonatomic, strong, readonly) UIView *avatarContainer;
 @property (nonatomic, strong, readonly) UIView *horizontalLine;
 @end
 @interface AWEIMChatListViewController (DKXSMessageList)
+@property (nonatomic, strong, readonly) UITableView *tableView;
 @property (nonatomic, strong) NSArray *chatList;
 @end
 
