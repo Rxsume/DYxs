@@ -56,13 +56,13 @@ static AWESettingItemModel *sDKXSRecallStatusItem = nil;
     });
     DKSettingsRegister(@"DKXSEnableMessageListCards", ^AWESettingItemModel *{
         AWESettingItemModel *item = DKMakeSwitch(@"DKXSEnableMessageListCards", @"消息卡片",
-                                                 @"将消息列表按连续会话分组为圆角面板，单条消息保留原生样式。");
+                                                 @"将消息列表按连续会话分组为圆角面板，互动消息与粉丝页同样使用圆角面板，单条消息保留原生样式。");
         DKSettingsOnChange(item, ^{ [DKXSMessageListStyle refresh]; });
         return item;
     });
     DKSettingsRegister(@"DKXSEnableMessageListTopGlass", ^AWESettingItemModel *{
         AWESettingItemModel *item = DKMakeSwitch(@"DKXSEnableMessageListTopGlass", @"消息列表顶部毛玻璃",
-                                                 @"聊天页顶栏下方左右按钮区叠加毛玻璃。");
+                                                 @"聊天页顶栏下方左右按钮区叠加毛玻璃，互动页顶部功能区同样使用悬浮玻璃。");
         DKSettingsOnChange(item, ^{ [DKXSMessageListStyle refresh]; });
         return item;
     });
