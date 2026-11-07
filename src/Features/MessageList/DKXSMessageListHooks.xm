@@ -1,5 +1,8 @@
 // 移植自 Si-yi/DYads- f07ddb5（DYYYMessageListHooks.xm）：改名一律 DYYY -> DKXS，设置键同步改名，逻辑原样；
 // 适配见各文件内注释（DYxs 已有实现复用 / 上游已删模块不移植）。
+// 须先 import UIKit：下方的最小接口声明以 UIViewController/UITableViewCell/UIView 为父类，
+// 未引入 UIKit 时编译器找不到父类接口（与 DKXSRecallHooks.xm 在 0.6.9.20 CI run #121 的同类失败）。
+#import <UIKit/UIKit.h>
 // 最小接口声明（沿用第 8 批写法，不 import 大头文件）。
 @interface AWEIMChatListViewController : UIViewController
 - (void)setChatList:(NSArray *)chats;
