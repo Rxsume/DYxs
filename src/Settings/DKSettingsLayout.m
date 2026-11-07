@@ -347,6 +347,18 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     DKRow(@"DKXSDisableOnlineUpload", @"ic_comment_outlined_20"),
                     DKRow(@"DKXSPreventWatchOnceDestroy", @"ic_comment_outlined_20"),
                 ]),
+                // 第 9 批（DYads- f07ddb5，5 键 + 2 动作行）：消息防撤回与消息列表，默认关闭。
+                DKSection(@"消息防撤回", @[
+                    DKRow(@"DKXSPreventRecall", @"ic_comment_outlined_20"),
+                    DKRow(@"DKXSRecallShowMarker", @"ic_comment_outlined_20"),
+                    DKRow(@"DKXSRecallKeepMedia", @"ic_comment_outlined_20"),
+                    DKRow(@"DKXSRecallStatus", @"ic_comment_outlined_20"),
+                    DKRow(@"DKXSRecallClear", @"ic_comment_outlined_20"),
+                ]),
+                DKSection(@"消息列表", @[
+                    DKRow(@"DKXSEnableMessageListCards", @"ic_comment_outlined_20"),
+                    DKRow(@"DKXSEnableMessageListTopGlass", @"ic_comment_outlined_20"),
+                ]),
                 // DY778 福袋助手（仅保留福袋；其余 DY778 模块已删除。键见 DY778RemainingSettings.xm）。
                 DKSection(@"DYxs 福袋", @[
                     DKRow(@"DKXSLuckyEnabled", @"ic_star_outlined_20"),

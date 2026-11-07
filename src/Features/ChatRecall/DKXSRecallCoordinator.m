@@ -1,0 +1,510 @@
+// 移植自 Si-yi/DYads- f07ddb5（DYYYRecallCoordinator.m）：改名一律 DYYY -> DKXS，设置键同步改名，逻辑原样；
+// 适配见各文件内注释（DYxs 已有实现复用 / 上游已删模块不移植）。
+#import "DKXSRecallCoordinator.h"
+#import "DKXSRecallPolicy.h"
+#import "DKXSRecallMarkerMetrics.h"
+#import "DKXSRecallStore.h"
+#import "DKXSChatEnhancementPolicy.h"
+#import "DKXSIMService.h"
+#import "DKXSUtils.h"
+#import "DKXSAwemeHeaders.h"
+#import <objc/runtime.h>
+#import <objc/message.h>
+
+@interface DKXSRecallModelState : NSObject
+@property (atomic, weak) id root;
+@property (nonatomic, copy) NSString *cacheKey;
+@property (atomic, weak) NSDictionary *content;
+@property (atomic, copy) NSDictionary *identity;
+@property (atomic, assign) BOOL recalled;
+@property (atomic, assign) BOOL countedProtection;
+@property (atomic, assign) NSTimeInterval recalledAt;
+@property (atomic, assign) BOOL pending;
+@property (atomic, copy) NSString *lastSignature;
+@end
+@implementation DKXSRecallModelState @end
+
+@interface DKXSRecallUIReference : NSObject
+@property (atomic, copy) NSString *account;
+@property (atomic, copy) NSDictionary *media;
+@property (atomic, copy) NSDictionary *pathMap;
+@end
+@implementation DKXSRecallUIReference @end
+
+@interface DKXSRecallCellBinding : NSObject
+@property (nonatomic, copy) NSString *account;
+@property (nonatomic, copy) NSString *conversation;
+@property (nonatomic, copy) NSString *message;
+@property (nonatomic, copy) NSString *server;
+@property (nonatomic, copy) NSDictionary *record;
+@property (nonatomic, strong) UILabel *label;
+@property (nonatomic, assign) BOOL requested;
+@property (nonatomic, copy) NSDictionary *markerGeometry;
+@end
+@implementation DKXSRecallCellBinding @end
+
+@interface DKXSRecallCoordinator ()
+@property (atomic, assign) BOOL active;
+@property (atomic, assign) NSUInteger generation;
+@property (atomic, copy) NSString *account;
+@property (nonatomic, strong) dispatch_queue_t queue;
+@property (nonatomic, strong) DKXSRecallStore *store;
+@property (nonatomic, strong) NSCache<NSString *, NSDictionary *> *cache;
+@property (nonatomic, strong) NSCache<NSString *, NSDictionary *> *contents;
+@property (nonatomic, strong) NSHashTable<UITableViewCell *> *cells;
+@property (nonatomic, strong) NSHashTable<DKXSRecallUIReference *> *uiReferences;
+@property (atomic, assign) NSUInteger savedSnapshots;
+@property (atomic, assign) NSUInteger protectedModels;
+@property (nonatomic, strong) NSMutableDictionary *hooks;
+@property (atomic, copy) NSString *status;
+@property (atomic, copy) NSDictionary *statistics;
+@property (nonatomic, assign) NSUInteger pending;
+@end
+
+@implementation DKXSRecallCoordinator
+#pragma mark - 生命周期与私有接口保护
++ (instancetype)shared {
+    static DKXSRecallCoordinator *instance; static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        instance = [DKXSRecallCoordinator new];
+        instance.queue = dispatch_queue_create("com.dyxs.recall.capture", DISPATCH_QUEUE_SERIAL);
+        instance.cache = [NSCache new]; instance.cache.countLimit = 1024; instance.cache.totalCostLimit=8*1024*1024;
+        instance.contents=[NSCache new];instance.contents.countLimit=256;instance.contents.totalCostLimit=8*1024*1024;
+        instance.cells = [NSHashTable weakObjectsHashTable]; instance.uiReferences=[NSHashTable weakObjectsHashTable]; instance.hooks = [NSMutableDictionary dictionary];
+        NSURL *base = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
+        instance.store = [[DKXSRecallStore alloc] initWithDirectory:[base URLByAppendingPathComponent:@"DYxs/MessageRetention" isDirectory:YES]];
+        instance.status = @"尚未启用";
+        instance.active = [NSUserDefaults.standardUserDefaults boolForKey:@"DKXSPreventRecall"];
+    });
+    return instance;
+}
++ (BOOL)enabled { return [self shared].active; }
++ (id)object:(id)owner selector:(NSString *)name {
+    SEL selector = NSSelectorFromString(name);
+    if (!owner || ![DKXSChatEnhancementPolicy class:object_getClass(owner) selector:selector result:'@' arguments:@""]) return nil;
+    @try { return ((id (*)(id, SEL))objc_msgSend)(owner,selector); } @catch (__unused NSException *exception) { return nil; }
+}
++ (NSNumber *)number:(id)owner selector:(NSString *)name {
+    SEL selector=NSSelectorFromString(name);
+    @try {
+        if ([DKXSChatEnhancementPolicy class:object_getClass(owner) selector:selector result:'q' arguments:@""]) return @(((long long(*)(id,SEL))objc_msgSend)(owner,selector));
+        if ([DKXSChatEnhancementPolicy class:object_getClass(owner) selector:selector result:'Q' arguments:@""]) return @(((unsigned long long(*)(id,SEL))objc_msgSend)(owner,selector));
+        if ([DKXSChatEnhancementPolicy class:object_getClass(owner) selector:selector result:'B' arguments:@""]) return @(((BOOL(*)(id,SEL))objc_msgSend)(owner,selector));
+    } @catch (__unused NSException *exception) {}
+    return nil;
+}
++ (NSString *)identifier:(id)value {
+    if ([value isKindOfClass:NSNumber.class]) value = [value stringValue];
+    return [value isKindOfClass:NSString.class] && [value length] && [value length] <= 512 ? value : nil;
+}
++ (DKXSRecallModelState *)state:(id)model create:(BOOL)create {
+    if (!model) return nil;
+    DKXSRecallModelState *state=objc_getAssociatedObject(model,@selector(bindModel:root:));
+    if (!state && create) {
+        @synchronized(model) {
+            state=objc_getAssociatedObject(model,@selector(bindModel:root:));
+            if (!state) { state=[DKXSRecallModelState new];state.cacheKey=NSUUID.UUID.UUIDString; objc_setAssociatedObject(model,@selector(bindModel:root:),state,OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+        }
+    }
+    return state;
+}
++ (void)retainContent:(NSDictionary *)content state:(DKXSRecallModelState *)state {
+    if(!content || !state)return;
+    NSUInteger cost=[NSJSONSerialization dataWithJSONObject:content options:0 error:nil].length;
+    [[self shared].contents setObject:content forKey:state.cacheKey cost:cost];state.content=content;
+}
++ (void)recordHook:(NSString *)name installed:(BOOL)installed { if(NSThread.isMainThread)[self shared].hooks[name]=@(installed); }
++ (void)settingsChanged {
+    if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self settingsChanged];});return;}
+    DKXSRecallCoordinator *coordinator=[self shared];
+    coordinator.active=[NSUserDefaults.standardUserDefaults boolForKey:@"DKXSPreventRecall"];
+    coordinator.account=[DKXSIMService capturedAccountID]; coordinator.generation++;
+    coordinator.status=coordinator.active?@"等待抖音自然接收或展示消息":@"已关闭，已有留存保留";
+    [self installHooks];
+    for(UITableViewCell *cell in coordinator.cells) [self refreshCell:cell];
+}
+#pragma mark - 原生回调仅保存入参，不在SDK栈里读账号/消息或做磁盘IO
++ (void)bindModel:(id)model root:(id)root {
+    if(![self enabled] || !model || !root)return;
+    DKXSRecallModelState *state=[self state:model create:YES];
+    if (state.root && state.root != root) { state.identity=nil; state.content=nil; state.recalled=NO; state.recalledAt=0; }
+    if(state.root==root && state.identity && state.content)return;
+    state.root=root;
+    [self scheduleModel:model];
+}
++ (void)captureContent:(id)content model:(id)model {
+    if(![self enabled])return;
+    NSDictionary *snapshot=[DKXSRecallPolicy contentSnapshot:content];
+    if(!snapshot)return;
+    DKXSRecallModelState *state=[self state:model create:YES];
+    if(state.content.count)return;
+    [self retainContent:snapshot state:state];
+    [self scheduleModel:model];
+}
++ (void)captureOriginalContent:(id)content model:(id)model {
+    if(![self enabled])return;
+    NSDictionary *snapshot=[DKXSRecallPolicy contentSnapshot:content];if(!snapshot)return;
+    DKXSRecallModelState *state=[self state:model create:YES];
+    [self retainContent:snapshot state:state];[self scheduleModel:model];
+}
++ (void)observeRecalled:(BOOL)recalled model:(id)model {
+    if(![self enabled] || !recalled)return;
+    DKXSRecallModelState *state=[self state:model create:YES];
+    @synchronized(state){if(state.recalled)return;state.recalled=YES;if(!state.recalledAt)state.recalledAt=NSDate.date.timeIntervalSince1970;}
+    [self scheduleModel:model];
+}
++ (BOOL)protectModel:(id)model {
+    if(![self enabled])return NO;
+    DKXSRecallModelState *state=[self state:model create:NO]; NSDictionary *identity=state.identity;
+    if([self shared].account.length && ![identity[@"account"] isEqual:[self shared].account])return NO;
+    BOOL protected=state.recalled && [DKXSRecallPolicy canProtectAccount:identity[@"account"] sender:identity[@"sender"] conversation:identity[@"conversation"] message:identity[@"message"] content:state.content];
+    if(protected && !state.countedProtection){@synchronized(state){if(!state.countedProtection){state.countedProtection=YES;[self shared].protectedModels++;}}}
+    return protected;
+}
++ (NSDictionary *)protectedContentForModel:(id)model { return [self protectModel:model] ? [self state:model create:NO].content : nil; }
++ (void)scheduleModel:(id)model {
+    DKXSRecallCoordinator *coordinator=[self shared]; DKXSRecallModelState *state=[self state:model create:YES];
+    if(!state.root)return;
+    @synchronized(coordinator){if(state.pending || coordinator.pending>=128)return;state.pending=YES;coordinator.pending++;}
+    __weak id weakModel=model; NSUInteger generation=coordinator.generation;
+    dispatch_async(coordinator.queue,^{
+        @try {
+            id current=weakModel,root=state.root;
+            if(!current || !root || !coordinator.active || generation!=coordinator.generation)return;
+            // 身份校验已离开原生回调栈；不创建SDK实例，不查历史/未读，不保存其他账号名下。
+            NSString *account=[self identifier:[self object:[self object:root selector:@"config"] selector:@"uid"]];
+            NSString *conversation=[self identifier:[self object:current selector:@"belongingConversationIdentifier"]];
+            NSString *message=[self identifier:[self object:current selector:@"identifier"]];
+            NSString *sender=[self identifier:[self number:current selector:@"sender"]];
+            NSNumber *type=[self number:current selector:@"conversationType"];
+            if(!account.length || !conversation.length || !message.length || !sender.length || sender.longLongValue<=0 || [account isEqual:sender] || type.unsignedLongLongValue==10)return;
+            if(state.identity[@"account"] && ![state.identity[@"account"] isEqual:account])return;
+            if(coordinator.account.length && ![coordinator.account isEqual:account])return;
+            NSString *server=[self identifier:[self object:current selector:@"serverMessageID"]] ?: @"";
+            if([server isEqual:@"0"])server=@"";
+            state.identity=@{@"account":account,@"conversation":conversation,@"message":message,@"sender":sender,@"server":server};
+            BOOL nativeRecalled=[[self number:current selector:@"recalled"] boolValue];
+            if(nativeRecalled){state.recalled=YES;if(!state.recalledAt)state.recalledAt=NSDate.date.timeIntervalSince1970;}
+            if(!state.content) {
+                NSDictionary *snapshot=[DKXSRecallPolicy contentSnapshot:[self object:current selector:@"content"]];
+                if(snapshot)[self retainContent:snapshot state:state];
+            }
+            if(!state.content) [self retainContent:[DKXSRecallPolicy contentSnapshot:[self object:current selector:@"recalledContent"]] state:state];
+            NSMutableDictionary *record=[state.identity mutableCopy];
+            if(state.content)record[@"content"]=state.content;
+            record[@"recalled"]=@(state.recalled); if(state.recalledAt)record[@"recalledAt"]=@(state.recalledAt);
+            NSString *signature=[DKXSRecallPolicy fingerprint:record];
+            if([state.lastSignature isEqual:signature])return;
+            state.lastSignature=signature;
+            [coordinator.store recordForAccount:account conversation:conversation message:message server:server completion:^(NSDictionary *old){
+                if(generation!=coordinator.generation || !coordinator.active)return;
+                if(!state.content && old[@"content"])[self retainContent:old[@"content"] state:state];
+                if([old[@"recalled"] boolValue]){state.recalled=YES;state.recalledAt=[old[@"recalledAt"] doubleValue];}
+                if(state.content)record[@"content"]=state.content;
+                record[@"recalled"]=@(state.recalled);if(state.recalledAt)record[@"recalledAt"]=@(state.recalledAt);
+                [self persist:record state:state generation:generation];
+            }];
+        } @catch(__unused NSException *exception){coordinator.status=@"本次原生消息身份读取失败，保持原生处理";}
+        @finally{@synchronized(coordinator){state.pending=NO;if(coordinator.pending)coordinator.pending--;}}
+    });
+}
++ (void)cacheRecord:(NSDictionary *)record {
+    if(!record)return;
+    for(NSString *message in @[record[@"message"]?:@"",record[@"server"]?:@""]){
+        NSString *key=[DKXSRecallPolicy keyForAccount:record[@"account"] conversation:record[@"conversation"] message:message];
+        if(key)[[self shared].cache setObject:record forKey:key cost:[NSJSONSerialization dataWithJSONObject:record options:0 error:nil].length];
+    }
+}
++ (void)persist:(NSDictionary *)record state:(DKXSRecallModelState *)state generation:(NSUInteger)generation {
+    DKXSRecallCoordinator *coordinator=[self shared];
+    if(!coordinator.active || generation!=coordinator.generation)return;
+    [coordinator.store saveRecord:record completion:^(NSDictionary *saved,NSString *error){
+        if(generation!=coordinator.generation)return;
+        if(!saved){coordinator.status=error?:@"未取得原内容";return;}
+        coordinator.savedSnapshots++;[self cacheRecord:saved];coordinator.status=[saved[@"recalled"] boolValue]?@"已保留撤回消息的原始记录":@"正在保留本机已取得的消息";
+        dispatch_async(dispatch_get_main_queue(),^{
+            if(generation!=coordinator.generation)return;
+            for(UITableViewCell *cell in coordinator.cells){
+                DKXSRecallCellBinding *binding=objc_getAssociatedObject(cell,@selector(captureCell:));
+                if([binding.account isEqual:saved[@"account"]] && [binding.conversation isEqual:saved[@"conversation"]] &&
+                   ([binding.message isEqual:saved[@"message"]] || (binding.server.length && [binding.server isEqual:saved[@"server"]]))){binding.record=saved;[self refreshCell:cell];}
+            }
+        });
+    }];
+}
+#pragma mark - 原生UI消息恢复（不创建SDK模型、不改已读接口）
++ (NSDictionary *)cachedAccount:(NSString *)account conversation:(NSString *)conversation message:(NSString *)message server:(NSString *)server {
+    NSString *key=[DKXSRecallPolicy keyForAccount:account conversation:conversation message:message];
+    NSDictionary *record=key?[[self shared].cache objectForKey:key]:nil;
+    if(!record && server.length){key=[DKXSRecallPolicy keyForAccount:account conversation:conversation message:server];record=key?[[self shared].cache objectForKey:key]:nil;}
+    return record;
+}
++ (id)replacementForUIMessage:(id)message {
+    if(!NSThread.isMainThread || ![self enabled] || !message)return message;
+    Class base=NSClassFromString(@"AWEIMMessage");
+    if(!base || ![message isKindOfClass:base])return message;
+    NSString *account=[self shared].account,*cid=[self identifier:[self object:message selector:@"conversationID"]],*mid=[self identifier:[self object:message selector:@"messageID"]];
+    NSString *server=[self identifier:[self number:message selector:@"serverMessageID"]];
+    NSDictionary *record=[self cachedAccount:account conversation:cid message:mid server:server];
+    if(![record[@"recalled"] boolValue] || ![record[@"uiClass"] isKindOfClass:NSString.class])return message;
+    BOOL recalled=[[self number:message selector:@"recalled"] boolValue];
+    if(!recalled && ![NSStringFromClass([message class]) isEqual:@"AWEIMRecallMessage"])return message;
+    Class cls=NSClassFromString(record[@"uiClass"]);
+    if(!cls || ![cls isSubclassOfClass:base] || [record[@"uiClass"] isEqual:@"AWEIMRecallMessage"] ||
+       ![DKXSChatEnhancementPolicy class:cls selector:NSSelectorFromString(@"initWithContentDict:") result:'@' arguments:@"@"])return message;
+    @try {
+        id clone=((id(*)(id,SEL,id))objc_msgSend)([cls alloc],NSSelectorFromString(@"initWithContentDict:"),record[@"content"]);
+        if(![clone isKindOfClass:cls])return message;
+        for(NSString *name in @[@"messageID",@"conversationID",@"fromUid",@"secFromUid"]){
+            NSString *setter=[NSString stringWithFormat:@"set%@%@:",[[name substringToIndex:1] uppercaseString],[name substringFromIndex:1]];
+            id value=[self object:message selector:name];
+            if(value && [DKXSChatEnhancementPolicy class:cls selector:NSSelectorFromString(setter) result:'v' arguments:@"@"])((void(*)(id,SEL,id))objc_msgSend)(clone,NSSelectorFromString(setter),value);
+        }
+        for(NSString *name in @[@"serverMessageID",@"createTime",@"localID"]){
+            NSNumber *value=[self number:message selector:name];NSString *setter=[NSString stringWithFormat:@"set%@%@:",[[name substringToIndex:1] uppercaseString],[name substringFromIndex:1]];
+            if(value && [DKXSChatEnhancementPolicy class:cls selector:NSSelectorFromString(setter) result:'v' arguments:@"q"])((void(*)(id,SEL,long long))objc_msgSend)(clone,NSSelectorFromString(setter),value.longLongValue);
+        }
+        DKXSRecallUIReference *reference=[DKXSRecallUIReference new]; reference.account=account; reference.media=record[@"media"];reference.pathMap=record[@"pathMap"];
+        objc_setAssociatedObject(clone,@selector(mediaPathForUIMessage:original:),reference,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [[self shared].uiReferences addObject:reference];
+        return clone;
+    } @catch(__unused NSException *exception){[self shared].status=@"当前消息的原生UI恢复未适配，原记录仍保留";return message;}
+}
+#pragma mark - 聊天内提示与本机媒体副本
++ (void)resetCell:(UITableViewCell *)cell {
+    if(!NSThread.isMainThread)return;
+    DKXSRecallCellBinding *binding=objc_getAssociatedObject(cell,@selector(captureCell:));[binding.label removeFromSuperview];
+    objc_setAssociatedObject(cell,@selector(captureCell:),nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [[self shared].cells removeObject:cell];
+}
++ (void)captureCell:(UITableViewCell *)cell {
+    if(!NSThread.isMainThread || ![cell isKindOfClass:UITableViewCell.class])return;
+    if(![self enabled] || !cell.window){[self resetCell:cell];return;}
+    id ui=[self object:[self object:cell selector:@"currentContext"] selector:@"message"];
+    NSString *account=[DKXSIMService capturedAccountID];[self shared].account=account;
+    NSString *cid=[self identifier:[self object:ui selector:@"conversationID"]],*mid=[self identifier:[self object:ui selector:@"messageID"]],*sender=[self identifier:[self object:ui selector:@"fromUid"]];
+    if(!account.length || !cid.length || !mid.length || !sender.length || [account isEqual:sender]){[self resetCell:cell];return;}
+    NSString *server=[self identifier:[self number:ui selector:@"serverMessageID"]]?:@"";if([server isEqual:@"0"])server=@"";
+    DKXSRecallCellBinding *binding=objc_getAssociatedObject(cell,@selector(captureCell:));
+    if(![binding.account isEqual:account] || ![binding.conversation isEqual:cid] || ![binding.message isEqual:mid]){
+        [self resetCell:cell];binding=[DKXSRecallCellBinding new];binding.account=account;binding.conversation=cid;binding.message=mid;binding.server=server;
+        objc_setAssociatedObject(cell,@selector(captureCell:),binding,OBJC_ASSOCIATION_RETAIN_NONATOMIC);[[self shared].cells addObject:cell];
+    }
+    NSDictionary *cached=[self cachedAccount:account conversation:cid message:mid server:server];
+    if(cached)binding.record=cached;
+    DKXSRecallUIReference *reference=objc_getAssociatedObject(ui,@selector(mediaPathForUIMessage:original:));
+    if(!reference){reference=[DKXSRecallUIReference new];objc_setAssociatedObject(ui,@selector(mediaPathForUIMessage:original:),reference,OBJC_ASSOCIATION_RETAIN_NONATOMIC);[[self shared].uiReferences addObject:reference];}
+    reference.account=account;reference.media=cached[@"media"];reference.pathMap=cached[@"pathMap"];
+    [self refreshCell:cell];
+    if(binding.requested)return;binding.requested=YES;
+    NSDictionary *content=[DKXSRecallPolicy contentSnapshot:[self object:ui selector:@"getContentDict"]]?:[DKXSRecallPolicy contentSnapshot:[self object:ui selector:@"rawContentDict"]];
+    NSString *className=NSStringFromClass([ui class]);
+    BOOL notice=[className isEqual:@"AWEIMRecallMessage"];
+    NSMutableDictionary *record=[@{@"account":account,@"conversation":cid,@"message":mid,@"server":server,@"sender":sender,@"recalled":@(notice || [cached[@"recalled"] boolValue])} mutableCopy];
+    if(content && !notice){record[@"content"]=content;record[@"uiClass"]=className;}
+    if(cached[@"recalledAt"])record[@"recalledAt"]=cached[@"recalledAt"];
+    else if(notice)record[@"recalledAt"]=@(NSDate.date.timeIntervalSince1970);
+    id paths=[self object:ui selector:@"awe_filePathDictionary"];
+    NSMutableDictionary *pathMap=[NSMutableDictionary dictionary];
+    if([paths isKindOfClass:NSDictionary.class])for(id key in paths){
+        id value=paths[key];
+        if([key isKindOfClass:NSString.class] && [key length]<=512 && [value isKindOfClass:NSString.class] && [value length]<=4096 && pathMap.count<8)pathMap[key]=value;
+    }
+    if([cached[@"pathMap"] isKindOfClass:NSDictionary.class] && [cached[@"pathMap"] count])record[@"pathMap"]=cached[@"pathMap"];
+    else if(pathMap.count)record[@"pathMap"]=pathMap;
+    reference.pathMap=record[@"pathMap"];
+    NSUInteger generation=[self shared].generation;
+    [self persist:record state:nil generation:generation];
+    if(!cached)[[self shared].store recordForAccount:account conversation:cid message:mid server:server completion:^(NSDictionary *stored){
+        if(generation!=[self shared].generation || !stored)return;[self cacheRecord:stored];
+        dispatch_async(dispatch_get_main_queue(),^{if(objc_getAssociatedObject(cell,@selector(captureCell:))==binding){binding.record=stored;[self refreshCell:cell];}});
+    }];
+    NSMutableArray *candidates=[NSMutableArray array];
+    NSString *path=[self identifier:[self object:ui selector:@"filePath"]];if(path)[candidates addObject:path];
+    if([paths isKindOfClass:NSDictionary.class])for(id value in [paths allValues]){if([value isKindOfClass:NSString.class] && candidates.count<8)[candidates addObject:value];}
+    if([NSUserDefaults.standardUserDefaults objectForKey:@"DKXSRecallKeepMedia"] && ![NSUserDefaults.standardUserDefaults boolForKey:@"DKXSRecallKeepMedia"])return;
+    for(NSString *source in candidates){
+        if([reference.media.allValues containsObject:source])continue;
+        [[self shared].store copyMediaAtPath:source record:record completion:^(NSDictionary *media,NSString *error){
+        if(generation!=[self shared].generation)return;
+        if(media){
+            [self shared].status=@"已另存实际媒体文件副本";
+            [[self shared].store recordForAccount:account conversation:cid message:mid server:server completion:^(NSDictionary *saved){
+                if(generation!=[self shared].generation || !saved)return;
+                [self cacheRecord:saved];reference.media=saved[@"media"];reference.pathMap=saved[@"pathMap"];
+            }];
+        }
+        else if(error.length)[self shared].status=error;
+        }];
+    }
+}
+#pragma mark - 标记只占用当前Cell的空白，原生气泡和行高不变
++ (NSDictionary *)rectData:(CGRect)frame {
+    return @{@"x":@(CGRectGetMinX(frame)),@"y":@(CGRectGetMinY(frame)),@"width":@(CGRectGetWidth(frame)),@"height":@(CGRectGetHeight(frame))};
+}
++ (CGRect)visibleRect:(UIView *)view root:(UIView *)root {
+    CGRect frame=[view convertRect:view.bounds toView:root];
+    for(UIView *parent=view;parent;parent=parent.superview){
+        if(parent.hidden||parent.alpha<=0.01)return CGRectNull;
+        if(parent.clipsToBounds||parent==root)frame=CGRectIntersection(frame,[parent convertRect:parent.bounds toView:root]);
+        if(CGRectIsNull(frame)||CGRectIsEmpty(frame))return CGRectNull;
+        if(parent==root)return frame;
+    }
+    return CGRectNull;
+}
++ (NSDictionary *)markerInputsForCell:(UITableViewCell *)cell label:(UILabel *)label {
+    UIView *root=cell.contentView;NSMutableArray<UIView *> *queue=[NSMutableArray arrayWithObject:root];
+    NSMutableArray *occupied=[NSMutableArray array];CGRect bubble=CGRectNull;CGFloat area=0;
+    Class gradient=NSClassFromString(@"AWEIMMessageBubbleGradientView"),yy=NSClassFromString(@"YYLabel");
+    for(NSUInteger index=0;index<queue.count&&index<128;index++){
+        UIView *view=queue[index];if(view==label||view.hidden||view.alpha<=0.01)continue;
+        CGRect frame=[self visibleRect:view root:root];if(CGRectIsNull(frame)||CGRectIsEmpty(frame))continue;
+        BOOL isBubble=gradient&&[view isKindOfClass:gradient];
+        if(isBubble&&frame.size.width*frame.size.height>area){bubble=frame;area=frame.size.width*frame.size.height;}
+        NSString *name=NSStringFromClass(object_getClass(view));
+        BOOL drawing=isBubble||[view isKindOfClass:UILabel.class]||[view isKindOfClass:UIImageView.class]||[view isKindOfClass:UIControl.class]||
+            (yy&&[view isKindOfClass:yy])||[name isEqual:@"IESIMTextKitLabel"]||[name isEqual:@"AWEIMUserInteractionLabel"];
+        if(drawing)[occupied addObject:[self rectData:frame]];
+        if([view isKindOfClass:UIVisualEffectView.class])continue;
+        for(UIView *child in view.subviews){if(queue.count>=128)break;[queue addObject:child];}
+    }
+    if(CGRectIsNull(bubble)){
+        UIView *target=[self object:cell selector:@"contentTargetView"];
+        if([target isKindOfClass:UIView.class]&&[target isDescendantOfView:root]){
+            CGRect frame=[self visibleRect:target root:root];
+            // BC0DA5B0的contentTargetView是整行，不能当作气泡使用。
+            if(!CGRectIsNull(frame)&&frame.origin.x>=40&&frame.size.width<root.bounds.size.width-40&&frame.size.height>=28)bubble=frame;
+        }
+    }
+    if(CGRectIsNull(bubble)){
+        // 39.5图片/表情可没有Gradient底板：只在已确认的原生手势容器内，
+        // 用头像确定消息列，合并同一条消息的直接正文包装层，避免落到头像或昵称上。
+        Class gesture=NSClassFromString(@"AWEIMGestureView"),avatar=NSClassFromString(@"AWEIMMessageAvatarView");
+        for(UIView *container in queue){
+            if(!gesture||![container isKindOfClass:gesture])continue;
+            CGFloat column=0;
+            for(UIView *view in container.subviews)if(avatar&&[view isKindOfClass:avatar]){
+                CGRect frame=[view convertRect:view.bounds toView:root];
+                if(frame.size.width>0&&frame.size.width<root.bounds.size.width*0.25)column=MAX(column,CGRectGetMaxX(frame));
+            }
+            if(column<=0)continue;
+            for(UIView *view in container.subviews){
+                if(object_getClass(view)!=UIView.class)continue;
+                CGRect frame=[self visibleRect:view root:root];
+                if(CGRectIsNull(frame)||frame.size.width<28||frame.size.height<28||frame.origin.x<column+4||frame.size.width>=root.bounds.size.width-column)continue;
+                bubble=CGRectIsNull(bubble)?frame:CGRectUnion(bubble,frame);
+            }
+        }
+    }
+    if(CGRectIsNull(bubble))return @{@"occupied":occupied};
+    return @{@"bubble":[self rectData:bubble],@"occupied":occupied};
+}
++ (void)refreshCell:(UITableViewCell *)cell {
+    DKXSRecallCellBinding *binding=objc_getAssociatedObject(cell,@selector(captureCell:));
+    if(!binding)return;
+    BOOL show=[self enabled] && [binding.record[@"recalled"] boolValue] && ![[NSUserDefaults.standardUserDefaults objectForKey:@"DKXSRecallShowMarker"] isEqual:@NO];
+    if(!show){[binding.label removeFromSuperview];binding.label=nil;return;}
+    if(![binding.account isEqual:[self shared].account]){[binding.label removeFromSuperview];binding.label=nil;return;}
+    if(!binding.label){binding.label=[UILabel new];binding.label.font=[UIFont systemFontOfSize:10];binding.label.textColor=[UIColor colorWithRed:1 green:0.57 blue:0.32 alpha:1];binding.label.userInteractionEnabled=NO;binding.label.accessibilityIdentifier=@"DYxs.RecallMarker";[cell.contentView addSubview:binding.label];}
+    static NSDateFormatter *format;static dispatch_once_t once;dispatch_once(&once,^{format=[NSDateFormatter new];format.dateFormat=@"HH:mm:ss";});
+    NSString *time=[format stringFromDate:[NSDate dateWithTimeIntervalSince1970:[binding.record[@"recalledAt"] doubleValue]]];
+    BOOL available=[binding.record[@"content"] isKindOfClass:NSDictionary.class] && [binding.record[@"content"] count]>0;
+    NSString *fullText=[NSString stringWithFormat:@"对方已撤回 · %@%@",time,available?@"":@" · 原内容未取得"];
+    binding.label.numberOfLines=1;binding.label.font=[UIFont systemFontOfSize:10];binding.label.text=fullText;
+    CGSize size=[binding.label sizeThatFits:CGSizeMake(CGFLOAT_MAX,12)];
+    NSDictionary *inputs=[self markerInputsForCell:cell label:binding.label];
+    NSDictionary *layout=[DKXSRecallMarkerMetrics layoutForWidth:cell.contentView.bounds.size.width height:cell.contentView.bounds.size.height bubble:inputs[@"bubble"] occupied:inputs[@"occupied"] idealWidth:ceil(size.width)];
+    binding.markerGeometry=@{@"layout":layout,@"bubble":inputs[@"bubble"]?:@{},@"cellWidth":@(cell.contentView.bounds.size.width),@"cellHeight":@(cell.contentView.bounds.size.height)};
+    BOOL hidden=[layout[@"style"] isEqual:@"hidden"];binding.label.hidden=hidden;if(hidden)return;
+    if([layout[@"style"] isEqual:@"compact"]){
+        binding.label.numberOfLines=2;binding.label.font=[UIFont systemFontOfSize:9];
+        binding.label.text=[NSString stringWithFormat:@"已撤回\n%@",time.length>=5?[time substringToIndex:5]:time];
+    }
+    binding.label.accessibilityLabel=fullText;
+    CGRect frame=CGRectMake([layout[@"x"] doubleValue],[layout[@"y"] doubleValue],[layout[@"width"] doubleValue],[layout[@"height"] doubleValue]);
+    if(!CGRectEqualToRect(binding.label.frame,frame))binding.label.frame=frame;
+    [cell.contentView bringSubviewToFront:binding.label];
+}
++ (id)mediaPathForUIMessage:(id)message original:(id)original {
+    if(![self enabled])return original;
+    DKXSRecallUIReference *reference=objc_getAssociatedObject(message,@selector(mediaPathForUIMessage:original:));
+    if(![reference.account isEqual:[self shared].account])return original;
+    if([original isKindOfClass:NSString.class] && [original length]){
+        NSString *saved=reference.media[[original stringByStandardizingPath]];
+        return [saved isKindOfClass:NSString.class]?saved:original;
+    }
+    // 原生已清掉路径时，只在已确认的消息种类中选唯一匹配的真实副本，不把视频封面当视频。
+    NSString *type=NSStringFromClass(object_getClass(message));NSArray *extensions=nil;
+    if([type containsString:@"ImageMessage"])extensions=@[@"jpg",@"jpeg",@"png",@"gif",@"webp",@"heic"];
+    else if([type containsString:@"AudioMessage"])extensions=@[@"m4a",@"mp3",@"aac",@"amr",@"wav",@"caf"];
+    else if([type containsString:@"VideoMessage"])extensions=@[@"mp4",@"mov"];
+    NSString *only=nil;
+    for(NSString *path in reference.media.allValues)if([extensions containsObject:path.pathExtension.lowercaseString]){if(only && ![only isEqual:path])return original;only=path;}
+    return only?:original;
+}
++ (id)mediaPathsForUIMessage:(id)message original:(id)original {
+    if(![self enabled] || (original && ![original isKindOfClass:NSDictionary.class]))return original;
+    DKXSRecallUIReference *reference=objc_getAssociatedObject(message,@selector(mediaPathForUIMessage:original:));
+    if(![reference.account isEqual:[self shared].account])return original;
+    NSMutableDictionary *result=nil;
+    for(id key in original){id value=original[key];id saved=[self mediaPathForUIMessage:message original:value];if(saved!=value){if(!result)result=[original mutableCopy];result[key]=saved;}}
+    // 仅恢复原生曾提供过的fileID到路径映射；没有原生键名时保持未知，不编造文件标识。
+    for(NSString *key in reference.pathMap){
+        NSString *source=reference.pathMap[key];NSString *saved=reference.media[source.stringByStandardizingPath];
+        if(saved && !original[key]){if(!result)result=[original mutableCopy]?:[NSMutableDictionary dictionary];result[key]=saved;}
+    }
+    return result.count?result:original;
+}
++ (void)mediaDownloadCompleted:(id)model {
+    if(![self enabled])return;
+    // 真实下载完成事件才补查可见消息的文件路径，不用定时扫描或每帧磁盘重试。
+    dispatch_async(dispatch_get_main_queue(),^{for(UITableViewCell *cell in [self shared].cells.allObjects){
+        DKXSRecallCellBinding *binding=objc_getAssociatedObject(cell,@selector(captureCell:));binding.requested=NO;[self captureCell:cell];
+    }});
+}
++ (void)controllerAppeared:(UIViewController *)controller {
+    if(!NSThread.isMainThread)return;[self shared].account=[DKXSIMService capturedAccountID];
+    UITableView *table=[self object:controller selector:@"tableView"];if(![table isKindOfClass:UITableView.class])return;
+    for(UITableViewCell *cell in table.visibleCells)[self captureCell:cell];
+}
+#pragma mark - 设置与诊断
+#pragma mark - 设置行（第 9 批设置登记调用；上游的设置行构建方法不移植，行改由 DKSettingsRegister 登记）
++ (NSString *)statusText {
+   return [self shared].status ?: @"";
+}
+// 状态行：点一下刷新留存统计（格式与上游一致）。
++ (void)updateStatusRow:(AWESettingItemModel *)item {
+   if (!item) return;
+   NSString *account = [DKXSIMService capturedAccountID];
+   [[self shared].store statisticsForAccount:account completion:^(NSDictionary *stats) {
+       [self shared].statistics = stats;
+       dispatch_async(dispatch_get_main_queue(), ^{
+           item.detail = [NSString stringWithFormat:@"%@条记录 / %@条撤回 / %.1fMB", stats[@"records"] ?: @0, stats[@"recalled"] ?: @0, [stats[@"mediaBytes"] doubleValue] / 1048576];
+           [item refreshCell];
+       });
+   }];
+}
+// 清理行：系统弹窗确认（DYxs 惯例，不用上游的底部弹窗），仅删本插件副本。
++ (void)clearCurrentAccountFromPresenter:(UIViewController *)presenter statusRow:(AWESettingItemModel *)item {
+   NSString *account = [DKXSIMService capturedAccountID];
+   if (!account.length) { [DKXSUtils showToast:@"当前账号未登录"]; return; }
+   UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"清理当前账号留存" message:@"将删除本插件保存的消息快照和媒体副本。抖音原消息不受影响。" preferredStyle:UIAlertControllerStyleAlert];
+   [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+   [alert addAction:[UIAlertAction actionWithTitle:@"清理" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+       DKXSRecallCoordinator *coordinator = [self shared];
+       coordinator.generation++;
+       [coordinator.cache removeAllObjects];
+       for (DKXSRecallUIReference *reference in coordinator.uiReferences) if ([reference.account isEqual:account]) reference.media = nil;
+       [coordinator.store clearAccount:account completion:^(BOOL success) {
+           dispatch_async(dispatch_get_main_queue(), ^{
+               coordinator.status = success ? @"当前账号留存已清理" : @"清理失败，原副本保留";
+               for (UITableViewCell *cell in coordinator.cells) [self refreshCell:cell];
+               [DKXSUtils showToast:coordinator.status];
+               if (item) { item.detail = coordinator.status; [item refreshCell]; }
+           });
+       }];
+   }]];
+   UIViewController *host = presenter ?: [[DKXSUtils getActiveWindow] rootViewController];
+   [host presentViewController:alert animated:YES completion:nil];
+}
+@end
