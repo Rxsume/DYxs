@@ -1,46 +1,27 @@
-// 移植自 Si-yi/DYads- f07ddb5（DYYYMessageListStyle.m）：改名一律 DYYY -> DKXS，设置键同步改名，逻辑原样；
+// 移植自 Si-yi/DYads- cbc2d5a（DYYYMessageListStyle.m）：改名一律 DYYY -> DKXS，设置键同步改名，逻辑原样；
 // 适配见各文件内注释（DYxs 已有实现复用 / 上游已删模块不移植）。
 #import "DKXSMessageListStyle.h"
 #import "DKXSMessageListCardView.h"
 #import "DKXSMessageListMetrics.h"
+#import "DKXSMessageListUpdateState.h"
+#import "DKXSInteractionNoticeStyle.h"
+#import "DKXSMessageListViewport.h"
+#import "DKXSRefreshIndicatorStyle.h"
+#import "DKXSMessageListStateStore.h"
+#include <string.h>
+#include <math.h>
 #import "DKXSChatEnhancementPolicy.h"
 #import "DKXSUtils.h"
 #import "DKXSAwemeHeaders.h"
 #import <objc/runtime.h>
-
-@interface DKXSMessageCardState : NSObject
-@property (nonatomic, strong) UIView *nativeBackground;
-@property (nonatomic, strong) UIView *nativeSelected;
-@property (nonatomic, strong) DKXSMessageListCardView *background;
-@property (nonatomic, strong) DKXSMessageListCardView *selected;
-@property (nonatomic, strong) NSMapTable<UIView *, id> *fills;
-@property (nonatomic, strong) NSMapTable<UIView *, NSDictionary *> *masks;
-@property (nonatomic, strong) NSMapTable<UIView *, NSDictionary *> *translations;
-@property (nonatomic, weak) UIView *line;
-@property (nonatomic) BOOL lineHidden;
-@property (nonatomic) BOOL busy;
-@property (nonatomic, copy) NSString *kind;
-@end
-@implementation DKXSMessageCardState @end
-
-@interface DKXSMessageHeaderState : NSObject
-@property (nonatomic, strong) UIVisualEffectView *left;
-@property (nonatomic, strong) UIVisualEffectView *right;
-@property (nonatomic, strong) NSMapTable<UIView *, id> *fills;
-@property (nonatomic, weak) UIView *line;
-@property (nonatomic, weak) UIView *leftAnchor;
-@property (nonatomic, weak) UIView *rightAnchor;
-@property (nonatomic, copy) NSArray<NSLayoutConstraint *> *constraints;
-@property (nonatomic) BOOL lineHidden;
-@property (nonatomic) BOOL nativeOpaque;
-@property (nonatomic) BOOL pending;
-@property (nonatomic) BOOL busy;
-@end
-@implementation DKXSMessageHeaderState @end
+#import <QuartzCore/QuartzCore.h>
 
 // 最小接口声明：DKXSAwemeHeaders（39.5 导出）里的 AWEIMChatListViewController 是空接口、
 // AWEIMChatListCommonCell 只有 renderWithHolder:；上游 DYads- 的 AwemeHeaders.h 则声明了
 // tableView/chatList 与 AWEIMChatCellViewModel.chat。本文件直接调用的方法在此补充（不用 DouyinHeaders）。
+// 另补本次新增调用：AWEIMChatCellRecommendChatLIView.lightInteractionBtn、
+// AWEIMFansAndInteractMergeViewControllerNaviBar 的 itemViews/currentSelectedIndex/indicatorView、
+// AWEIMFansAndInteractMergeViewController.fansViewController、UITableViewCellContentView。
 @interface AWEIMChatModel : NSObject
 @property (nonatomic, assign, readonly) BOOL stickOnTop;
 @property (nonatomic, copy, readonly) NSString *name;
@@ -58,6 +39,100 @@
 @property (nonatomic, strong, readonly) UITableView *tableView;
 @property (nonatomic, strong) NSArray *chatList;
 @end
+@interface AWEIMChatCellRecommendChatLIView : UIView
+@property (nonatomic, strong, readonly) UIButton *lightInteractionBtn;
+@end
+@interface AWEIMFansAndInteractMergeViewControllerNaviBar : UIView
+@property (nonatomic, strong, readonly) NSArray<UIView *> *itemViews;
+@property (nonatomic, assign, readonly) long long currentSelectedIndex;
+@property (nonatomic, strong, readonly) UIView *indicatorView;
+- (void)setSelectedIndex:(long long)index;
+@end
+@interface AWEIMFansAndInteractMergeViewController : UIViewController
+@property (nonatomic, strong, readonly) UIViewController *fansViewController;
+@end
+@interface UITableViewCellContentView : UIView
+@end
+
+@interface DKXSMessageCardState : NSObject
+@property (nonatomic, strong) UIView *nativeBackground;
+@property (nonatomic, strong) UIView *nativeSelected;
+@property (nonatomic, strong) DKXSMessageListCardView *background;
+@property (nonatomic, strong) DKXSMessageListCardView *selected;
+@property (nonatomic, strong) NSMapTable<UIView *, id> *fills;
+@property (nonatomic, strong) NSMapTable<UIView *, NSDictionary *> *masks;
+@property (nonatomic, weak) UIView *line;
+@property (nonatomic) BOOL lineHidden;
+@property (nonatomic) BOOL busy;
+@property (nonatomic, copy) NSString *kind;
+@end
+@implementation DKXSMessageCardState @end
+
+@interface DKXSMessageContentState : NSObject
+@property (nonatomic, weak) UIView *view;
+@property (nonatomic, weak) UITableViewCell *cell;
+@property (nonatomic, strong) DKXSMessageListUpdateState *updates;
+@property (nonatomic) CGAffineTransform nativeTransform;
+@property (nonatomic) CGAffineTransform appliedTransform;
+@property (nonatomic) CGRect nativeFrame;
+@property (nonatomic) CGRect displayedFrame;
+@property (nonatomic) CGFloat scale;
+@property (nonatomic) CGFloat topPadding;
+@property (nonatomic) CGFloat bottomPadding;
+@property (nonatomic) CGFloat verticalShift;
+@property (nonatomic) BOOL active;
+@property (nonatomic) BOOL applied;
+@property (nonatomic) BOOL busy;
+@property (nonatomic, copy) NSString *decision;
+@end
+@implementation DKXSMessageContentState @end
+@interface DKXSMessageContentToken : NSObject
+@property (nonatomic, strong) DKXSMessageContentState *state;
+@property (nonatomic, weak) UIView *view;
+@property (nonatomic) NSUInteger generation;
+@end
+@implementation DKXSMessageContentToken @end
+
+
+@interface DKXSMessageLightState : NSObject
+@property (nonatomic, weak) UIButton *button;
+@property (nonatomic, strong) CALayer *nativeMask;
+@property (nonatomic, strong) CAShapeLayer *mask;
+@property (nonatomic) UIEdgeInsets nativeInsets;
+@property (nonatomic) UIEdgeInsets appliedInsets;
+@property (nonatomic) BOOL busy;
+@end
+@implementation DKXSMessageLightState @end
+
+@interface DKXSMessageHeaderState : NSObject
+@property (nonatomic, strong) UIVisualEffectView *left;
+@property (nonatomic, strong) UIVisualEffectView *right;
+@property (nonatomic, strong) UIVisualEffectView *actions;
+@property (nonatomic, weak) UILabel *redundantTitle;
+@property (nonatomic) BOOL titleHidden;
+@property (nonatomic, strong) NSMapTable<UIView *, NSNumber *> *hiddenViews;
+@property (nonatomic, weak) UIView *bar;
+@property (nonatomic, weak) UIView *plate;
+@property (nonatomic, weak) UIView *noticeActions;
+@property (nonatomic) CGAffineTransform plateNativeTransform;
+@property (nonatomic) CGAffineTransform plateAppliedTransform;
+@property (nonatomic) BOOL plateApplied;
+@property (nonatomic) BOOL auxiliary;
+@property (nonatomic, strong) NSMapTable<UIView *, id> *fills;
+@property (nonatomic, weak) UIView *line;
+@property (nonatomic) BOOL notice;
+@property (nonatomic) CGRect leftRect;
+@property (nonatomic, weak) UIView *indicator;
+@property (nonatomic) BOOL indicatorHidden;
+@property (nonatomic, weak) UIView *leftAnchor;
+@property (nonatomic, weak) UIView *rightAnchor;
+@property (nonatomic, copy) NSArray<NSLayoutConstraint *> *constraints;
+@property (nonatomic) BOOL lineHidden;
+@property (nonatomic) BOOL nativeOpaque;
+@property (nonatomic) BOOL pending;
+@property (nonatomic) BOOL busy;
+@end
+@implementation DKXSMessageHeaderState @end
 
 @implementation DKXSMessageListStyle
 // 顶栏毛玻璃本地实现（抄上游 DYYYChatChrome 的 glass:/placeGlass: 做法；DYxs 不移植 ChatChrome，
@@ -107,7 +182,6 @@ static char kDKXSMessageListMaterialKey;
     if(ready)return YES;
     Class cell=NSClassFromString(@"AWEIMChatListCommonCell"),vm=NSClassFromString(@"AWEIMChatCellViewModel"),chat=NSClassFromString(@"AWEIMChatModel");
     ready = [DKXSChatEnhancementPolicy class:cell selector:@selector(cellViewModel) result:'@' arguments:@""] &&
-        [DKXSChatEnhancementPolicy class:cell selector:@selector(avatarContainer) result:'@' arguments:@""] &&
         [DKXSChatEnhancementPolicy class:vm selector:@selector(chat) result:'@' arguments:@""] &&
         [DKXSChatEnhancementPolicy class:chat selector:@selector(stickOnTop) result:'B' arguments:@""] &&
         [DKXSChatEnhancementPolicy class:chat selector:@selector(name) result:'@' arguments:@""] &&
@@ -127,6 +201,73 @@ static char kDKXSMessageListMaterialKey;
         [@[@"互动消息",@"互动通知"] containsObject:chat.name];
     return [DKXSMessageListMetrics kindForNotice:notice pinned:chat.stickOnTop];
 }
++ (NSMapTable *)rowPlans:(UITableView *)table create:(BOOL)create {
+    NSMapTable *plans=objc_getAssociatedObject(table,@selector(rowHeight:controller:table:indexPath:));
+    if(!plans && create){plans=[NSMapTable mapTableWithKeyOptions:NSPointerFunctionsWeakMemory|NSPointerFunctionsObjectPointerPersonality valueOptions:NSPointerFunctionsStrongMemory];objc_setAssociatedObject(table,@selector(rowHeight:controller:table:indexPath:),plans,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
+    return plans;
+}
++ (CGFloat)rowHeight:(CGFloat)native controller:(UIViewController *)candidate table:(UITableView *)table indexPath:(NSIndexPath *)path {
+    if(!NSThread.isMainThread || ![self cardsEnabled] || ![self adapterReady] || ![self contentAdapterReady] || ![candidate isKindOfClass:NSClassFromString(@"AWEIMChatListViewController")] || path.section!=0)return native;
+    AWEIMChatListViewController *owner=(id)candidate;NSArray *chats=owner.chatList;
+    if(table!=owner.tableView || ![chats isKindOfClass:NSArray.class] || path.row>=chats.count)return native;
+    NSString *kind=[self kindForChat:chats[path.row]],*previous=path.row?[self kindForChat:chats[path.row-1]]:nil,*next=path.row+1<chats.count?[self kindForChat:chats[path.row+1]]:nil;
+    NSDictionary *plan=[DKXSMessageListMetrics paddingForKind:kind previous:previous next:next nativeHeight:native];
+    if(!plan.count)return native;
+    [[self rowPlans:table create:YES] setObject:plan forKey:chats[path.row]];
+    return [plan[@"height"] doubleValue];
+}
++ (NSDictionary *)paddingForCell:(UITableViewCell *)cell {
+    AWEIMChatListViewController *owner=(id)[self owner:cell named:@"AWEIMChatListViewController"];
+    if(!owner || ![cell isKindOfClass:NSClassFromString(@"AWEIMChatListCommonCell")])return nil;
+    id chat=((AWEIMChatListCommonCell *)cell).cellViewModel.chat;
+    NSDictionary *plan=chat?[[self rowPlans:owner.tableView create:NO] objectForKey:chat]:nil;
+    return plan && fabs(cell.bounds.size.height-[plan[@"height"] doubleValue])<0.5?plan:nil;
+}
++ (UIView *)avatarInContent:(UIView *)content {
+    if(content.subviews.count>64)return nil;
+    for(UIView *view in content.subviews){
+        if(view.subviews.count>8)continue;
+        for(UIView *leaf in view.subviews)if([leaf isKindOfClass:NSClassFromString(@"AWEIMChatCellAvatarView")])return leaf;
+    }
+    return nil;
+}
++ (NSHashTable *)lightViews { static NSHashTable *t;static dispatch_once_t once;dispatch_once(&once,^{t=[NSHashTable weakObjectsHashTable];});return t; }
++ (void)resetLightInteraction:(UIView *)view {
+    if(!NSThread.isMainThread)return;
+    DKXSMessageLightState *state=objc_getAssociatedObject(view,@selector(synchronizeLightInteraction:));
+    if(!state || state.busy)return;state.busy=YES;
+    UIButton *button=state.button;
+    if(button.layer.mask==state.mask)button.layer.mask=state.nativeMask;
+    if(UIEdgeInsetsEqualToEdgeInsets(button.imageEdgeInsets,state.appliedInsets))button.imageEdgeInsets=state.nativeInsets;
+    objc_setAssociatedObject(view,@selector(synchronizeLightInteraction:),nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);[[self lightViews] removeObject:view];
+}
++ (void)synchronizeLightInteraction:(UIView *)candidate {
+    if(!NSThread.isMainThread || ![candidate isKindOfClass:NSClassFromString(@"AWEIMChatCellRecommendChatLIView")])return;
+    DKXSMessageLightState *state=objc_getAssociatedObject(candidate,@selector(synchronizeLightInteraction:));if(state.busy)return;
+    if(![self cardsEnabled] || !candidate.window || ![self owner:candidate named:@"AWEIMChatListViewController"]){[self resetLightInteraction:candidate];return;}
+    if(![candidate respondsToSelector:@selector(lightInteractionBtn)])return;
+    UIButton *button=((AWEIMChatCellRecommendChatLIView *)candidate).lightInteractionBtn;
+    if(![button isKindOfClass:UIButton.class] || button.bounds.size.width<30 || button.bounds.size.width>60 || button.bounds.size.height<30 || button.bounds.size.height>60)return;
+    if(state && state.button!=button){[self resetLightInteraction:candidate];state=nil;}
+    if(!state){
+        if(button.layer.mask)return;
+        state=[DKXSMessageLightState new];state.button=button;state.nativeMask=button.layer.mask;state.nativeInsets=button.imageEdgeInsets;state.mask=[CAShapeLayer layer];state.mask.fillColor=UIColor.blackColor.CGColor;
+        state.appliedInsets=state.nativeInsets;
+        objc_setAssociatedObject(candidate,@selector(synchronizeLightInteraction:),state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);[[self lightViews] addObject:candidate];
+    }
+    state.busy=YES;
+    @try {
+        if(!UIEdgeInsetsEqualToEdgeInsets(button.imageEdgeInsets,state.appliedInsets))state.nativeInsets=button.imageEdgeInsets;
+        state.appliedInsets=UIEdgeInsetsMake(state.nativeInsets.top+3,state.nativeInsets.left+3,state.nativeInsets.bottom+3,state.nativeInsets.right+3);
+        CGFloat diameter=MIN(button.bounds.size.width,button.bounds.size.height)*0.75;
+        CGRect circle=CGRectMake((button.bounds.size.width-diameter)/2,(button.bounds.size.height-diameter)/2,diameter,diameter);
+        [CATransaction begin];[CATransaction setDisableActions:YES];if(!CGRectEqualToRect(state.mask.frame,button.bounds))state.mask.frame=button.bounds;
+        CGPathRef path=[UIBezierPath bezierPathWithOvalInRect:circle].CGPath;
+        if(!state.mask.path || !CGPathEqualToPath(state.mask.path,path))state.mask.path=path;
+        if(button.layer.mask!=state.mask)button.layer.mask=state.mask;[CATransaction commit];
+        if(!UIEdgeInsetsEqualToEdgeInsets(button.imageEdgeInsets,state.appliedInsets))button.imageEdgeInsets=state.appliedInsets;
+    } @finally {state.busy=NO;}
+}
 + (void)clearFill:(UIView *)view state:(DKXSMessageCardState *)state {
     if(!view)return;
     UIColor *color=view.backgroundColor;
@@ -140,94 +281,143 @@ static char kDKXSMessageListMaterialKey;
     }
     [state.masks removeAllObjects];
 }
-+ (void)restoreInsets:(DKXSMessageCardState *)state {
-    for(UIView *view in state.translations.keyEnumerator.allObjects){
-        NSDictionary *saved=[state.translations objectForKey:view];
-        if(CGAffineTransformEqualToTransform(view.transform,[saved[@"applied"] CGAffineTransformValue]))view.transform=[saved[@"native"] CGAffineTransformValue];
++ (NSHashTable *)contentViews { static NSHashTable *t;static dispatch_once_t once;dispatch_once(&once,^{t=[NSHashTable weakObjectsHashTable];});return t; }
++ (BOOL)contentAdapterReady {
+    static BOOL ready;if(ready)return YES;
+    Class cls=NSClassFromString(@"UITableViewCellContentView");
+    if(![cls isSubclassOfClass:UIView.class])return NO;
+    NSDictionary *types=@{NSStringFromSelector(@selector(setFrame:)):[NSString stringWithUTF8String:@encode(CGRect)],NSStringFromSelector(@selector(setBounds:)):[NSString stringWithUTF8String:@encode(CGRect)],NSStringFromSelector(@selector(setCenter:)):[NSString stringWithUTF8String:@encode(CGPoint)],NSStringFromSelector(@selector(setTransform:)):[NSString stringWithUTF8String:@encode(CGAffineTransform)]};
+    for(NSString *name in types){
+        NSMethodSignature *signature=[cls instanceMethodSignatureForSelector:NSSelectorFromString(name)];
+        if(!signature || signature.numberOfArguments!=3 || strcmp(signature.methodReturnType,@encode(void)) || strcmp([signature getArgumentTypeAtIndex:2],[types[name] UTF8String]))return NO;
     }
-    [state.translations removeAllObjects];
-    for(UIView *view in state.masks.keyEnumerator.allObjects){
-        NSDictionary *saved=[state.masks objectForKey:view];
-        if([saved[@"background"] boolValue])continue;
-        if(view.layer.mask==saved[@"applied"])view.layer.mask=saved[@"native"]==NSNull.null?nil:saved[@"native"];
-        [state.masks removeObjectForKey:view];
-    }
+    ready=YES;return YES;
 }
-+ (void)maskView:(UIView *)view visibleWidth:(CGFloat)width background:(BOOL)background state:(DKXSMessageCardState *)state {
++ (DKXSMessageContentState *)contentState:(UIView *)view {
+    if(!NSThread.isMainThread)return nil;
+    DKXSMessageContentState *state=objc_getAssociatedObject(view,@selector(beginContentGeometry:));
+    return state.active && state.cell.contentView==view?state:nil;
+}
++ (NSDictionary *)valuesForFrame:(CGRect)frame {
+    return @{@"x":@(frame.origin.x),@"y":@(frame.origin.y),@"width":@(frame.size.width),@"height":@(frame.size.height)};
+}
++ (CGRect)nativeContentFrame:(CGRect)frame forView:(UIView *)view {
+    DKXSMessageContentState *state=[self contentState:view];
+    if(!state || state.busy || state.updates.depth || !state.applied)return frame;
+    NSDictionary *native=[DKXSMessageListMetrics nativeFrameForRequest:[self valuesForFrame:frame] previousNative:[self valuesForFrame:state.nativeFrame] previousDisplayed:[self valuesForFrame:state.displayedFrame]];
+    return CGRectMake([native[@"x"] doubleValue],[native[@"y"] doubleValue],[native[@"width"] doubleValue],[native[@"height"] doubleValue]);
+}
++ (void)applyContent:(DKXSMessageContentState *)state {
+    UIView *view=state.view;
+    if(!view || !state.active || state.busy || state.updates.depth)return;
+    NSDictionary *plan=[DKXSMessageListMetrics contentTransformForX:0 y:0 width:view.bounds.size.width height:view.bounds.size.height rowWidth:view.bounds.size.width rowHeight:view.bounds.size.height];
+    if(!plan.count){state.decision=@"unready_bounds";return;}
+    state.scale=[plan[@"scale"] doubleValue];
+    state.nativeFrame=view.frame;
+    state.nativeTransform=view.transform;
+    state.appliedTransform=CGAffineTransformScale(state.nativeTransform,state.scale,state.scale);
+    state.verticalShift=0;
+    state.busy=YES;
+    @try {[UIView performWithoutAnimation:^{
+        view.transform=state.appliedTransform;
+        if(state.topPadding || state.bottomPadding){
+            UIView *avatar=[self avatarInContent:view];
+            if(avatar){
+                CGRect rect=[avatar convertRect:avatar.bounds toView:state.cell];
+                CGFloat desired=(state.topPadding+state.cell.bounds.size.height-state.bottomPadding)/2;
+                state.verticalShift=desired-CGRectGetMidY(rect);
+                CGAffineTransform shifted=state.appliedTransform;shifted.ty+=state.verticalShift;
+                state.appliedTransform=shifted;view.transform=shifted;
+            }
+        }
+    }];}
+    @finally {state.busy=NO;}
+    state.displayedFrame=view.frame;state.applied=YES;state.decision=@"container_applied";
+}
++ (id)beginContentGeometry:(UIView *)view {
+    DKXSMessageContentState *state=[self contentState:view];
+    if(!state || state.busy)return nil;
+    BOOL outer=state.updates.depth==0;
+    NSUInteger generation=[state.updates beginUpdate];
+    if(outer && state.applied){
+        state.busy=YES;
+        @try {if(CGAffineTransformEqualToTransform(view.transform,state.appliedTransform))[UIView performWithoutAnimation:^{view.transform=state.nativeTransform;}];}
+        @finally {state.busy=NO;}
+        state.applied=NO;
+    }
+    DKXSMessageContentToken *token=[DKXSMessageContentToken new];token.state=state;token.view=view;token.generation=generation;
+    return token;
+}
++ (void)endContentGeometry:(id)candidate {
+    if(!NSThread.isMainThread || ![candidate isKindOfClass:DKXSMessageContentToken.class])return;
+    DKXSMessageContentToken *token=candidate;
+    if([self contentState:token.view]!=token.state)return;
+    if([token.state.updates endUpdate:token.generation])[self applyContent:token.state];
+}
++ (CGAffineTransform)nativeContentTransform:(CGAffineTransform)transform forView:(UIView *)view {
+    DKXSMessageContentState *state=[self contentState:view];
+    if(!state || state.busy)return transform;
+    if(state.applied && !state.updates.depth && CGAffineTransformEqualToTransform(transform,state.appliedTransform))return transform;
+    state.nativeTransform=transform;
+    if(state.updates.depth || !state.applied)return transform;
+    CGAffineTransform applied=CGAffineTransformScale(transform,state.scale,state.scale);
+    applied.ty+=state.verticalShift;state.appliedTransform=applied;
+    return state.appliedTransform;
+}
++ (void)didSetContentTransform:(UIView *)view {
+    DKXSMessageContentState *state=[self contentState:view];
+    if(!state || state.busy || state.updates.depth || !state.applied || state.scale<=0)return;
+    state.displayedFrame=view.frame;
+    // 原生变换与均匀缩放共用中心；反算只用于识别之后由显示 frame 派生的原生移动。
+    CGRect rect=view.frame;rect.origin.y-=state.verticalShift;CGFloat xInset=rect.size.width*(1/state.scale-1)/2,yInset=rect.size.height*(1/state.scale-1)/2;
+    state.nativeFrame=CGRectInset(rect,-xInset,-yInset);
+}
++ (void)resetContentView:(UIView *)view {
+    DKXSMessageContentState *state=objc_getAssociatedObject(view,@selector(beginContentGeometry:));
+    if(!state || state.busy)return;
+    [state.updates invalidate];state.active=NO;state.busy=YES;
+    @try {if(state.applied && CGAffineTransformEqualToTransform(view.transform,state.appliedTransform))[UIView performWithoutAnimation:^{view.transform=state.nativeTransform;}];}
+    @finally {state.busy=NO;}
+    objc_setAssociatedObject(view,@selector(beginContentGeometry:),nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [[self contentViews] removeObject:view];
+}
++ (void)synchronizeContent:(UITableViewCell *)cell {
+    UIView *view=cell.contentView;
+    if(![self contentAdapterReady] || ![view isKindOfClass:NSClassFromString(@"UITableViewCellContentView")])return;
+    DKXSMessageContentState *state=[self contentState:view];
+    NSDictionary *padding=[self paddingForCell:cell];
+    CGFloat top=[padding[@"top"] doubleValue],bottom=[padding[@"bottom"] doubleValue];
+    BOOL changed=state && (state.topPadding!=top || state.bottomPadding!=bottom);
+    if(state && changed){
+        id token=[self beginContentGeometry:view];state.topPadding=top;state.bottomPadding=bottom;[self endContentGeometry:token];
+    }
+    if(state){
+        if(state.busy || state.updates.depth)return;
+        if(state.applied && CGAffineTransformEqualToTransform(view.transform,state.appliedTransform)){[self didSetContentTransform:view];return;}
+    } else {
+        state=[DKXSMessageContentState new];state.view=view;state.cell=cell;state.active=YES;state.topPadding=top;state.bottomPadding=bottom;state.updates=[DKXSMessageListUpdateState new];
+        objc_setAssociatedObject(view,@selector(beginContentGeometry:),state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);[[self contentViews] addObject:view];
+    }
+    [self applyContent:state];
+}
++ (void)maskBackground:(UIView *)view state:(DKXSMessageCardState *)state {
     NSDictionary *saved=[state.masks objectForKey:view];
     if(saved && view.layer.mask!=saved[@"applied"]){[state.masks removeObjectForKey:view];saved=nil;}
     CALayer *mask=saved[@"applied"];
     if(!mask){
         if(view.layer.mask)return;
         // 原生满行底板可能在异步渲染后重写颜色。仅遮住已核对的空背景视图，不钩全局 setter。
-        mask=[CALayer layer];mask.backgroundColor=background?UIColor.clearColor.CGColor:UIColor.blackColor.CGColor;
-        [state.masks setObject:@{@"native":NSNull.null,@"applied":mask,@"background":@(background)} forKey:view];
+        mask=[CALayer layer];mask.backgroundColor=UIColor.clearColor.CGColor;
+        [state.masks setObject:@{@"native":NSNull.null,@"applied":mask,@"background":@YES} forKey:view];
         [CATransaction begin];[CATransaction setDisableActions:YES];view.layer.mask=mask;[CATransaction commit];
     }
-    CGRect rect=background?view.bounds:CGRectMake(0,0,width,view.bounds.size.height);
+    CGRect rect=view.bounds;
     if(!CGRectEqualToRect(mask.frame,rect)){[CATransaction begin];[CATransaction setDisableActions:YES];mask.frame=rect;[CATransaction commit];}
 }
-+ (void)prepareCellLayout:(UITableViewCell *)cell {
++ (void)resetCard:(UITableViewCell *)cell {
     if(!NSThread.isMainThread)return;
     DKXSMessageCardState *state=objc_getAssociatedObject(cell,@selector(synchronizeCell:));
     if(!state || state.busy)return;
-    state.busy=YES;
-    [self restoreInsets:state];
-    [self restoreMasks:state];
-    state.busy=NO;
-}
-+ (void)insetContent:(AWEIMChatListCommonCell *)cell state:(DKXSMessageCardState *)state {
-    // 39.5 异步平铺布局：只平移已确认的原生组件，保留头像比例、正文绘制、按钮和原生命中。
-    UIView *avatar=[cell respondsToSelector:@selector(avatarContainer)]?cell.avatarContainer:nil;
-    if(avatar.superview!=cell.contentView){[self restoreInsets:state];return;}
-    NSMutableArray *components=[NSMutableArray array];
-    for(UIView *view in cell.contentView.subviews){
-        if(view==state.line || view.hidden)continue;
-        if(view.class==UIView.class && !view.subviews.count && !view.layer.contents && CGRectEqualToRect(view.frame,cell.contentView.bounds))continue;
-        BOOL supported=view==avatar || [view isKindOfClass:NSClassFromString(@"IESIMAsyncDrawableView")] ||
-            [view isKindOfClass:NSClassFromString(@"AWEIMConsecutiveChatDaysWrapper")] ||
-            [view isKindOfClass:NSClassFromString(@"AWEIMChatCellRecommendChatLIView")] || view.class==UIImageView.class;
-        NSDictionary *old=[state.translations objectForKey:view];
-        BOOL owns=old && CGAffineTransformEqualToTransform(view.transform,[old[@"applied"] CGAffineTransformValue]);
-        CGAffineTransform native=owns?[old[@"native"] CGAffineTransformValue]:view.transform;
-        if(!supported || !CGAffineTransformIsIdentity(native)){[self restoreInsets:state];return;}
-        [components addObject:view];
-    }
-    NSMutableArray *placements=[NSMutableArray array];
-    for(UIView *view in components){
-        NSDictionary *old=[state.translations objectForKey:view];
-        if(old && !CGAffineTransformEqualToTransform(view.transform,[old[@"applied"] CGAffineTransformValue])){[state.translations removeObjectForKey:view];old=nil;}
-        // UIView 的 center/bounds 不随 transform 平移；由这两者取得原生矩形，不能再次扣 tx。
-        CGRect rect=CGRectMake(view.center.x-view.bounds.size.width/2,view.center.y-view.bounds.size.height/2,view.bounds.size.width,view.bounds.size.height);
-        BOOL trailing=view!=avatar && ![view isKindOfClass:NSClassFromString(@"AWEIMConsecutiveChatDaysWrapper")] && rect.origin.x>=cell.bounds.size.width*0.6;
-        CGFloat rightLimit=cell.bounds.size.width-16;
-        if(!trailing)for(UIView *other in components){
-            if(other==view || other==avatar || [other isKindOfClass:NSClassFromString(@"AWEIMConsecutiveChatDaysWrapper")])continue;
-            CGRect tail=CGRectMake(other.center.x-other.bounds.size.width/2,other.center.y-other.bounds.size.height/2,other.bounds.size.width,other.bounds.size.height);
-            if(tail.origin.x<cell.bounds.size.width*0.6 || CGRectGetMaxY(tail)<=CGRectGetMinY(rect) || CGRectGetMinY(tail)>=CGRectGetMaxY(rect))continue;
-            CGFloat gap=MAX(0,MIN(12,tail.origin.x-CGRectGetMaxX(rect)));
-            rightLimit=MIN(rightLimit,tail.origin.x-gap);
-        }
-        NSDictionary *plan=[DKXSMessageListMetrics contentPlacementForX:rect.origin.x width:rect.size.width rowWidth:cell.bounds.size.width trailing:trailing nativeRightLimit:rightLimit];
-        if(!plan.count || (!trailing && [plan[@"visibleWidth"] doubleValue]<rect.size.width && ![view isKindOfClass:NSClassFromString(@"IESIMAsyncDrawableView")])){[self restoreInsets:state];return;}
-        [placements addObject:@{@"view":view,@"plan":plan}];
-    }
-    for(NSDictionary *placement in placements){
-        UIView *view=placement[@"view"];NSDictionary *plan=placement[@"plan"];
-        NSDictionary *old=[state.translations objectForKey:view];
-        CGAffineTransform native=old?[old[@"native"] CGAffineTransformValue]:view.transform;
-        CGAffineTransform applied=CGAffineTransformTranslate(native,[plan[@"translation"] doubleValue],0);
-        if(!CGAffineTransformEqualToTransform(view.transform,applied))view.transform=applied;
-        [state.translations setObject:@{@"native":[NSValue valueWithCGAffineTransform:native],@"applied":[NSValue valueWithCGAffineTransform:applied]} forKey:view];
-        if([plan[@"visibleWidth"] doubleValue]<view.bounds.size.width && [view isKindOfClass:NSClassFromString(@"IESIMAsyncDrawableView")])
-            [self maskView:view visibleWidth:[plan[@"visibleWidth"] doubleValue] background:NO state:state];
-    }
-}
-+ (void)resetCell:(UITableViewCell *)cell {
-    if(!NSThread.isMainThread)return;
-    DKXSMessageCardState *state=objc_getAssociatedObject(cell,@selector(synchronizeCell:));
-    if(!state || state.busy)return;
-    [self prepareCellLayout:cell];
     state.busy=YES;
     if(cell.backgroundView==state.background)cell.backgroundView=state.nativeBackground;
     if(cell.selectedBackgroundView==state.selected)cell.selectedBackgroundView=state.nativeSelected;
@@ -238,6 +428,10 @@ static char kDKXSMessageListMaterialKey;
     objc_setAssociatedObject(cell,@selector(synchronizeCell:),nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [[self cells] removeObject:cell];
 }
++ (void)resetCell:(UITableViewCell *)cell {
+    if(!NSThread.isMainThread)return;
+    [self resetContentView:cell.contentView];[self resetCard:cell];
+}
 + (void)synchronizeCell:(UITableViewCell *)base {
     if(!NSThread.isMainThread || ![base isKindOfClass:NSClassFromString(@"AWEIMChatListCommonCell")])return;
     AWEIMChatListCommonCell *cell=(id)base;
@@ -245,20 +439,22 @@ static char kDKXSMessageListMaterialKey;
     if(state.busy)return;
     AWEIMChatListViewController *owner=(id)[self owner:cell named:@"AWEIMChatListViewController"];
     if(![self cardsEnabled] || !owner || !cell.window || ![self adapterReady]){[self resetCell:cell];return;}
+    [self synchronizeContent:cell];
+    for(UIView *view in cell.contentView.subviews)if([view isKindOfClass:NSClassFromString(@"AWEIMChatCellRecommendChatLIView")])[self synchronizeLightInteraction:view];
     UITableView *table=owner.tableView;
     NSIndexPath *index=[table indexPathForCell:cell];
     NSArray *chats=owner.chatList;
     if(![table isKindOfClass:UITableView.class] || ![chats isKindOfClass:NSArray.class] || !index || index.row>=chats.count ||
         [table numberOfRowsInSection:index.section]!=chats.count || table.hasUncommittedUpdates)return;
     AWEIMChatModel *chat=cell.cellViewModel.chat;
-    if(chats[index.row]!=chat){[self resetCell:cell];return;}
+    if(chats[index.row]!=chat){[self resetCard:cell];return;}
     NSString *kind=[self kindForChat:chat],*previous=index.row?[self kindForChat:chats[index.row-1]]:nil;
     NSString *next=index.row+1<chats.count?[self kindForChat:chats[index.row+1]]:nil;
     NSDictionary *segment=[DKXSMessageListMetrics segmentForKind:kind previous:previous next:next width:cell.bounds.size.width height:cell.bounds.size.height];
-    if(!segment.count){[self resetCell:cell];return;}
+    if(!segment.count){[self resetCard:cell];return;}
     if(!state){
         state=[DKXSMessageCardState new];state.nativeBackground=cell.backgroundView;state.nativeSelected=cell.selectedBackgroundView;
-        state.fills=[NSMapTable weakToStrongObjectsMapTable];state.masks=[NSMapTable weakToStrongObjectsMapTable];state.translations=[NSMapTable weakToStrongObjectsMapTable];state.background=[[DKXSMessageListCardView alloc] initWithFrame:cell.bounds];state.selected=[[DKXSMessageListCardView alloc] initWithFrame:cell.bounds];
+        state.fills=[NSMapTable weakToStrongObjectsMapTable];state.masks=[NSMapTable weakToStrongObjectsMapTable];state.background=[[DKXSMessageListCardView alloc] initWithFrame:cell.bounds];state.selected=[[DKXSMessageListCardView alloc] initWithFrame:cell.bounds];
         state.background.accessibilityIdentifier=@"DYxs.MessageGroupBackground";state.selected.accessibilityIdentifier=@"DYxs.MessageGroupSelection";
         objc_setAssociatedObject(cell,@selector(synchronizeCell:),state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);[[self cells] addObject:cell];
     }
@@ -266,7 +462,8 @@ static char kDKXSMessageListMaterialKey;
     @try {
         state.kind=kind;
         BOOL dark=[DKXSUtils isDarkMode] || cell.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
-        state.background.fillColor=dark?[UIColor colorWithWhite:0.14 alpha:1]:UIColor.secondarySystemGroupedBackgroundColor;
+        CGFloat surfaceWhite=0.125;
+        state.background.fillColor=dark?[UIColor colorWithWhite:surfaceWhite alpha:1]:UIColor.secondarySystemGroupedBackgroundColor;
         state.selected.fillColor=dark?[UIColor colorWithWhite:0.21 alpha:1]:UIColor.tertiarySystemFillColor;
         state.background.segment=segment;state.selected.segment=segment;
         if(!CGRectEqualToRect(state.background.frame,cell.bounds))state.background.frame=cell.bounds;
@@ -274,13 +471,13 @@ static char kDKXSMessageListMaterialKey;
         if(cell.backgroundView!=state.background)cell.backgroundView=state.background;
         if(cell.selectedBackgroundView!=state.selected)cell.selectedBackgroundView=state.selected;
         [self clearFill:cell state:state];[self clearFill:cell.contentView state:state];
+        CGFloat nativeHeight=[[self paddingForCell:cell][@"nativeHeight"] doubleValue];
         for(UIView *view in cell.contentView.subviews)
-            if(view.class==UIView.class && !view.subviews.count && !view.layer.contents && !view.layer.sublayers.count && CGRectEqualToRect(view.frame,cell.contentView.bounds))
-                [self maskView:view visibleWidth:0 background:YES state:state];
+            if(view.class==UIView.class && !view.subviews.count && !view.layer.contents && !view.layer.sublayers.count && (CGRectEqualToRect(view.frame,cell.contentView.bounds) || (nativeHeight>0 && view.frame.origin.x==0 && view.frame.origin.y==0 && view.frame.size.width==cell.contentView.bounds.size.width && fabs(view.frame.size.height-nativeHeight)<0.5)))
+                [self maskBackground:view state:state];
         UIView *line=cell.horizontalLine;
         if(line!=state.line){state.line=line;state.lineHidden=line.hidden;}
         if(!line.hidden)line.hidden=YES;
-        [self insetContent:cell state:state];
     } @finally {state.busy=NO;}
 }
 + (void)synchronizeController:(UIViewController *)controller {
@@ -288,23 +485,25 @@ static char kDKXSMessageListMaterialKey;
     [[self controllers] addObject:controller];
     UITableView *table=((AWEIMChatListViewController *)controller).tableView;
     if(![table isKindOfClass:UITableView.class])return;
-    NSNumber *separator=objc_getAssociatedObject(table,@selector(synchronizeController:));
+    NSNumber *separator=[DKXSMessageListStateStore separatorForObject:table];
     if([self cardsEnabled] && [self adapterReady]){
-        if(!separator)objc_setAssociatedObject(table,@selector(synchronizeController:),@(table.separatorStyle),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if(!separator)[DKXSMessageListStateStore setSeparator:@(table.separatorStyle) forObject:table];
         if(table.separatorStyle!=UITableViewCellSeparatorStyleNone)table.separatorStyle=UITableViewCellSeparatorStyleNone;
     } else if(separator){
         if(table.separatorStyle==UITableViewCellSeparatorStyleNone)table.separatorStyle=separator.integerValue;
-        objc_setAssociatedObject(table,@selector(synchronizeController:),nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [DKXSMessageListStateStore setSeparator:nil forObject:table];
     }
+    [DKXSMessageListViewport synchronizeController:controller];
     for(UITableViewCell *cell in table.visibleCells)[self synchronizeCell:cell];
 }
 // 顶栏颜色与玻璃分别保存；原生后续换肤仍通过专用导航栏 setter 记录原值。
 + (DKXSMessageHeaderState *)headerState:(UIView *)bar create:(BOOL)create {
     DKXSMessageHeaderState *state=objc_getAssociatedObject(bar,@selector(synchronizeBar:));
     if(!state && create){
-        state=[DKXSMessageHeaderState new];state.fills=[NSMapTable weakToStrongObjectsMapTable];state.nativeOpaque=bar.opaque;
+        state=[DKXSMessageHeaderState new];state.bar=bar;state.hiddenViews=[NSMapTable weakToStrongObjectsMapTable];state.fills=[NSMapTable weakToStrongObjectsMapTable];state.nativeOpaque=bar.opaque;
         state.left=[self dkxs_glassBackgroundWithIdentifier:@"DYxs.MessageListLeftGlass"];
         state.right=[self dkxs_glassBackgroundWithIdentifier:@"DYxs.MessageListRightGlass"];
+        state.actions=[self dkxs_glassBackgroundWithIdentifier:@"DYxs.NoticeActionsGlass"];
         objc_setAssociatedObject(bar,@selector(synchronizeBar:),state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);[[self bars] addObject:bar];
     }
     return state;
@@ -312,26 +511,33 @@ static char kDKXSMessageListMaterialKey;
 + (void)restoreHeader:(UIView *)bar state:(DKXSMessageHeaderState *)state {
     if(!state || state.busy)return;
     state.busy=YES;
+    [self restoreNoticePlate:state];
+    for(UIView *view in state.hiddenViews.keyEnumerator.allObjects)if(view.hidden)view.hidden=[[state.hiddenViews objectForKey:view] boolValue];
     [NSLayoutConstraint deactivateConstraints:state.constraints];
-    [state.left removeFromSuperview];[state.right removeFromSuperview];
+    [state.left removeFromSuperview];[state.right removeFromSuperview];[state.actions removeFromSuperview];
+    if(state.redundantTitle.hidden)state.redundantTitle.hidden=state.titleHidden;
     for(UIView *view in state.fills.keyEnumerator.allObjects)if(!view.backgroundColor || CGColorGetAlpha(view.backgroundColor.CGColor)==0){
         id saved=[state.fills objectForKey:view];view.backgroundColor=saved==NSNull.null?nil:saved;
     }
     if(!bar.opaque)bar.opaque=state.nativeOpaque;
     if(state.line.hidden)state.line.hidden=state.lineHidden;
+    if(state.indicator.hidden)state.indicator.hidden=state.indicatorHidden;
     objc_setAssociatedObject(bar,@selector(synchronizeBar:),nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [[self bars] removeObject:bar];
     state.busy=NO;
 }
++ (BOOL)hasTopOwner:(UIView *)bar {
+    return [self owner:bar named:@"AWEIMMessageTabViewController"] || [self owner:bar named:@"AWEIMFansAndInteractMergeViewController"];
+}
 + (UIColor *)nativeBackgroundColor:(UIColor *)color forBar:(UIView *)bar {
-    if(!NSThread.isMainThread || ![self topEnabled] || ![self owner:bar named:@"AWEIMMessageTabViewController"])return color;
+    if(!NSThread.isMainThread || ![self topEnabled] || ![self hasTopOwner:bar])return color;
     DKXSMessageHeaderState *state=[self headerState:bar create:YES];
     if(state.busy)return color;
     [state.fills setObject:color?:NSNull.null forKey:bar];
     return UIColor.clearColor;
 }
 + (BOOL)nativeOpaque:(BOOL)opaque forBar:(UIView *)bar {
-    if(!NSThread.isMainThread || ![self topEnabled] || ![self owner:bar named:@"AWEIMMessageTabViewController"])return opaque;
+    if(!NSThread.isMainThread || ![self topEnabled] || ![self hasTopOwner:bar])return opaque;
     DKXSMessageHeaderState *state=[self headerState:bar create:YES];
     if(state.busy)return opaque;
     state.nativeOpaque=opaque;
@@ -343,19 +549,131 @@ static char kDKXSMessageListMaterialKey;
     if(![state.fills objectForKey:view] || (color && CGColorGetAlpha(color.CGColor)>0))[state.fills setObject:color?:NSNull.null forKey:view];
     if(color && CGColorGetAlpha(color.CGColor)>0)view.backgroundColor=UIColor.clearColor;
 }
++ (CGRect)noticeBackFrame:(UIView *)left carrier:(UIView *)carrier {
+    CGRect ink=CGRectNull;NSMutableArray *pending=[NSMutableArray arrayWithObject:left];NSUInteger visited=0;
+    while(pending.count && visited++<64){
+        UIView *view=pending.lastObject;[pending removeLastObject];if(view.hidden || view.alpha<=0.01)continue;
+        if(([view isKindOfClass:UILabel.class] || [view isKindOfClass:UIImageView.class]) && view.bounds.size.width>0 && view.bounds.size.height>0){
+            CGRect frame=[view convertRect:view.bounds toView:carrier];ink=CGRectIsNull(ink)?frame:CGRectUnion(ink,frame);
+        }
+        if(pending.count+view.subviews.count<=64)[pending addObjectsFromArray:view.subviews];
+    }
+    if(CGRectIsNull(ink))ink=left.frame;
+    CGFloat width=MIN(76,MAX(44,ink.size.width+16));
+    return CGRectMake(MAX(8,CGRectGetMidX(ink)-width/2),(carrier.bounds.size.height-40)/2,width,40);
+}
++ (UIView *)selectedNoticeItem:(UIView *)plate {
+    Class cls=NSClassFromString(@"AWEIMFansAndInteractMergeViewControllerNaviBar");
+    if(![DKXSChatEnhancementPolicy class:cls selector:@selector(itemViews) result:'@' arguments:@""] || ![DKXSChatEnhancementPolicy class:cls selector:@selector(currentSelectedIndex) result:'q' arguments:@""])return nil;
+    AWEIMFansAndInteractMergeViewControllerNaviBar *tabs=(id)plate;NSArray *items=tabs.itemViews;long long index=tabs.currentSelectedIndex;
+    if(![items isKindOfClass:NSArray.class] || index<0 || (NSUInteger)index>=items.count)return nil;
+    UIView *item=items[(NSUInteger)index];return [item isKindOfClass:UIView.class] && [item isDescendantOfView:plate]?item:nil;
+}
++ (void)hideHeaderView:(UIView *)view state:(DKXSMessageHeaderState *)state {
+    if(!view)return;if(![state.hiddenViews objectForKey:view])[state.hiddenViews setObject:@(view.hidden) forKey:view];if(!view.hidden)view.hidden=YES;
+}
++ (AWENavigationBar *)outerNoticeBarForFansBar:(UIView *)bar {
+    if(![self owner:bar named:@"AWEIMFansContainerViewController"])return nil;
+    UIViewController *merge=[self owner:bar named:@"AWEIMFansAndInteractMergeViewController"];
+    for(UIView *view in merge.viewIfLoaded.subviews)if(view!=bar && [view isKindOfClass:NSClassFromString(@"AWENavigationBar")]){
+        for(UIView *item in ((AWENavigationBar *)view).contentView.subviews)if([item isKindOfClass:NSClassFromString(@"AWEIMFansAndInteractMergeViewControllerNaviBar")])return (id)view;
+    }return nil;
+}
++ (UIView *)fansActionsForOuterBar:(UIView *)bar {
+    UIViewController *owner=[self owner:bar named:@"AWEIMFansAndInteractMergeViewController"];
+    if(![DKXSChatEnhancementPolicy class:owner.class selector:@selector(fansViewController) result:'@' arguments:@""])return nil;
+    // 直接读取原生关注页。不能让互动页的深层控制器耗尽遍历预算而漏掉同级关注页。
+    UIViewController *fans=((AWEIMFansAndInteractMergeViewController *)owner).fansViewController;
+    if(![fans isKindOfClass:NSClassFromString(@"AWEIMFansContainerViewController")] || !fans.isViewLoaded)return nil;
+    for(UIView *view in fans.viewIfLoaded.subviews)if([view isKindOfClass:NSClassFromString(@"AWENavigationBar")]){
+        UIView *actions=((AWENavigationBar *)view).rightBtnsContainerView;
+        if(actions.window==bar.window && !actions.hidden && actions.bounds.size.width>0 && actions.bounds.size.width<=120)return actions;
+    }return nil;
+}
++ (void)synchronizeFansBar:(AWENavigationBar *)bar outer:(AWENavigationBar *)outer {
+    DKXSMessageHeaderState *state=[self headerState:bar create:NO];if(state.busy)return;
+    UIView *carrier=bar.contentView,*actions=bar.rightBtnsContainerView;
+    if(![self topEnabled] || !outer.window || !bar.window || actions.superview!=carrier || actions.bounds.size.width<=0 || actions.bounds.size.width>120){[self restoreHeader:bar state:state];return;}
+    state=[self headerState:bar create:YES];state.busy=YES;state.auxiliary=YES;state.notice=YES;
+    @try {
+        [self clearHeaderFill:bar state:state];[self clearHeaderFill:carrier state:state];[self clearHeaderFill:actions state:state];if(bar.opaque)bar.opaque=NO;
+        // 关注子页另有 titleView/默认 titleLabel 和返回。只保留外层双标签与返回。
+        for(UIView *view in carrier.subviews)if([view isKindOfClass:UILabel.class] || [view isKindOfClass:NSClassFromString(@"AWEIMNavigationUnreadView")])[self hideHeaderView:view state:state];
+        UIView *title=bar.titleView;if([title isKindOfClass:UILabel.class] && title!=carrier && [title isDescendantOfView:carrier])[self hideHeaderView:title state:state];
+        [self hideHeaderView:bar.bottomLineView state:state];
+        CGRect rect=[actions convertRect:actions.bounds toView:carrier];rect.origin.y=(carrier.bounds.size.height-40)/2;rect.size.height=40;
+        [self dkxs_placeGlassBackground:state.actions frame:rect inView:carrier];
+        state.rightAnchor=actions;
+    } @finally {state.busy=NO;}
+    [self synchronizeBar:outer];[self scheduleBarSynchronization:outer];
+}
++ (void)restoreNoticePlate:(DKXSMessageHeaderState *)state {
+    if(state.plateApplied && CGAffineTransformEqualToTransform(state.plate.transform,state.plateAppliedTransform))state.plate.transform=state.plateNativeTransform;
+    if(objc_getAssociatedObject(state.plate,@selector(beginNoticePlateFrame:))==state)objc_setAssociatedObject(state.plate,@selector(beginNoticePlateFrame:),nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    state.plateApplied=NO;state.plate=nil;state.noticeActions=nil;
+}
++ (id)beginNoticePlateFrame:(UIView *)plate {
+    if(!NSThread.isMainThread)return nil;DKXSMessageHeaderState *state=objc_getAssociatedObject(plate,@selector(beginNoticePlateFrame:));if(!state || state.busy)return nil;
+    state.busy=YES;if(state.plateApplied && CGAffineTransformEqualToTransform(plate.transform,state.plateAppliedTransform))plate.transform=state.plateNativeTransform;state.plateApplied=NO;return state;
+}
++ (void)endNoticePlateFrame:(id)token {
+    if(![token isKindOfClass:DKXSMessageHeaderState.class])return;DKXSMessageHeaderState *state=token;state.busy=NO;
+    if([self headerState:state.bar create:NO]==state)[self synchronizeBar:state.bar];
+}
++ (CGFloat)noticeTitleLeft:(UIView *)plate carrier:(UIView *)carrier {
+    NSArray *items=((AWEIMFansAndInteractMergeViewControllerNaviBar *)plate).itemViews;UIView *first=items.firstObject;
+    if(![first isKindOfClass:UIView.class])return NAN;
+    NSMutableArray *pending=[NSMutableArray arrayWithObject:first];NSUInteger visited=0;CGFloat left=CGFLOAT_MAX;
+    while(pending.count && visited++<48){UIView *view=pending.lastObject;[pending removeLastObject];if(view.hidden || view.alpha<=0.01)continue;
+        if([view isKindOfClass:UILabel.class] && view.bounds.size.width>20)left=MIN(left,CGRectGetMinX([view convertRect:view.bounds toView:carrier]));
+        if(pending.count+view.subviews.count<=48)[pending addObjectsFromArray:view.subviews];
+    }return left==CGFLOAT_MAX?NAN:left;
+}
++ (void)positionNoticePlate:(UIView *)plate carrier:(UIView *)carrier leftRect:(CGRect)leftRect state:(DKXSMessageHeaderState *)state {
+    if(state.plate!=plate){[self restoreNoticePlate:state];state.plate=plate;state.plateNativeTransform=plate.transform;}
+    else if(!state.plateApplied || !CGAffineTransformEqualToTransform(plate.transform,state.plateAppliedTransform))state.plateNativeTransform=plate.transform;
+    AWEIMFansAndInteractMergeViewControllerNaviBar *tabs=(id)plate;
+    UIView *actions=tabs.currentSelectedIndex==1?[self fansActionsForOuterBar:state.bar]:nil;
+    CGFloat oldShift=state.plateApplied?state.plateAppliedTransform.tx-state.plateNativeTransform.tx:0;
+    UIView *selected=[self selectedNoticeItem:plate];CGRect selectedRect=[selected convertRect:selected.bounds toView:carrier];
+    CGFloat actionsLeft=carrier.bounds.size.width;
+    if(actions){
+        // 同宽原生子导航栏的最终栏位不随分页转场的中间 contentOffset 摆动。
+        BOOL sameCarrier=fabs(actions.superview.bounds.size.width-carrier.bounds.size.width)<0.5 && CGAffineTransformIsIdentity(actions.transform);
+        actionsLeft=sameCarrier?CGRectGetMinX(actions.frame):CGRectGetMinX([actions convertRect:actions.bounds toView:carrier]);
+    }
+    NSDictionary *plan=[DKXSMessageListMetrics noticeHeaderShiftForBackRight:CGRectGetMaxX(leftRect) titleLeft:[self noticeTitleLeft:plate carrier:carrier]-oldShift selectedCenter:CGRectGetMidX(selectedRect)-oldShift glassWidth:116 actionsLeft:actionsLeft width:carrier.bounds.size.width];
+    CGFloat shift=actions?[plan[@"translationX"] doubleValue]:0;
+    CGAffineTransform applied=state.plateNativeTransform;applied.tx+=shift;
+    state.plateAppliedTransform=applied;state.plateApplied=YES;state.noticeActions=actions;
+    objc_setAssociatedObject(plate,@selector(beginNoticePlateFrame:),state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [UIView performWithoutAnimation:^{if(!CGAffineTransformEqualToTransform(plate.transform,applied))plate.transform=applied;}];
+}
++ (NSUInteger)actualHiddenHeaderViews:(DKXSMessageHeaderState *)state {
+    NSUInteger count=0;for(UIView *view in state.hiddenViews.keyEnumerator.allObjects)if(view.hidden)count++;return count;
+}
++ (BOOL)passThroughNoticeActions:(CGPoint)point bar:(UIView *)bar {
+    if(!NSThread.isMainThread)return NO;DKXSMessageHeaderState *state=[self headerState:bar create:NO];UIView *actions=state.noticeActions;
+    return state.notice && !state.auxiliary && actions.window==bar.window && actions.window && !actions.hidden && actions.userInteractionEnabled && CGRectContainsPoint(actions.bounds,[bar convertPoint:point toView:actions]);
+}
 + (void)synchronizeBar:(UIView *)candidate {
     if(!NSThread.isMainThread || ![candidate isKindOfClass:NSClassFromString(@"AWENavigationBar")])return;
     AWENavigationBar *bar=(id)candidate;
     DKXSMessageHeaderState *state=[self headerState:bar create:NO];
     if(state.busy)return;
-    if(![self topEnabled] || ![self owner:bar named:@"AWEIMMessageTabViewController"] || !bar.window){[self restoreHeader:bar state:state];return;}
-    UIView *carrier=bar.contentView,*left=nil,*right=bar.rightBtnsContainerView;
+    if(![self topEnabled] || ![self hasTopOwner:bar] || !bar.window){[self restoreHeader:bar state:state];return;}
+    AWENavigationBar *outer=[self outerNoticeBarForFansBar:bar];
+    if(outer){[self synchronizeFansBar:bar outer:outer];return;}
+    BOOL notice=[self owner:bar named:@"AWEIMFansAndInteractMergeViewController"]!=nil;
+    UIView *carrier=bar.contentView,*left=nil,*right=notice?nil:bar.rightBtnsContainerView;
     if(!carrier || carrier.bounds.size.height<32 || carrier.bounds.size.height>64){[self restoreHeader:bar state:state];return;}
-    for(UIView *view in carrier.subviews)
-        if([view isKindOfClass:NSClassFromString(@"AWEIMMessageTabExpandedHitContainerView")])left=view;
+    for(UIView *view in carrier.subviews){
+        if([view isKindOfClass:NSClassFromString(notice?@"AWEIMNavigationUnreadView":@"AWEIMMessageTabExpandedHitContainerView")])left=view;
+        if(notice && [view isKindOfClass:NSClassFromString(@"AWEIMFansAndInteractMergeViewControllerNaviBar")])right=view;
+    }
     NSUInteger buttons=0;
     for(UIView *child in right.subviews)if([child isKindOfClass:UIControl.class]&&!child.hidden)buttons++;
-    if(!left || right.superview!=carrier || buttons<2 || left.hidden || right.hidden || left.alpha<=0.01 || right.alpha<=0.01){[self restoreHeader:bar state:state];return;}
+    if(!left || right.superview!=carrier || (!notice && buttons<2) || left.hidden || right.hidden || left.alpha<=0.01 || right.alpha<=0.01){[self restoreHeader:bar state:state];return;}
     state=[self headerState:bar create:YES];state.busy=YES;
     @try {
         [self clearHeaderFill:bar state:state];[self clearHeaderFill:carrier state:state];
@@ -367,26 +685,60 @@ static char kDKXSMessageListMaterialKey;
         // 玻璃的约束依赖原生按钮容器的实际边界；不会把布局中途的零宽当作最终尺寸。
         // 背景留在外层，不进入原生按钮数组/子视图，避免参与原生按钮宽度测量。
         CGFloat height=MIN(44,carrier.bounds.size.height);
-        CGRect leftRect=CGRectMake(left.frame.origin.x,(carrier.bounds.size.height-height)/2,height,height);
+        CGRect leftRect=notice?[self noticeBackFrame:left carrier:carrier]:CGRectMake(left.frame.origin.x,(carrier.bounds.size.height-height)/2,height,height);
+        if(notice)[self positionNoticePlate:right carrier:carrier leftRect:leftRect state:state];
+        UIView *selected=notice?[self selectedNoticeItem:right]:nil;UIView *rightAnchor=selected?:right;
         CGRect rightRect=CGRectMake(right.frame.origin.x,(carrier.bounds.size.height-height)/2,right.bounds.size.width,height);
-        BOOL rebind=state.leftAnchor!=left || state.rightAnchor!=right || state.left.superview!=carrier || state.right.superview!=carrier;
+        if(selected){CGRect item=[selected convertRect:selected.bounds toView:carrier];CGFloat width=MIN(116,MAX(0,item.size.width-16));rightRect=CGRectMake(CGRectGetMidX(item)-width/2,(carrier.bounds.size.height-36)/2,width,36);}
+        BOOL rebind=state.notice!=notice || state.leftAnchor!=left || state.rightAnchor!=rightAnchor || state.left.superview!=carrier || state.right.superview!=carrier || !CGSizeEqualToSize(state.leftRect.size,leftRect.size) || (notice && !CGRectEqualToRect(state.leftRect,leftRect));
         if(rebind)[NSLayoutConstraint deactivateConstraints:state.constraints];
-        [self dkxs_placeGlassBackground:state.left frame:leftRect inView:carrier];
-        [self dkxs_placeGlassBackground:state.right frame:rightRect inView:carrier];
-        if(rebind){
+        [UIView performWithoutAnimation:^{
+            [self dkxs_placeGlassBackground:state.left frame:leftRect inView:carrier];
+            [self dkxs_placeGlassBackground:state.right frame:rightRect inView:carrier];
+            state.left.alpha=notice?0.82:1;state.right.alpha=notice?0.72:1;
+            state.left.layer.borderColor=[UIColor colorWithWhite:1 alpha:(notice?0.12:0.18)].CGColor;
+            state.right.layer.borderColor=[UIColor colorWithWhite:1 alpha:(notice?0.10:0.18)].CGColor;
+        }];
+        if(!selected && state.indicator){if(state.indicator.hidden)state.indicator.hidden=state.indicatorHidden;state.indicator=nil;}
+        if(selected && [right respondsToSelector:@selector(indicatorView)]){
+            UIView *indicator=((AWEIMFansAndInteractMergeViewControllerNaviBar *)right).indicatorView;
+            if(![indicator isKindOfClass:UIView.class])indicator=nil;
+            if(indicator!=state.indicator){if(state.indicator.hidden)state.indicator.hidden=state.indicatorHidden;state.indicator=indicator;state.indicatorHidden=indicator.hidden;}
+            if(!indicator.hidden)indicator.hidden=YES;
+        }
+        if(notice){
+            // 自定义双标签已承载标题；原生导航栏在关注页另写的默认标题必须让位。
+            UILabel *title=bar.titleLabel;
+            if(![title isKindOfClass:UILabel.class] || ![title isDescendantOfView:carrier] || [title isDescendantOfView:right])title=nil;
+            if(title!=state.redundantTitle){if(state.redundantTitle.hidden)state.redundantTitle.hidden=state.titleHidden;state.redundantTitle=title;state.titleHidden=title.hidden;}
+            if(title && !title.hidden)title.hidden=YES;
+            // 装饰层按原生完成后的坐标放置，不能用约束牵动嵌套原生标签布局。
+            [NSLayoutConstraint deactivateConstraints:state.constraints];state.constraints=nil;
+            state.left.translatesAutoresizingMaskIntoConstraints=YES;state.right.translatesAutoresizingMaskIntoConstraints=YES;
+            UIView *actions=bar.rightBtnsContainerView;
+            if(actions!=right && actions.superview==carrier && !actions.hidden && actions.bounds.size.width>0 && actions.bounds.size.width<=120 && actions.frame.origin.x>carrier.bounds.size.width/2){
+                CGRect rect=[actions convertRect:actions.bounds toView:carrier];rect.origin.y=(carrier.bounds.size.height-40)/2;rect.size.height=40;
+                [self dkxs_placeGlassBackground:state.actions frame:rect inView:carrier];
+            }else [state.actions removeFromSuperview];
+            state.leftAnchor=left;state.rightAnchor=rightAnchor;state.notice=YES;state.leftRect=leftRect;
+        }else if(rebind){
             state.left.translatesAutoresizingMaskIntoConstraints=NO;state.right.translatesAutoresizingMaskIntoConstraints=NO;
-            state.constraints=@[
+            NSMutableArray *constraints=[NSMutableArray arrayWithArray:@[
                 [state.left.leadingAnchor constraintEqualToAnchor:left.leadingAnchor],
                 [state.left.centerYAnchor constraintEqualToAnchor:carrier.centerYAnchor],
-                [state.left.widthAnchor constraintEqualToConstant:44],
-                [state.left.heightAnchor constraintEqualToConstant:44],
-                [state.right.leadingAnchor constraintEqualToAnchor:right.leadingAnchor],
-                [state.right.trailingAnchor constraintEqualToAnchor:right.trailingAnchor],
+                [state.left.widthAnchor constraintEqualToConstant:leftRect.size.width],
+                [state.left.heightAnchor constraintEqualToConstant:leftRect.size.height],
                 [state.right.centerYAnchor constraintEqualToAnchor:carrier.centerYAnchor],
-                [state.right.heightAnchor constraintEqualToConstant:44]];
-            [NSLayoutConstraint activateConstraints:state.constraints];state.leftAnchor=left;state.rightAnchor=right;
+                [state.right.heightAnchor constraintEqualToConstant:rightRect.size.height]]];
+            [constraints addObjectsFromArray:@[[state.right.leadingAnchor constraintEqualToAnchor:right.leadingAnchor],[state.right.trailingAnchor constraintEqualToAnchor:right.trailingAnchor]]];
+            state.constraints=constraints;[NSLayoutConstraint activateConstraints:constraints];
+            state.leftAnchor=left;state.rightAnchor=rightAnchor;state.notice=notice;state.leftRect=leftRect;
         }
     } @finally {state.busy=NO;}
+}
++ (void)synchronizeHeaderForView:(UIView *)view {
+    if(!NSThread.isMainThread)return;
+    for(NSUInteger i=0;view && i<8;i++,view=view.superview)if([view isKindOfClass:NSClassFromString(@"AWENavigationBar")]){[self synchronizeBar:view];[self scheduleBarSynchronization:view];break;}
 }
 + (void)scheduleBarSynchronization:(UIView *)bar {
     if(!NSThread.isMainThread)return;
@@ -399,29 +751,62 @@ static char kDKXSMessageListMaterialKey;
         if(!strongBar || [self headerState:strongBar create:NO]!=state)return;
         state.pending=NO;
         [self synchronizeBar:strongBar];
+        [DKXSMessageListViewport refresh];
     });
 }
 + (void)refresh {
     if(!NSThread.isMainThread)return;
-    if(![self cardsEnabled])for(UITableViewCell *cell in [self cells].allObjects)[self resetCell:cell];
-    for(UIViewController *controller in [self controllers].allObjects)[self synchronizeController:controller];
+    if(![self cardsEnabled]){
+        for(UIView *view in [self lightViews].allObjects)[self resetLightInteraction:view];
+        for(UIView *view in [self contentViews].allObjects)[self resetContentView:view];
+        for(UITableViewCell *cell in [self cells].allObjects)[self resetCell:cell];
+    }
+    for(UIViewController *controller in [self controllers].allObjects){
+        UITableView *table=((AWEIMChatListViewController *)controller).tableView;
+        if([self rowPlans:table create:NO] && !table.hasUncommittedUpdates && !table.dragging && !table.decelerating)[table reloadData];
+        [self synchronizeController:controller];
+    }
     for(UIView *bar in [self bars].allObjects)[self synchronizeBar:bar];
+    [DKXSInteractionNoticeStyle refresh];
+    [DKXSRefreshIndicatorStyle refresh];
+    [DKXSMessageListViewport refresh];
 }
 + (NSDictionary *)diagnostics {
     if(!NSThread.isMainThread)return @{};
     NSMutableDictionary *groups=[NSMutableDictionary dictionary];
+    NSMutableDictionary *decisions=[NSMutableDictionary dictionary];
     NSUInteger insets=0,backgroundMasks=0;
     for(UITableViewCell *cell in [self cells].allObjects)if(cell.window){
         DKXSMessageCardState *s=objc_getAssociatedObject(cell,@selector(synchronizeCell:));
         if(s.kind)groups[s.kind]=@([groups[s.kind] unsignedIntegerValue]+1);
-        if(s.translations.count)insets++;
         for(UIView *view in s.masks.keyEnumerator.allObjects){NSDictionary *mask=[s.masks objectForKey:view];if([mask[@"background"] boolValue] && view.layer.mask==mask[@"applied"])backgroundMasks++;}
+    }
+    NSMutableArray *content=[NSMutableArray array];
+    for(UIView *view in [self contentViews].allObjects)if(view.window){
+        DKXSMessageContentState *state=[self contentState:view];if(!state)continue;
+        BOOL matches=state.applied && !state.updates.depth && CGAffineTransformEqualToTransform(view.transform,state.appliedTransform);
+        if(matches)insets++;
+        NSString *decision=matches?@"container_matches":state.decision?:@"matrix_changed";
+        if(state.applied && !matches)decision=@"matrix_changed";
+        decisions[decision]=@([decisions[decision] unsignedIntegerValue]+1);
+        if(content.count>=3)continue;
+        NSMutableDictionary *sample=[@{@"scaleX":@(hypot(view.transform.a,view.transform.b)),@"visualFrame":[self valuesForFrame:[view convertRect:view.bounds toView:state.cell]],@"matrixMatches":@(matches),@"updateDepth":@(state.updates.depth),@"paddingTop":@(state.topPadding),@"paddingBottom":@(state.bottomPadding)} mutableCopy];
+        for(UIView *child in view.subviews){
+            if([child isKindOfClass:NSClassFromString(@"IESIMAsyncDrawableView")] && !sample[@"textFrame"] && !child.hidden)
+                sample[@"textFrame"]=[self valuesForFrame:[child convertRect:child.bounds toView:state.cell]];
+            if(child.subviews.count>8)continue;
+            for(UIView *leaf in child.subviews)if([leaf isKindOfClass:NSClassFromString(@"AWEIMChatCellAvatarView")])
+                sample[@"avatarFrame"]=[self valuesForFrame:[leaf convertRect:leaf.bounds toView:state.cell]];
+        }
+        CALayer *presentation=view.layer.presentationLayer;
+        if(presentation){CGAffineTransform transform=presentation.affineTransform;sample[@"presentationScaleX"]=@(hypot(transform.a,transform.b));}
+        [content addObject:sample];
     }
     NSMutableArray *headers=[NSMutableArray array];
     for(UIView *bar in [self bars].allObjects)if(bar.window && headers.count<4){
         DKXSMessageHeaderState *s=[self headerState:bar create:NO];
-        [headers addObject:@{@"transparent":@(!bar.backgroundColor || CGColorGetAlpha(bar.backgroundColor.CGColor)==0),@"leftGlassWidth":@(s.left.bounds.size.width),@"rightGlassWidth":@(s.right.bounds.size.width),@"rightMounted":@(s.right.superview!=nil)}];
+        [headers addObject:@{@"transparent":@(!bar.backgroundColor || CGColorGetAlpha(bar.backgroundColor.CGColor)==0),@"leftGlassWidth":@(s.left.bounds.size.width),@"rightGlassWidth":@(s.auxiliary?s.actions.bounds.size.width:s.right.bounds.size.width),@"rightMounted":@(s.auxiliary?s.actions.superview!=nil:s.right.superview!=nil),@"auxiliaryFansBar":@(s.auxiliary),@"hiddenNativeHeaderViews":@([self actualHiddenHeaderViews:s]),@"tabTranslationX":@(s.plateApplied && CGAffineTransformEqualToTransform(s.plate.transform,s.plateAppliedTransform)?s.plateAppliedTransform.tx-s.plateNativeTransform.tx:0),@"selectedTabOnly":@(s.notice)}];
     }
-    return @{@"cardsEnabled":@([self cardsEnabled]),@"topEnabled":@([self topEnabled]),@"adapterReady":@([self adapterReady]),@"visibleRowsByGroup":groups,@"insetRows":@(insets),@"backgroundMasks":@(backgroundMasks),@"headers":headers,@"nativeRowGeometry":@YES,@"unreadMutation":@NO};
+    return @{@"viewport":[DKXSMessageListViewport diagnostics],@"cardsEnabled":@([self cardsEnabled]),@"topEnabled":@([self topEnabled]),@"adapterReady":@([self adapterReady]),@"visibleRowsByGroup":groups,@"insetRows":@(insets),@"contentScale":@0.92,@"contentDecisions":decisions,@"contentContainers":content,@"contentAdapterReady":@([self contentAdapterReady]),@"backgroundMasks":@(backgroundMasks),@"compactLightInteractionViews":@([self lightViews].allObjects.count),@"headers":headers,@"nativeRowGeometry":@YES,@"unreadMutation":@NO};
 }
 @end
