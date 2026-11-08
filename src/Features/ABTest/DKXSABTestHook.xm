@@ -1,4 +1,5 @@
 #import "DKXSABTestHook.h"
+#import "DKXSABTestOverridePolicy.h"
 #import "DKXSConstants.h"
 #import "DKXSUtils.h"
 // 必须声明 AWEABTestManager 的完整接口（sharedManager / abTestData / setAbTestData），
@@ -11,6 +12,8 @@
 static BOOL s_abTestBlockEnabled = NO;
 static BOOL s_isApplyingFixedData = NO;
 static NSDictionary *s_localABTestData = nil;
+// 仅保存原生设置回调提供的布局项；本插件合成后的数据不作为原生来源。
+static NSDictionary *s_nativeLayoutABTestData = nil;
 static NSString *s_fileMode = nil;
 
 // 默认远程配置地址常量
@@ -290,17 +293,9 @@ static void DKXSApplyTabBarHeightToCurrentABTestDataIfNeeded(void) {
       }
 
       BOOL usingPatchMode = [self isPatchMode];
-      NSDictionary *dataToApply = nil;
-
-      if (usingPatchMode) {
-          // 覆写模式：本地配置合并现有配置
-          NSMutableDictionary *mergedData = [NSMutableDictionary dictionaryWithDictionary:[manager abTestData] ?: @{}];
-          [mergedData addEntriesFromDictionary:s_localABTestData];
-          dataToApply = [mergedData copy];
-      } else {
-          // 替换模式：直接使用本地配置
-          dataToApply = [s_localABTestData copy];
-      }
+      // 首页单双列相关项沿用抖音当前配置；本地或远程增强文件均不再覆盖。
+      NSDictionary *dataToApply = [DKXSABTestOverridePolicy configurationForNative:[manager abTestData]
+          originalLayout:s_nativeLayoutABTestData overrides:s_localABTestData patchMode:usingPatchMode];
 
       NSNumber *contentHeight = DKXSResolveTabBarHeightFromSettings();
       if (contentHeight) {
@@ -418,7 +413,13 @@ static void DKXSApplyTabBarHeightToCurrentABTestDataIfNeeded(void) {
  */
 - (void)setAbTestData:(id)data {
     __block BOOL shouldBlock = NO;
+    __block BOOL nativeLayoutChanged = NO;
     DKXSQueueSync(^{
+      if (!s_isApplyingFixedData && (!data || [data isKindOfClass:NSDictionary.class])) {
+          NSDictionary *layout = [DKXSABTestOverridePolicy nativeLayoutValuesFrom:data];
+          nativeLayoutChanged = ![s_nativeLayoutABTestData isEqual:layout];
+          s_nativeLayoutABTestData = layout;
+      }
       // 在队列上安全地检查禁止下发标志 和 正在应用本地数据的标志
       // 如果禁止下发开启 并且 不是正在应用本地数据，则阻止
       if (s_abTestBlockEnabled && !s_isApplyingFixedData) {
@@ -428,6 +429,8 @@ static void DKXSApplyTabBarHeightToCurrentABTestDataIfNeeded(void) {
 
     if (shouldBlock) {
         NSLog(@"[DKXS] 阻止ABTest数据更新 (启用了禁止下发配置且非本地应用)");
+        // 原生布局项有变化时，只通过既有串行应用入口复核一次；不在setter内读manager或递归赋值。
+        if (nativeLayoutChanged) [DKXSABTestHook applyFixedABTestData];
         return;
     }
 
