@@ -8,6 +8,9 @@
 + (NSDictionary *)nativeFrameForRequest:(NSDictionary *)request previousNative:(NSDictionary *)native previousDisplayed:(NSDictionary *)displayed;
 + (NSDictionary *)paddingForKind:(NSString *)kind previous:(NSString *)previous next:(NSString *)next nativeHeight:(double)height;
 + (NSDictionary *)viewportForListTop:(double)listTop headerBottom:(double)headerBottom tableY:(double)y width:(double)width height:(double)height rootHeight:(double)rootHeight;
-+ (NSDictionary *)noticeHeaderShiftForBackRight:(double)backRight titleLeft:(double)titleLeft selectedCenter:(double)center glassWidth:(double)glassWidth actionsLeft:(double)actionsLeft width:(double)width;
++ (NSDictionary *)noticeGlassForWidth:(double)width height:(double)height backRight:(double)backRight;
++ (double)noticeTitleScaleForPointSize:(double)size;
++ (NSDictionary *)noticeDrawingShiftForFirst:(double)first firstInkWidth:(double)firstInk last:(double)last lastInkWidth:(double)lastInk glass:(NSDictionary *)glass;
++ (NSDictionary *)noticeSelectionForCenter:(double)center width:(double)width glass:(NSDictionary *)glass;
 + (BOOL)showRefreshIndicator:(BOOL)refreshing dragging:(BOOL)dragging offsetY:(double)offset insetTop:(double)inset;
 @end

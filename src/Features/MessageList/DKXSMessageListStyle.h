@@ -17,8 +17,6 @@
 + (void)endContentGeometry:(id)token;
 + (CGAffineTransform)nativeContentTransform:(CGAffineTransform)transform forView:(UIView *)view;
 + (void)didSetContentTransform:(UIView *)view;
-+ (id)beginNoticePlateFrame:(UIView *)plate;
-+ (void)endNoticePlateFrame:(id)token;
 + (BOOL)passThroughNoticeActions:(CGPoint)point bar:(UIView *)bar;
 + (void)synchronizeBar:(UIView *)bar;
 + (void)synchronizeHeaderForView:(UIView *)view;

@@ -4,6 +4,7 @@
 #import "DKXSUtils.h"
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
+#import <math.h>
 
 static char kDKXSFeedTagGlassKey;
 static char kDKXSFeedTagUpdateDepthKey;
@@ -62,7 +63,52 @@ static char kDKXSFeedTagRefreshKey;
         MAX(r, MAX(g, b)) < 0.8 && MAX(r, MAX(g, b)) - MIN(r, MIN(g, b)) < 0.12;
 }
 
-+ (void)prepareLabels:(UIView *)host state:(DKXSFeedTagGlassState *)state {
++ (BOOL)isRecommendationTag:(UIView *)tag {
+    for (NSString *name in @[ @"AFDRecommendToFriendEntranceLabel", @"AFDFriendRecommendTagView" ]) {
+        Class type = NSClassFromString(name);
+        if (type && [tag isKindOfClass:type]) return YES;
+    }
+    return NO;
+}
+
++ (BOOL)isNeutralText:(UIColor *)color {
+    CGFloat r, g, b, a;
+    return [color isKindOfClass:UIColor.class] && [color getRed:&r green:&g blue:&b alpha:&a] &&
+        a > 0.01 && MAX(r, MAX(g, b)) - MIN(r, MIN(g, b)) < 0.12;
+}
+
+// 给原生小图标的绘制增加透明内边距，保持UIImageView尺寸、约束和命中区域不变。
++ (void)softenImageView:(UIView *)view scale:(CGFloat)scale alpha:(CGFloat)alpha state:(DKXSFeedTagGlassState *)state {
+    if (![view isKindOfClass:UIImageView.class]) return;
+    UIImageView *imageView = (id)view;
+    CGSize size = imageView.bounds.size;
+    if (!isfinite(size.width) || !isfinite(size.height) ||
+        size.width < 4 || size.height < 4 || size.width > 40 || size.height > 40) return;
+    [self write:@(alpha) key:@"alpha" view:imageView state:state];
+    NSDictionary *previous = [state.changes objectForKey:imageView][@"image"];
+    UIImage *current = imageView.image;
+    BOOL ownsImage = current && current == previous[@"applied"];
+    if (ownsImage) return;
+    UIImage *source = current;
+    if (![source isKindOfClass:UIImage.class] || source.images.count) return;
+    // UIImage本身的逻辑尺寸也保留，避免改变UIImageView的intrinsicContentSize。
+    CGSize canvas = source.size;
+    if (!isfinite(canvas.width) || !isfinite(canvas.height) || canvas.width <= 0 || canvas.height <= 0 ||
+        canvas.width > 256 || canvas.height > 256) return;
+    UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat preferredFormat];
+    format.opaque = NO;
+    format.scale = source.scale;
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:canvas format:format];
+    CGSize ink = CGSizeMake(canvas.width * scale, canvas.height * scale);
+    UIImage *inset = [renderer imageWithActions:^(__unused UIGraphicsImageRendererContext *context) {
+        [source drawInRect:CGRectMake((canvas.width - ink.width) * 0.5, (canvas.height - ink.height) * 0.5, ink.width, ink.height)];
+    }];
+    inset = [inset imageWithAlignmentRectInsets:source.alignmentRectInsets];
+    [self write:[inset imageWithRenderingMode:source.renderingMode] key:@"image" view:imageView state:state];
+}
+
++ (void)prepareLabels:(UIView *)host muted:(BOOL)muted state:(DKXSFeedTagGlassState *)state {
+    UIColor *labelColor = [UIColor colorWithWhite:1 alpha:muted ? 0.9 : 1];
     NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:host];
     Class yyLabel = NSClassFromString(@"YYLabel");
     for (NSUInteger index = 0; index < queue.count && index < 48; index++) {
@@ -77,13 +123,16 @@ static char kDKXSFeedTagRefreshKey;
                     __block BOOL changed = NO;
                     [original enumerateAttribute:NSForegroundColorAttributeName inRange:NSMakeRange(0, original.length) options:0 usingBlock:^(id value, NSRange range, BOOL *stop) {
                         UIColor *source = [value isKindOfClass:UIColor.class] ? value : color;
-                        if ([self needsLightText:source]) {
-                            [text addAttribute:NSForegroundColorAttributeName value:UIColor.whiteColor range:range];
+                        if (muted ? [self isNeutralText:source] : [self needsLightText:source]) {
+                            if ([source isEqual:labelColor]) return;
+                            [text addAttribute:NSForegroundColorAttributeName value:labelColor range:range];
                             changed = YES;
                         }
                     }];
                     if (changed) [self write:text key:@"attributedText" view:view state:state];
-                } else if ([self needsLightText:color]) [self write:UIColor.whiteColor key:@"textColor" view:view state:state];
+                } else if (muted ? [self isNeutralText:color] : [self needsLightText:color]) {
+                    [self write:labelColor key:@"textColor" view:view state:state];
+                }
             } @catch (__unused NSException *exception) {}
             continue;
         }
@@ -145,16 +194,25 @@ static char kDKXSFeedTagRefreshKey;
             if (background && background != host) [self write:@YES key:@"hidden" view:background state:state];
         }
         if (!CGRectEqualToRect(state.glass.frame, host.bounds)) state.glass.frame = host.bounds;
-        state.glass.layer.cornerRadius = host.layer.cornerRadius > 0 ? host.layer.cornerRadius : MIN(6, CGRectGetHeight(host.bounds) * 0.5);
+        BOOL recommendation = [self isRecommendationTag:tag];
+        state.glass.layer.cornerRadius = recommendation ? MIN(CGRectGetWidth(host.bounds), CGRectGetHeight(host.bounds)) * 0.5 :
+            (host.layer.cornerRadius > 0 ? host.layer.cornerRadius : MIN(6, CGRectGetHeight(host.bounds) * 0.5));
+        state.glass.layer.cornerCurve = recommendation ? kCACornerCurveContinuous : kCACornerCurveCircular;
         state.glass.clipsToBounds = YES;
         state.glass.layer.borderWidth = 0.5;
-        state.glass.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.18].CGColor;
-        state.glass.contentView.backgroundColor = [UIColor colorWithWhite:0 alpha:0.06];
-        // 昵称上方标签固定为薄毛玻璃，不跟随面板的共享透明度设置。
-        state.glass.alpha = 0.9;
+        state.glass.layer.borderColor = [UIColor colorWithWhite:1 alpha:recommendation ? 0.08 : 0.18].CGColor;
+        state.glass.contentView.backgroundColor = [UIColor colorWithWhite:0 alpha:recommendation ? 0.56 : 0.06];
+        // 推荐提示用轻量半透明底；其他标签保留原来的薄毛玻璃，不跟随面板透明度设置。
+        state.glass.alpha = recommendation ? 1 : 0.9;
         if (host.subviews.firstObject != state.glass) [host insertSubview:state.glass atIndex:0];
-        if (!state.glass.effect) state.glass.effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterialDark];
-        [self prepareLabels:host state:state];
+        if (recommendation) {
+            state.glass.effect = nil;
+            [self softenImageView:[self existingView:@"iconView" inTag:tag] scale:0.875 alpha:0.9 state:state];
+            [self softenImageView:[self existingView:@"rightArrow" inTag:tag] scale:0.75 alpha:0.55 state:state];
+        } else if (!state.glass.effect) {
+            state.glass.effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterialDark];
+        }
+        [self prepareLabels:host muted:recommendation state:state];
     } @finally { state.busy = NO; }
 }
 

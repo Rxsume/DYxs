@@ -467,6 +467,8 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
         DKSection(@"通用隐藏", @[
             DKRow(@"DKXSHideBack", @"ic_arrowleft_outlined_20"),
             DKRow(@"DKXSHideScancode", @"ic_videosearch_outlined_20"),
+            // 第 10 批（1 键）：隐藏详情创作引导栏。
+            DKRow(@"DKXSHideContentCreationInfo", @"ic_eyeslash_outlined_16"),
         ]),
     ]);
 
@@ -602,6 +604,12 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
         ]),
         DKSection(@"图文详情页", @[
             DKRow(DKKeyNoteDetailGlass, @"ic_image_outlined_20"),
+        ]),
+        // 第 10 批（DYads- 0ee4792，3 键）：内容详情页与双列，默认关闭。
+        DKSection(@"内容详情页", @[
+            DKRow(@"DKXSEnableArticleTopGlass", @"ic_module_outlined_20"),
+            DKRow(@"DKXSEnableArticleBottomGlass", @"ic_module_outlined_20"),
+            DKRow(@"DKXSEnableFeedTopTabHighlight", @"ic_text_outlined_20"),
         ]),
         DKSection(@"长按菜单", @[
             DKRow(DKKeyFeedMenuGlass, @"ic_squaresplit_outlined_20"),

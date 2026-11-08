@@ -51,12 +51,38 @@
     if(width<160 || rootHeight<=width || listTop<32 || listTop>180 || fabs(listTop-headerBottom)>1 || fabs(y)>1 || height<200 || fabs(listTop+height-rootHeight)>1)return @{};
     return @{@"extension":@(listTop),@"y":@(y-listTop),@"height":@(height+listTop)};
 }
-+ (NSDictionary *)noticeHeaderShiftForBackRight:(double)backRight titleLeft:(double)titleLeft selectedCenter:(double)center glassWidth:(double)glassWidth actionsLeft:(double)actionsLeft width:(double)width {
-    for(NSNumber *value in @[@(backRight),@(titleLeft),@(center),@(glassWidth),@(actionsLeft),@(width)])if(!isfinite(value.doubleValue))return @{};
-    if(width<160 || glassWidth<=0 || actionsLeft>width || actionsLeft<width/2 || center<0 || center>width || backRight<0)return @{};
-    double shift=MIN(0,actionsLeft-8-center-glassWidth/2);
-    if(shift< -44 || titleLeft+shift<backRight+8)return @{};
-    return @{@"translationX":@(shift)};
++ (NSDictionary *)noticeGlassForWidth:(double)width height:(double)height backRight:(double)backRight {
+    if(!isfinite(width) || !isfinite(height) || !isfinite(backRight) || width<160 || height<32 || height>64 || backRight<0)return @{};
+    // 两页都预留右侧原生88pt按钮和6pt外侧距，选中状态不参与布局。
+    double x=MAX(8,backRight+8),right=width-94-8,h=MIN(44,height);
+    if(right-x<200)return @{};
+    return @{@"x":@(x),@"y":@((height-h)/2),@"width":@(right-x),@"height":@(h)};
+}
++ (double)noticeTitleScaleForPointSize:(double)size {
+    return isfinite(size) && size>=10 && size<=30?MIN(1,15/size):1;
+}
++ (NSDictionary *)noticeDrawingShiftForFirst:(double)first firstInkWidth:(double)firstInk last:(double)last lastInkWidth:(double)lastInk glass:(NSDictionary *)glass {
+    for(NSString *key in @[@"x",@"y",@"width",@"height"])if(![glass[key] isKindOfClass:NSNumber.class] || !isfinite([glass[key] doubleValue]))return @{};
+    if(!isfinite(first) || !isfinite(last) || !isfinite(firstInk) || !isfinite(lastInk) || firstInk<20 || lastInk<20 || last-first<100 || last-first>180)return @{};
+    double left=[glass[@"x"] doubleValue],right=left+[glass[@"width"] doubleValue];
+    // 按两项实际文字/箭头的宽度预留空间；不能再假定返回玻璃右缘或固定96pt。
+    for(NSNumber *padding in @[@20,@18,@16,@14,@12,@10,@8]){
+        double firstWidth=ceil(firstInk+padding.doubleValue),lastWidth=ceil(lastInk+padding.doubleValue);
+        if(firstWidth>116 || lastWidth>116)continue;
+        double minimum=left+4+firstWidth/2-first,maximum=right-4-lastWidth/2-last;
+        if(minimum>maximum)continue;
+        double shift=MAX(minimum,MIN(0,maximum));
+        if(fabs(shift)>24 || ![self noticeSelectionForCenter:first+shift width:firstWidth glass:glass].count || ![self noticeSelectionForCenter:last+shift width:lastWidth glass:glass].count)continue;
+        return @{@"shift":@(shift),@"firstWidth":@(firstWidth),@"lastWidth":@(lastWidth)};
+    }
+    return @{};
+}
++ (NSDictionary *)noticeSelectionForCenter:(double)center width:(double)width glass:(NSDictionary *)glass {
+    for(NSString *key in @[@"x",@"y",@"width",@"height"])if(![glass[key] isKindOfClass:NSNumber.class] || !isfinite([glass[key] doubleValue]))return @{};
+    double gx=[glass[@"x"] doubleValue],gw=[glass[@"width"] doubleValue],gh=[glass[@"height"] doubleValue],x=center-gx-width/2;
+    if(!isfinite(center) || !isfinite(width) || width<28 || width>116 || gw<200 || gh<32 || gh>44 || x<4-1e-6 || x+width>gw-4+1e-6)return @{};
+    double h=MIN(36,gh-8);
+    return @{@"x":@(x),@"y":@((gh-h)/2),@"width":@(width),@"height":@(h)};
 }
 + (BOOL)showRefreshIndicator:(BOOL)refreshing dragging:(BOOL)dragging offsetY:(double)offset insetTop:(double)inset {
     if(!isfinite(offset) || !isfinite(inset) || inset<0)return NO;

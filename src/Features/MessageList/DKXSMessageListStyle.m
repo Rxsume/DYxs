@@ -8,6 +8,9 @@
 #import "DKXSMessageListViewport.h"
 #import "DKXSRefreshIndicatorStyle.h"
 #import "DKXSMessageListStateStore.h"
+#import "DKXSNoticeHeaderDrawingState.h"
+#import "DKXSNoticeFilterGlass.h"
+#import "DKXSInteractionNoticeViewport.h"
 #include <string.h>
 #include <math.h>
 #import "DKXSChatEnhancementPolicy.h"
@@ -47,6 +50,9 @@
 @property (nonatomic, assign, readonly) long long currentSelectedIndex;
 @property (nonatomic, strong, readonly) UIView *indicatorView;
 - (void)setSelectedIndex:(long long)index;
+@end
+@interface AWEIMFansAndInteractMergeViewControllerNaviBarItemView : UIView
+@property (nonatomic, strong, readonly) UIView *innerContainerView;
 @end
 @interface AWEIMFansAndInteractMergeViewController : UIViewController
 @property (nonatomic, strong, readonly) UIViewController *fansViewController;
@@ -111,12 +117,14 @@
 @property (nonatomic, weak) UILabel *redundantTitle;
 @property (nonatomic) BOOL titleHidden;
 @property (nonatomic, strong) NSMapTable<UIView *, NSNumber *> *hiddenViews;
-@property (nonatomic, weak) UIView *bar;
 @property (nonatomic, weak) UIView *plate;
+@property (nonatomic, strong) DKXSNoticeHeaderDrawingState *drawing;
+@property (nonatomic, strong) NSMapTable<UIView *, DKXSNoticeHeaderDrawingState *> *titleDrawings;
+@property (nonatomic, copy) NSArray<NSNumber *> *titleScales;
+@property (nonatomic, copy) NSString *noticeDecision;
+@property (nonatomic, copy) NSArray<NSNumber *> *noticeInkWidths;
+@property (nonatomic, strong) UIView *selection;
 @property (nonatomic, weak) UIView *noticeActions;
-@property (nonatomic) CGAffineTransform plateNativeTransform;
-@property (nonatomic) CGAffineTransform plateAppliedTransform;
-@property (nonatomic) BOOL plateApplied;
 @property (nonatomic) BOOL auxiliary;
 @property (nonatomic, strong) NSMapTable<UIView *, id> *fills;
 @property (nonatomic, weak) UIView *line;
@@ -500,7 +508,7 @@ static char kDKXSMessageListMaterialKey;
 + (DKXSMessageHeaderState *)headerState:(UIView *)bar create:(BOOL)create {
     DKXSMessageHeaderState *state=objc_getAssociatedObject(bar,@selector(synchronizeBar:));
     if(!state && create){
-        state=[DKXSMessageHeaderState new];state.bar=bar;state.hiddenViews=[NSMapTable weakToStrongObjectsMapTable];state.fills=[NSMapTable weakToStrongObjectsMapTable];state.nativeOpaque=bar.opaque;
+        state=[DKXSMessageHeaderState new];state.titleDrawings=[NSMapTable weakToStrongObjectsMapTable];state.hiddenViews=[NSMapTable weakToStrongObjectsMapTable];state.fills=[NSMapTable weakToStrongObjectsMapTable];state.nativeOpaque=bar.opaque;
         state.left=[self dkxs_glassBackgroundWithIdentifier:@"DYxs.MessageListLeftGlass"];
         state.right=[self dkxs_glassBackgroundWithIdentifier:@"DYxs.MessageListRightGlass"];
         state.actions=[self dkxs_glassBackgroundWithIdentifier:@"DYxs.NoticeActionsGlass"];
@@ -511,10 +519,13 @@ static char kDKXSMessageListMaterialKey;
 + (void)restoreHeader:(UIView *)bar state:(DKXSMessageHeaderState *)state {
     if(!state || state.busy)return;
     state.busy=YES;
-    [self restoreNoticePlate:state];
+    [state.drawing restore];
+    for(DKXSNoticeHeaderDrawingState *drawing in state.titleDrawings.objectEnumerator.allObjects)[drawing restore];
+    [state.titleDrawings removeAllObjects];
+    state.noticeActions=nil;
     for(UIView *view in state.hiddenViews.keyEnumerator.allObjects)if(view.hidden)view.hidden=[[state.hiddenViews objectForKey:view] boolValue];
     [NSLayoutConstraint deactivateConstraints:state.constraints];
-    [state.left removeFromSuperview];[state.right removeFromSuperview];[state.actions removeFromSuperview];
+    [state.left removeFromSuperview];[state.right removeFromSuperview];[state.actions removeFromSuperview];[state.selection removeFromSuperview];
     if(state.redundantTitle.hidden)state.redundantTitle.hidden=state.titleHidden;
     for(UIView *view in state.fills.keyEnumerator.allObjects)if(!view.backgroundColor || CGColorGetAlpha(view.backgroundColor.CGColor)==0){
         id saved=[state.fills objectForKey:view];view.backgroundColor=saved==NSNull.null?nil:saved;
@@ -607,47 +618,91 @@ static char kDKXSMessageListMaterialKey;
     } @finally {state.busy=NO;}
     [self synchronizeBar:outer];[self scheduleBarSynchronization:outer];
 }
-+ (void)restoreNoticePlate:(DKXSMessageHeaderState *)state {
-    if(state.plateApplied && CGAffineTransformEqualToTransform(state.plate.transform,state.plateAppliedTransform))state.plate.transform=state.plateNativeTransform;
-    if(objc_getAssociatedObject(state.plate,@selector(beginNoticePlateFrame:))==state)objc_setAssociatedObject(state.plate,@selector(beginNoticePlateFrame:),nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    state.plateApplied=NO;state.plate=nil;state.noticeActions=nil;
++ (UIView *)noticeTitleGroupForItem:(UIView *)item {
+    Class cls=NSClassFromString(@"AWEIMFansAndInteractMergeViewControllerNaviBarItemView");
+    if(![item isKindOfClass:cls] || ![DKXSChatEnhancementPolicy class:cls selector:@selector(innerContainerView) result:'@' arguments:@""])return nil;
+    UIView *group=((AWEIMFansAndInteractMergeViewControllerNaviBarItemView *)item).innerContainerView;
+    if(![group isKindOfClass:UIView.class] || group==item || ![group isDescendantOfView:item] || !CGAffineTransformIsIdentity(group.transform) || !isfinite(group.bounds.size.width) || !isfinite(group.bounds.size.height) || group.bounds.size.width<20 || group.bounds.size.width>144 || group.bounds.size.height<=0 || group.bounds.size.height>44 || fabs(group.layer.anchorPoint.x-0.5)>0.001 || fabs(group.layer.anchorPoint.y-0.5)>0.001)return nil;
+    return group;
 }
-+ (id)beginNoticePlateFrame:(UIView *)plate {
-    if(!NSThread.isMainThread)return nil;DKXSMessageHeaderState *state=objc_getAssociatedObject(plate,@selector(beginNoticePlateFrame:));if(!state || state.busy)return nil;
-    state.busy=YES;if(state.plateApplied && CGAffineTransformEqualToTransform(plate.transform,state.plateAppliedTransform))plate.transform=state.plateNativeTransform;state.plateApplied=NO;return state;
-}
-+ (void)endNoticePlateFrame:(id)token {
-    if(![token isKindOfClass:DKXSMessageHeaderState.class])return;DKXSMessageHeaderState *state=token;state.busy=NO;
-    if([self headerState:state.bar create:NO]==state)[self synchronizeBar:state.bar];
-}
-+ (CGFloat)noticeTitleLeft:(UIView *)plate carrier:(UIView *)carrier {
-    NSArray *items=((AWEIMFansAndInteractMergeViewControllerNaviBar *)plate).itemViews;UIView *first=items.firstObject;
-    if(![first isKindOfClass:UIView.class])return NAN;
-    NSMutableArray *pending=[NSMutableArray arrayWithObject:first];NSUInteger visited=0;CGFloat left=CGFLOAT_MAX;
-    while(pending.count && visited++<48){UIView *view=pending.lastObject;[pending removeLastObject];if(view.hidden || view.alpha<=0.01)continue;
-        if([view isKindOfClass:UILabel.class] && view.bounds.size.width>20)left=MIN(left,CGRectGetMinX([view convertRect:view.bounds toView:carrier]));
-        if(pending.count+view.subviews.count<=48)[pending addObjectsFromArray:view.subviews];
-    }return left==CGFLOAT_MAX?NAN:left;
-}
-+ (void)positionNoticePlate:(UIView *)plate carrier:(UIView *)carrier leftRect:(CGRect)leftRect state:(DKXSMessageHeaderState *)state {
-    if(state.plate!=plate){[self restoreNoticePlate:state];state.plate=plate;state.plateNativeTransform=plate.transform;}
-    else if(!state.plateApplied || !CGAffineTransformEqualToTransform(plate.transform,state.plateAppliedTransform))state.plateNativeTransform=plate.transform;
-    AWEIMFansAndInteractMergeViewControllerNaviBar *tabs=(id)plate;
-    UIView *actions=tabs.currentSelectedIndex==1?[self fansActionsForOuterBar:state.bar]:nil;
-    CGFloat oldShift=state.plateApplied?state.plateAppliedTransform.tx-state.plateNativeTransform.tx:0;
-    UIView *selected=[self selectedNoticeItem:plate];CGRect selectedRect=[selected convertRect:selected.bounds toView:carrier];
-    CGFloat actionsLeft=carrier.bounds.size.width;
-    if(actions){
-        // 同宽原生子导航栏的最终栏位不随分页转场的中间 contentOffset 摆动。
-        BOOL sameCarrier=fabs(actions.superview.bounds.size.width-carrier.bounds.size.width)<0.5 && CGAffineTransformIsIdentity(actions.transform);
-        actionsLeft=sameCarrier?CGRectGetMinX(actions.frame):CGRectGetMinX([actions convertRect:actions.bounds toView:carrier]);
++ (CGFloat)noticeScaleForGroup:(UIView *)group state:(DKXSMessageHeaderState *)state {
+    if(!group)return 1;
+    NSMutableArray *pending=[NSMutableArray arrayWithObject:group];NSUInteger visited=0;CGFloat size=0;
+    while(pending.count && visited++<24){UIView *view=pending.lastObject;[pending removeLastObject];if(view.hidden || view.alpha<=0.01)continue;
+        if([view isKindOfClass:UILabel.class] && view.bounds.size.width>0){size=((UILabel *)view).font.pointSize;break;}
+        if(pending.count+view.subviews.count<=24)[pending addObjectsFromArray:view.subviews];
     }
-    NSDictionary *plan=[DKXSMessageListMetrics noticeHeaderShiftForBackRight:CGRectGetMaxX(leftRect) titleLeft:[self noticeTitleLeft:plate carrier:carrier]-oldShift selectedCenter:CGRectGetMidX(selectedRect)-oldShift glassWidth:116 actionsLeft:actionsLeft width:carrier.bounds.size.width];
-    CGFloat shift=actions?[plan[@"translationX"] doubleValue]:0;
-    CGAffineTransform applied=state.plateNativeTransform;applied.tx+=shift;
-    state.plateAppliedTransform=applied;state.plateApplied=YES;state.noticeActions=actions;
-    objc_setAssociatedObject(plate,@selector(beginNoticePlateFrame:),state,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    [UIView performWithoutAnimation:^{if(!CGAffineTransformEqualToTransform(plate.transform,applied))plate.transform=applied;}];
+    DKXSNoticeHeaderDrawingState *drawing=[state.titleDrawings objectForKey:group];
+    if(size<=0)return drawing.active?group.layer.sublayerTransform.m11:1;
+    CGFloat scale=[DKXSMessageListMetrics noticeTitleScaleForPointSize:size];
+    if(!drawing){drawing=[[DKXSNoticeHeaderDrawingState alloc] initWithLayer:group.layer];if(drawing)[state.titleDrawings setObject:drawing forKey:group];}
+    return [drawing applyScale:scale]?scale:1;
+}
++ (CGRect)noticeInkForItem:(UIView *)item {
+    if(!item)return CGRectNull;
+    UIView *group=[self noticeTitleGroupForItem:item];
+    // 容器自身bounds不受其sublayerTransform影响，始终读取原生尺寸，避免反复缩小。
+    if(group)return [group convertRect:group.bounds toView:item];
+    CGRect ink=CGRectNull;NSMutableArray *pending=[NSMutableArray arrayWithObject:item];NSUInteger visited=0;
+    while(pending.count && visited++<32){
+        UIView *view=pending.lastObject;[pending removeLastObject];
+        if(view.hidden || view.alpha<=0.01 || [view isKindOfClass:NSClassFromString(@"DUXBadge")])continue;
+        if(([view isKindOfClass:UILabel.class] || [view isKindOfClass:UIImageView.class]) && view.bounds.size.width>0 && view.bounds.size.height>0){
+            CGRect rect=[view convertRect:view.bounds toView:item];
+            if(!isfinite(rect.origin.x) || !isfinite(rect.origin.y) || !isfinite(rect.size.width) || !isfinite(rect.size.height) || !CGRectContainsRect(CGRectInset(item.bounds,-0.5,-0.5),rect))return CGRectNull;
+            ink=CGRectIsNull(ink)?rect:CGRectUnion(ink,rect);
+        }
+        if(pending.count+view.subviews.count>32)return CGRectNull;
+        [pending addObjectsFromArray:view.subviews];
+    }
+    return pending.count?CGRectNull:ink;
+}
++ (void)placeNoticeGlass:(DKXSMessageHeaderState *)state carrier:(UIView *)carrier plate:(UIView *)plate selected:(UIView *)selected {
+    if(state.plate!=plate){[state.drawing restore];state.drawing=nil;state.plate=plate;}
+    state.noticeDecision=@"native_title_not_ready";state.noticeInkWidths=@[];
+    if(!selected){for(DKXSNoticeHeaderDrawingState *drawing in state.titleDrawings.objectEnumerator.allObjects)[drawing restore];[state.drawing restore];[state.right removeFromSuperview];[state.selection removeFromSuperview];return;}
+    NSDictionary *glass=[DKXSMessageListMetrics noticeGlassForWidth:carrier.bounds.size.width height:carrier.bounds.size.height backRight:CGRectGetMaxX(state.leftRect)];
+    NSArray *items=((AWEIMFansAndInteractMergeViewControllerNaviBar *)plate).itemViews;
+    if(![items isKindOfClass:NSArray.class])items=@[];
+    UIView *first=items.count==2 && [items[0] isKindOfClass:UIView.class]?items[0]:nil;
+    UIView *last=items.count==2 && [items[1] isKindOfClass:UIView.class]?items[1]:nil,*container=first.superview;
+    BOOL known=[first isKindOfClass:UIView.class] && [last isKindOfClass:UIView.class] && container.superview==plate && last.superview==container &&
+        CGAffineTransformIsIdentity(plate.transform) && CGAffineTransformIsIdentity(container.transform) && CGAffineTransformIsIdentity(first.transform) && CGAffineTransformIsIdentity(last.transform) &&
+        (selected==first || selected==last) && fabs(plate.bounds.size.width-320)<0.5 && fabs(container.bounds.size.width-320)<0.5 && fabs(first.frame.size.width-160)<0.5 && fabs(last.frame.size.width-160)<0.5;
+    UIView *firstGroup=known?[self noticeTitleGroupForItem:first]:nil,*lastGroup=known?[self noticeTitleGroupForItem:last]:nil;
+    for(UIView *group in state.titleDrawings.keyEnumerator.allObjects)if(group!=firstGroup && group!=lastGroup){[[state.titleDrawings objectForKey:group] restore];[state.titleDrawings removeObjectForKey:group];}
+    CGFloat firstScale=[self noticeScaleForGroup:firstGroup state:state],lastScale=[self noticeScaleForGroup:lastGroup state:state];state.titleScales=@[@(firstScale),@(lastScale)];
+    // 只读原生frame；不能用受子层绘制矩阵影响的子视图坐标反推下一次位移。
+    CGRect native=[plate convertRect:plate.bounds toView:carrier];
+    CGRect firstInk=known?[self noticeInkForItem:first]:CGRectNull,lastInk=known?[self noticeInkForItem:last]:CGRectNull;
+    known=known && !CGRectIsNull(firstInk) && !CGRectIsNull(lastInk);
+    double firstCenter=known?native.origin.x+container.frame.origin.x+first.frame.origin.x+CGRectGetMidX(firstInk):NAN;
+    double lastCenter=known?native.origin.x+container.frame.origin.x+last.frame.origin.x+CGRectGetMidX(lastInk):NAN;
+    state.noticeDecision=known?@"insufficient_title_space":@"unknown_native_geometry";
+    if(known)state.noticeInkWidths=@[@(firstInk.size.width),@(lastInk.size.width)];
+    NSDictionary *shift=known?[DKXSMessageListMetrics noticeDrawingShiftForFirst:firstCenter firstInkWidth:firstInk.size.width*firstScale last:lastCenter lastInkWidth:lastInk.size.width*lastScale glass:glass]:@{};
+    if(!state.drawing && shift.count)state.drawing=[[DKXSNoticeHeaderDrawingState alloc] initWithLayer:plate.layer];
+    if(!shift.count || ![state.drawing applyShift:[shift[@"shift"] doubleValue]]){
+        if(shift.count)state.noticeDecision=@"native_matrix_conflict";
+        [state.drawing restore];[state.right removeFromSuperview];[state.selection removeFromSuperview];return;
+    }
+    CGRect frame=CGRectMake([glass[@"x"] doubleValue],[glass[@"y"] doubleValue],[glass[@"width"] doubleValue],[glass[@"height"] doubleValue]);
+    [self dkxs_placeGlassBackground:state.right frame:frame inView:carrier];
+    state.right.layer.borderColor=[UIColor colorWithWhite:1 alpha:0.18].CGColor;
+    double center=(selected==first?firstCenter:lastCenter)+[shift[@"shift"] doubleValue];
+    CGFloat selectedWidth=[shift[selected==first?@"firstWidth":@"lastWidth"] doubleValue];
+    NSDictionary *highlight=[DKXSMessageListMetrics noticeSelectionForCenter:center width:selectedWidth glass:glass];
+    if(!highlight.count){state.noticeDecision=@"invalid_highlight";[state.drawing restore];[state.right removeFromSuperview];[state.selection removeFromSuperview];return;}
+    if(!state.selection){
+        state.selection=[UIView new];state.selection.userInteractionEnabled=NO;state.selection.accessibilityElementsHidden=YES;
+        state.selection.accessibilityIdentifier=@"DYxs.NoticeSelectedTab";state.selection.layer.cornerCurve=kCACornerCurveContinuous;
+    }
+    CGRect selectedFrame=CGRectMake([highlight[@"x"] doubleValue],[highlight[@"y"] doubleValue],[highlight[@"width"] doubleValue],[highlight[@"height"] doubleValue]);
+    if(!CGRectEqualToRect(state.selection.frame,selectedFrame))state.selection.frame=selectedFrame;
+    state.selection.layer.cornerRadius=selectedFrame.size.height/2;
+    state.selection.backgroundColor=[UIColor colorWithWhite:0 alpha:state.right.overrideUserInterfaceStyle==UIUserInterfaceStyleDark?0.52:0.14];
+    if(state.selection.superview!=state.right.contentView)[state.right.contentView addSubview:state.selection];
+    state.noticeDecision=@"applied";
 }
 + (NSUInteger)actualHiddenHeaderViews:(DKXSMessageHeaderState *)state {
     NSUInteger count=0;for(UIView *view in state.hiddenViews.keyEnumerator.allObjects)if(view.hidden)count++;return count;
@@ -686,21 +741,28 @@ static char kDKXSMessageListMaterialKey;
         // 背景留在外层，不进入原生按钮数组/子视图，避免参与原生按钮宽度测量。
         CGFloat height=MIN(44,carrier.bounds.size.height);
         CGRect leftRect=notice?[self noticeBackFrame:left carrier:carrier]:CGRectMake(left.frame.origin.x,(carrier.bounds.size.height-height)/2,height,height);
-        if(notice)[self positionNoticePlate:right carrier:carrier leftRect:leftRect state:state];
+        if(notice){state.leftRect=leftRect;[DKXSNoticeFilterGlass bindPlate:right];}
+        if(notice)state.noticeActions=((AWEIMFansAndInteractMergeViewControllerNaviBar *)right).currentSelectedIndex==1?[self fansActionsForOuterBar:bar]:nil;
         UIView *selected=notice?[self selectedNoticeItem:right]:nil;UIView *rightAnchor=selected?:right;
         CGRect rightRect=CGRectMake(right.frame.origin.x,(carrier.bounds.size.height-height)/2,right.bounds.size.width,height);
-        if(selected){CGRect item=[selected convertRect:selected.bounds toView:carrier];CGFloat width=MIN(116,MAX(0,item.size.width-16));rightRect=CGRectMake(CGRectGetMidX(item)-width/2,(carrier.bounds.size.height-36)/2,width,36);}
         BOOL rebind=state.notice!=notice || state.leftAnchor!=left || state.rightAnchor!=rightAnchor || state.left.superview!=carrier || state.right.superview!=carrier || !CGSizeEqualToSize(state.leftRect.size,leftRect.size) || (notice && !CGRectEqualToRect(state.leftRect,leftRect));
         if(rebind)[NSLayoutConstraint deactivateConstraints:state.constraints];
         [UIView performWithoutAnimation:^{
-            [self dkxs_placeGlassBackground:state.left frame:leftRect inView:carrier];
-            [self dkxs_placeGlassBackground:state.right frame:rightRect inView:carrier];
-            state.left.alpha=notice?0.82:1;state.right.alpha=notice?0.72:1;
-            state.left.layer.borderColor=[UIColor colorWithWhite:1 alpha:(notice?0.12:0.18)].CGColor;
-            state.right.layer.borderColor=[UIColor colorWithWhite:1 alpha:(notice?0.10:0.18)].CGColor;
+            if(notice){
+                [self dkxs_placeGlassBackground:state.left frame:leftRect inView:carrier];
+                state.left.alpha=0.82;state.left.layer.borderColor=[UIColor colorWithWhite:1 alpha:0.12].CGColor;
+                [self placeNoticeGlass:state carrier:carrier plate:right selected:selected];
+            }else{
+                [state.selection removeFromSuperview];
+                [self dkxs_placeGlassBackground:state.left frame:leftRect inView:carrier];
+                [self dkxs_placeGlassBackground:state.right frame:rightRect inView:carrier];
+                state.left.layer.borderColor=[UIColor colorWithWhite:1 alpha:0.18].CGColor;
+                state.right.layer.borderColor=[UIColor colorWithWhite:1 alpha:0.18].CGColor;
+            }
         }];
-        if(!selected && state.indicator){if(state.indicator.hidden)state.indicator.hidden=state.indicatorHidden;state.indicator=nil;}
-        if(selected && [right respondsToSelector:@selector(indicatorView)]){
+        BOOL highlightActive=notice && state.selection.superview!=nil;
+        if(!highlightActive && state.indicator){if(state.indicator.hidden)state.indicator.hidden=state.indicatorHidden;state.indicator=nil;}
+        if(highlightActive && [right respondsToSelector:@selector(indicatorView)]){
             UIView *indicator=((AWEIMFansAndInteractMergeViewControllerNaviBar *)right).indicatorView;
             if(![indicator isKindOfClass:UIView.class])indicator=nil;
             if(indicator!=state.indicator){if(state.indicator.hidden)state.indicator.hidden=state.indicatorHidden;state.indicator=indicator;state.indicatorHidden=indicator.hidden;}
@@ -715,11 +777,6 @@ static char kDKXSMessageListMaterialKey;
             // 装饰层按原生完成后的坐标放置，不能用约束牵动嵌套原生标签布局。
             [NSLayoutConstraint deactivateConstraints:state.constraints];state.constraints=nil;
             state.left.translatesAutoresizingMaskIntoConstraints=YES;state.right.translatesAutoresizingMaskIntoConstraints=YES;
-            UIView *actions=bar.rightBtnsContainerView;
-            if(actions!=right && actions.superview==carrier && !actions.hidden && actions.bounds.size.width>0 && actions.bounds.size.width<=120 && actions.frame.origin.x>carrier.bounds.size.width/2){
-                CGRect rect=[actions convertRect:actions.bounds toView:carrier];rect.origin.y=(carrier.bounds.size.height-40)/2;rect.size.height=40;
-                [self dkxs_placeGlassBackground:state.actions frame:rect inView:carrier];
-            }else [state.actions removeFromSuperview];
             state.leftAnchor=left;state.rightAnchor=rightAnchor;state.notice=YES;state.leftRect=leftRect;
         }else if(rebind){
             state.left.translatesAutoresizingMaskIntoConstraints=NO;state.right.translatesAutoresizingMaskIntoConstraints=NO;
@@ -751,11 +808,12 @@ static char kDKXSMessageListMaterialKey;
         if(!strongBar || [self headerState:strongBar create:NO]!=state)return;
         state.pending=NO;
         [self synchronizeBar:strongBar];
-        [DKXSMessageListViewport refresh];
+        if([self owner:strongBar named:@"AWEIMMessageTabViewController"])[DKXSMessageListViewport refresh];
     });
 }
 + (void)refresh {
     if(!NSThread.isMainThread)return;
+    [DKXSNoticeFilterGlass refresh];
     if(![self cardsEnabled]){
         for(UIView *view in [self lightViews].allObjects)[self resetLightInteraction:view];
         for(UIView *view in [self contentViews].allObjects)[self resetContentView:view];
@@ -769,6 +827,7 @@ static char kDKXSMessageListMaterialKey;
     for(UIView *bar in [self bars].allObjects)[self synchronizeBar:bar];
     [DKXSInteractionNoticeStyle refresh];
     [DKXSRefreshIndicatorStyle refresh];
+    [DKXSInteractionNoticeViewport refresh];
     [DKXSMessageListViewport refresh];
 }
 + (NSDictionary *)diagnostics {
@@ -805,8 +864,8 @@ static char kDKXSMessageListMaterialKey;
     NSMutableArray *headers=[NSMutableArray array];
     for(UIView *bar in [self bars].allObjects)if(bar.window && headers.count<4){
         DKXSMessageHeaderState *s=[self headerState:bar create:NO];
-        [headers addObject:@{@"transparent":@(!bar.backgroundColor || CGColorGetAlpha(bar.backgroundColor.CGColor)==0),@"leftGlassWidth":@(s.left.bounds.size.width),@"rightGlassWidth":@(s.auxiliary?s.actions.bounds.size.width:s.right.bounds.size.width),@"rightMounted":@(s.auxiliary?s.actions.superview!=nil:s.right.superview!=nil),@"auxiliaryFansBar":@(s.auxiliary),@"hiddenNativeHeaderViews":@([self actualHiddenHeaderViews:s]),@"tabTranslationX":@(s.plateApplied && CGAffineTransformEqualToTransform(s.plate.transform,s.plateAppliedTransform)?s.plateAppliedTransform.tx-s.plateNativeTransform.tx:0),@"selectedTabOnly":@(s.notice)}];
+        [headers addObject:@{@"transparent":@(!bar.backgroundColor || CGColorGetAlpha(bar.backgroundColor.CGColor)==0),@"leftGlassWidth":@(s.left.bounds.size.width),@"rightGlassWidth":@(s.auxiliary?s.actions.bounds.size.width:(s.right.superview?s.right.bounds.size.width:0)),@"rightMounted":@(s.auxiliary?s.actions.superview!=nil:s.right.superview!=nil),@"auxiliaryFansBar":@(s.auxiliary),@"hiddenNativeHeaderViews":@([self actualHiddenHeaderViews:s]),@"tabsGlassMounted":@(s.notice && !s.auxiliary && s.right.superview!=nil),@"tabsGlassFrame":[self valuesForFrame:s.right.frame],@"nativeTabsFrame":[self valuesForFrame:s.plate.frame],@"drawingOnly":@(s.drawing.active),@"noticeDecision":s.noticeDecision?:@"",@"nativeInkWidths":s.noticeInkWidths?:@[],@"titleDrawingScales":s.titleScales?:@[],@"selectedHighlightMounted":@(s.selection.superview!=nil),@"selectedHighlightFrame":[self valuesForFrame:s.selection.frame]}];
     }
-    return @{@"viewport":[DKXSMessageListViewport diagnostics],@"cardsEnabled":@([self cardsEnabled]),@"topEnabled":@([self topEnabled]),@"adapterReady":@([self adapterReady]),@"visibleRowsByGroup":groups,@"insetRows":@(insets),@"contentScale":@0.92,@"contentDecisions":decisions,@"contentContainers":content,@"contentAdapterReady":@([self contentAdapterReady]),@"backgroundMasks":@(backgroundMasks),@"compactLightInteractionViews":@([self lightViews].allObjects.count),@"headers":headers,@"nativeRowGeometry":@YES,@"unreadMutation":@NO};
+    return @{@"filterMenu":[DKXSNoticeFilterGlass diagnostics],@"viewport":[DKXSMessageListViewport diagnostics],@"cardsEnabled":@([self cardsEnabled]),@"topEnabled":@([self topEnabled]),@"adapterReady":@([self adapterReady]),@"visibleRowsByGroup":groups,@"insetRows":@(insets),@"contentScale":@0.92,@"contentDecisions":decisions,@"contentContainers":content,@"contentAdapterReady":@([self contentAdapterReady]),@"backgroundMasks":@(backgroundMasks),@"compactLightInteractionViews":@([self lightViews].allObjects.count),@"headers":headers,@"nativeRowGeometry":@YES,@"unreadMutation":@NO};
 }
 @end

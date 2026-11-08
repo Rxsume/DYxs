@@ -14,14 +14,21 @@
 //  隐藏面板文本用 DKMakeTextInput（上游同款文本输入项）。
 //
 #import "DKSettings.h"
+#import "DKXSContentComments.h"
 
 %ctor {
     DKSettingsRegister(@"DKXSEnableCommentBlur", ^AWESettingItemModel *{
-        return DKMakeSwitch(@"DKXSEnableCommentBlur", @"评论区毛玻璃",
+        AWESettingItemModel *item = DKMakeSwitch(@"DKXSEnableCommentBlur", @"评论区毛玻璃",
                             @"评论面板跟随实际面板铺毛玻璃；关开关时恢复原生背景。");
+        // 第 10 批：富内容详情页内嵌评论列表共用此开关，切换时刷新已挂载的评论面板。
+        DKSettingsOnChange(item, ^{ [DKXSContentComments refresh]; });
+        return item;
     });
     DKSettingsRegister(@"DKXSCommentBlurTransparent", ^AWESettingItemModel *{
-        return DKMakeTextInput(@"DKXSCommentBlurTransparent", @"毛玻璃透明度", @"0-1小数，例如 0.9", 32);
+        AWESettingItemModel *item = DKMakeTextInput(@"DKXSCommentBlurTransparent", @"毛玻璃透明度", @"0-1小数，例如 0.9", 32);
+        // 第 10 批：同上，透明度改动同步刷新富内容详情页内嵌评论列表。
+        DKSettingsOnChange(item, ^{ [DKXSContentComments refresh]; });
+        return item;
     });
     DKSettingsRegister(@"DKXSLongPressCopyText", ^AWESettingItemModel *{
         return DKMakeSwitch(@"DKXSLongPressCopyText", @"长按复制视频文案",

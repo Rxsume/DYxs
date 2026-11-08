@@ -7,6 +7,7 @@
 #import "DKXSInteractionNoticeStyle.h"
 #import "DKXSMessageListViewport.h"
 #import "DKXSRefreshIndicatorStyle.h"
+#import "DKXSInteractionNoticeViewport.h"
 #import "DKXSChatEnhancementPolicy.h"
 // 最小接口声明（沿用第 8 批写法，不 import 大头文件）：AWEIMChatListViewController /
 // AWEIMChatListCommonCell / AWENavigationBar 沿用本批已有声明；新增本次上游用到的
@@ -119,7 +120,7 @@
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {if([DKXSMessageListStyle passThroughNoticeActions:point bar:(UIView *)self])return nil;return %orig(point,event);}
 - (void)setBackgroundColor:(UIColor *)color { %orig([DKXSMessageListStyle nativeBackgroundColor:color forBar:self]); }
 - (void)setOpaque:(BOOL)opaque { %orig([DKXSMessageListStyle nativeOpaque:opaque forBar:self]); }
-- (void)layoutSubviews { %orig; [DKXSInteractionNoticeStyle installHooks]; [DKXSRefreshIndicatorStyle installHooks]; [DKXSMessageListStyle synchronizeBar:self]; [DKXSMessageListStyle scheduleBarSynchronization:self]; }
+- (void)layoutSubviews { %orig; [DKXSInteractionNoticeStyle installHooks]; [DKXSRefreshIndicatorStyle installHooks]; [DKXSInteractionNoticeViewport installHooks]; [DKXSMessageListStyle synchronizeBar:self]; [DKXSMessageListStyle scheduleBarSynchronization:self]; }
 - (void)didMoveToWindow { %orig; [DKXSMessageListStyle synchronizeBar:self]; [DKXSMessageListStyle scheduleBarSynchronization:self]; }
 %end
 %end
@@ -136,7 +137,6 @@
 %end
 %group DKXSNoticeTabSelectionHooks
 %hook AWEIMFansAndInteractMergeViewControllerNaviBar
-- (void)setFrame:(CGRect)frame {id token=[DKXSMessageListStyle beginNoticePlateFrame:(UIView *)self];@try {%orig(frame);}@finally {[DKXSMessageListStyle endNoticePlateFrame:token];}}
 - (void)setSelectedIndex:(long long)index { %orig(index); [DKXSMessageListStyle synchronizeHeaderForView:(UIView *)self]; }
 %end
 %end

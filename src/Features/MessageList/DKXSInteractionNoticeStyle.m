@@ -3,6 +3,7 @@
 #import "DKXSInteractionNoticeStyle.h"
 #import "DKXSMessageListStyle.h"
 #import "DKXSRefreshIndicatorStyle.h"
+#import "DKXSInteractionNoticeViewport.h"
 #import "DKXSMessageListCardView.h"
 #import "DKXSMessageListMetrics.h"
 #import "DKXSMessageListUpdateState.h"
@@ -242,6 +243,6 @@ static NSUInteger DKXSFansBeforeWindowApplications;
     if(!NSThread.isMainThread)return @{};
     NSUInteger active=0,fans=0,nativeLines=0;
     for(UIView *cell in [self cells].allObjects)if(cell.window){DKXSNoticeCardState *s=[self state:cell];for(UIView *line in s.lines.keyEnumerator.allObjects)if(line.hidden)nativeLines++;if(s.applied && [self contentForCell:cell].layer.mask==s.mask && s.background.superview==[self contentForCell:cell] && [self backgroundForCell:cell]==s.panel && CGAffineTransformEqualToTransform([self contentForCell:cell].transform,s.appliedTransform)){active++;if([self isFansCell:cell])fans++;}}
-    return @{@"enabled":@([DKXSMessageListStyle cardsEnabled]),@"roundedVisibleCells":@(active),@"followersVisibleCells":@(fans),@"hiddenNativeDividers":@(nativeLines),@"bindingEvents":@(DKXSFansBindingEvents),@"beforeWindowApplications":@(DKXSFansBeforeWindowApplications),@"hooks":[self hookDiagnostics],@"refreshIndicator":[DKXSRefreshIndicatorStyle diagnostics],@"layout":@"section_groups"};
+    return @{@"enabled":@([DKXSMessageListStyle cardsEnabled]),@"roundedVisibleCells":@(active),@"followersVisibleCells":@(fans),@"hiddenNativeDividers":@(nativeLines),@"bindingEvents":@(DKXSFansBindingEvents),@"beforeWindowApplications":@(DKXSFansBeforeWindowApplications),@"hooks":[self hookDiagnostics],@"refreshIndicator":[DKXSRefreshIndicatorStyle diagnostics],@"viewport":[DKXSInteractionNoticeViewport diagnostics],@"layout":@"section_groups"};
 }
 @end
