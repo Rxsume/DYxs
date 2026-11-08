@@ -1,9 +1,7 @@
 // 移植自 Si-yi/DYads- 7083bae（DYYYNativeGridRoute.m）：改名一律 DYYY -> DKXS，逻辑原样。
-// 本地最小接口声明：39.5 头文件未声明 AWEDCFeed* 路由类，只声明本文件直接取用的属性与方法；
+// 本地最小接口声明：39.5 头文件未声明 AWEDCFeed* 路由类，只声明本文件直接取用的属性；
 // 运行时真实性由 DKXSChatEnhancementPolicy 逐项核对，缺失时拒绝并走原生，不会走到直接调用。
 // 开关 DKXSEnableNativeGridFullscreen 默认关（DYxs 移植惯例；上游默认开，不跟随）。
-// 0.6.9.23 修复：补 AWEDCFeedDetailVCRouter 的 initWithBuilder: 声明（上游 AwemeHeaders.h 在
-// AWEDCFeedBaseRouter 上声明，DYxs 39.5 头文件里没有；缺声明时 CI 报 no known instance method）。
 #import "DKXSNativeGridRoute.h"
 #import "DKXSGridRouterBridge.h"
 #import "DKXSChatEnhancementPolicy.h"
@@ -21,9 +19,6 @@
 @end
 @interface AWEDCFeedBaseCell : UICollectionViewCell
 @property (nonatomic, strong) AWEAwemeModel *awemeModel;
-@end
-@interface AWEDCFeedDetailVCRouter : NSObject
-- (instancetype)initWithBuilder:(id)builder;
 @end
 
 @interface DKXSGridRouteObservation : NSObject
