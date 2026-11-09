@@ -30,17 +30,47 @@
 //  - DY778LivePreview.m 的 prepareForDisplay 是另一套挂载 hook，不在
 //    AWEAwemePlayVideoViewController 上。
 //
+//  兜底第二版（0.6.9.25）：0.6.9.24 真机仍未生效，两个缺口——
+//  1. 只覆盖了一个播放器类。DYYY 在三个播放器类上都 hook 了 setIsAutoPlay:
+//     （AWEAwemePlayVideoViewController、AWEDPlayerFeedPlayerViewController、
+//     AWEDPlayerViewController_Merge），后两个类在 39.5 头文件里有声明，
+//     39.6.0 详情页很可能用的是其中之一。本版三个类全覆盖。
+//  2. 时机问题。setIsAutoPlay: / prepareForDisplay 可能发生在播放器控制器
+//     挂进层级之前（parentViewController 为 nil），沿链找不到详情页，
+//     兜底不触发。本版新增可靠触发点：详情页的
+//     tableView:willDisplayCell:forRowAtIndexPath:（39.5 头文件有声明，
+//     DYxs 里无文件 hook 该方法），此时层级已建立，且每次滑到新作品都会
+//     触发；%orig 后递归遍历 childViewControllers，把三个播放器类之一且
+//     isAutoPlay 为 NO 的一律置 YES。
+//  兜底冲突核查（0.6.9.25）：
+//  - Batch5b 同样 hook 了 AWEDPlayerFeedPlayerViewController 的
+//    setIsAutoPlay: / prepareForDisplay（%orig 后应用默认倍速），与 v1 的
+//    AWEAwemePlayVideoViewController 一样是串联、不顶掉；
+//    AWEDPlayerViewController_Merge 的两个方法只有本兜底 hook。
+//  - DKVideoDetailTable.xm / DKVideoFeedTable.xm 只 hook 详情页控制器的
+//    setupDetailTableView / viewWillLayoutSubviews / 高度类方法，不碰
+//    willDisplayCell；其余 willDisplayCell hook 都在别的控制器类上。
+//
 
 #import <UIKit/UIKit.h>
 
 #define DKXSGetBool(key) [[NSUserDefaults standardUserDefaults] boolForKey:key]
 
-// 最小接口声明：39.5 头文件里 AWEAwemePlayVideoViewController 只有极简声明
-// （observeValueForKeyPath:/setVideoControllerPlaybackRate:，无 setIsAutoPlay: /
-// isAutoPlay）；本文件不 import 上游头文件，按 PR #31 的教训在此补声明，
-// 供兜底读写 isAutoPlay。调用前另有 respondsToSelector: 守卫，防止 39.6.0
-// 上属性不存在时直接调用崩溃。
+// 最小接口声明：39.5 头文件里三个播放器控制器都只有极简声明
+// （无 setIsAutoPlay: / isAutoPlay）；本文件不 import 上游头文件，按
+// PR #31 的教训在此补声明，供兜底读写 isAutoPlay。调用前另有
+// respondsToSelector: 守卫，防止 39.6.0 上属性不存在时直接调用崩溃。
 @interface AWEAwemePlayVideoViewController : UIViewController
+- (void)setIsAutoPlay:(BOOL)isAutoPlay;
+- (BOOL)isAutoPlay;
+@end
+
+@interface AWEDPlayerFeedPlayerViewController : UIViewController
+- (void)setIsAutoPlay:(BOOL)isAutoPlay;
+- (BOOL)isAutoPlay;
+@end
+
+@interface AWEDPlayerViewController_Merge : UIViewController
 - (void)setIsAutoPlay:(BOOL)isAutoPlay;
 - (BOOL)isAutoPlay;
 @end
@@ -90,6 +120,24 @@
 
 %group AutoPlayFallback
 
+// 该控制器是不是三个播放器类之一。类不存在时 NSClassFromString 返回 nil，
+// isKindOfClass: 返回 NO，不会崩。
+static BOOL DKXSAutoPlayIsPlayerVC(UIViewController *vc) {
+    if (!vc) return NO;
+    static Class playVCClass = nil;
+    static Class feedPlayerClass = nil;
+    static Class mergePlayerClass = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        playVCClass = NSClassFromString(@"AWEAwemePlayVideoViewController");
+        feedPlayerClass = NSClassFromString(@"AWEDPlayerFeedPlayerViewController");
+        mergePlayerClass = NSClassFromString(@"AWEDPlayerViewController_Merge");
+    });
+    return [vc isKindOfClass:playVCClass] ||
+           [vc isKindOfClass:feedPlayerClass] ||
+           [vc isKindOfClass:mergePlayerClass];
+}
+
 // 该播放器是否处于详情页内：沿 parentViewController / presentingViewController
 // 链向上找 AWEAwemeDetailTableViewController。类不存在时 NSClassFromString
 // 返回 nil，isKindOfClass: 返回 NO，不会崩。
@@ -104,6 +152,33 @@ static BOOL DKXSAutoPlayInDetailPage(UIViewController *vc) {
         c = next;
     }
     return NO;
+}
+
+// 播放器 isAutoPlay 为 NO 时置 YES（带 respondsToSelector: 守卫）。
+// 在 prepareForDisplay 里调 setter 会再次触发串联的 setIsAutoPlay: hook，
+// 该 hook 见到 YES 直接透传，不递归。
+static void DKXSAutoPlayForcePlayer(UIViewController *vc) {
+    if (!vc) return;
+    if (![vc respondsToSelector:@selector(isAutoPlay)] ||
+        ![vc respondsToSelector:@selector(setIsAutoPlay:)]) {
+        return;
+    }
+    if (![(id)vc isAutoPlay]) {
+        [(id)vc setIsAutoPlay:YES];
+    }
+}
+
+// 递归遍历 childViewControllers，把三个播放器类之一且 isAutoPlay 为 NO 的
+// 一律置 YES。播放器可能挂在 cell 控制器下，不只在详情页的直接子节点里，
+// 故递归；深度上限防异常环。
+static void DKXSAutoPlayForceInChildren(UIViewController *vc, int depth) {
+    if (!vc || depth > 8) return;
+    for (UIViewController *child in vc.childViewControllers) {
+        if (DKXSAutoPlayIsPlayerVC(child)) {
+            DKXSAutoPlayForcePlayer(child);
+        }
+        DKXSAutoPlayForceInChildren(child, depth + 1);
+    }
 }
 
 %hook AWEAwemePlayVideoViewController
@@ -125,6 +200,62 @@ static BOOL DKXSAutoPlayInDetailPage(UIViewController *vc) {
         DKXSAutoPlayInDetailPage(self) && ![self isAutoPlay]) {
         [self setIsAutoPlay:YES];
     }
+}
+
+%end
+
+%hook AWEDPlayerFeedPlayerViewController
+
+// 与 AWEAwemePlayVideoViewController 同逻辑；Batch5b 也 hook 了这两个方法，
+// 串联只应用默认倍速，不顶掉。
+- (void)setIsAutoPlay:(BOOL)arg0 {
+    if (!arg0 && DKXSAutoPlayInDetailPage(self)) {
+        %orig(YES);
+    } else {
+        %orig;
+    }
+}
+
+- (void)prepareForDisplay {
+    %orig;
+    if ([self respondsToSelector:@selector(isAutoPlay)] &&
+        [self respondsToSelector:@selector(setIsAutoPlay:)] &&
+        DKXSAutoPlayInDetailPage(self) && ![self isAutoPlay]) {
+        [self setIsAutoPlay:YES];
+    }
+}
+
+%end
+
+%hook AWEDPlayerViewController_Merge
+
+// 与上面两个播放器类同逻辑；这两个方法只有本兜底 hook。
+- (void)setIsAutoPlay:(BOOL)arg0 {
+    if (!arg0 && DKXSAutoPlayInDetailPage(self)) {
+        %orig(YES);
+    } else {
+        %orig;
+    }
+}
+
+- (void)prepareForDisplay {
+    %orig;
+    if ([self respondsToSelector:@selector(isAutoPlay)] &&
+        [self respondsToSelector:@selector(setIsAutoPlay:)] &&
+        DKXSAutoPlayInDetailPage(self) && ![self isAutoPlay]) {
+        [self setIsAutoPlay:YES];
+    }
+}
+
+%end
+
+%hook AWEAwemeDetailTableViewController
+
+// 可靠触发点：滑到新作品时 cell 将显示，层级已建立；%orig 后把详情页内
+// 三个播放器类之一且 isAutoPlay 为 NO 的一律置 YES。
+- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
+    %orig;
+    DKXSAutoPlayForceInChildren(self, 0);
 }
 
 %end
