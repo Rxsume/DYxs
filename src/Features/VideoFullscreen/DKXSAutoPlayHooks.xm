@@ -93,13 +93,11 @@
 //  和手动下滑一样；tableView 读不到时沿 view 层级找），0.4 秒后补一次
 //  playVideoOnScrollDidEnd / playIfActive。videoControllerWillStartNextLoop:
 //  hook 保留并改用新 helper，多一个触发渠道。
-//  诊断提示（临时）：推进尝试时显示一句短提示“自动播放下一个视频”
-//  （DKXSUtils showToast:，仓库已有；约 2 秒消失）：提示出现但不跳 =
-//  推进机制问题；提示不出现 = 触发点问题。不要用弹窗，不要阻塞操作。
+//
+//  第七版（0.6.9.29）：去掉本版的临时诊断提示（用户要求取消）；其余不动。
 //
 
 #import <UIKit/UIKit.h>
-#import "DKXSUtils.h"
 
 #define DKXSGetBool(key) [[NSUserDefaults standardUserDefaults] boolForKey:key]
 
@@ -396,7 +394,7 @@ static void DKXSAutoPlayKickFeedPlayback(UIViewController *feedVC) {
 // 时推进一次。调用者每次回调都必须调 %orig，本 helper 只做判断与推进，
 // 不断 FriendShare 的串联。同一播放器 2 秒内只推进一次（static 弱引用
 // + 时间戳，尝试时即更新，失败导致循环后时间重新走到结尾时 2 秒窗口
-// 已过即可再试）；诊断提示在尝试时显示，推进成功才补播放触发。
+// 已过即可再试）；推进成功后补播放触发。
 static void DKXSAutoPlayMaybeAdvanceFeedOnTime(UIViewController *playerVC, double time, double total) {
     if (!playerVC) return;
     if (total <= 1 || time < total - 0.5) return;
@@ -409,7 +407,6 @@ static void DKXSAutoPlayMaybeAdvanceFeedOnTime(UIViewController *playerVC, doubl
     if (sLastPlayer == playerVC && now - sLastAdvanceTime < 2.0) return;
     sLastPlayer = playerVC;
     sLastAdvanceTime = now;
-    [DKXSUtils showToast:@"自动播放下一个视频"];
     if (DKXSAutoPlayAdvanceFeedByScroll(feedVC)) {
         DKXSAutoPlayKickFeedPlayback(feedVC);
     }
