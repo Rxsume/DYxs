@@ -51,6 +51,21 @@
 //    setupDetailTableView / viewWillLayoutSubviews / 高度类方法，不碰
 //    willDisplayCell；其余 willDisplayCell hook 都在别的控制器类上。
 //
+//  第三版（0.6.9.26）：前两版只改 isAutoPlay（管“显示时自己开始播”），
+//  但用户 16:06 澄清的症状是“视频播完了不自动跳下一个”——播完推进是
+//  另一条线，isAutoPlay 管不到；DYYY 里也没有播完跳下一个的代码。
+//  本版新增“播完推进”：hook AWEDPlayerViewController_Merge 的
+//  -playerWillStartNextLoop:（39.5 头文件有声明；
+//  DKXSAutoMessageHooks.xm 已 hook 同方法，证实 39.6.0 上真实存在；
+//  Logos 同方法双 hook 是串联），视频播完要循环时截住，改滚详情页到
+//  下一行。只在开关开且当前为详情页时触发；主推荐页、直播间不触发。
+//  推进成功时跳过 %orig（旧视频不循环）；找不到详情页、已是最后一行、
+//  或 0.5 秒内同一播放器重复触发时走 %orig（照常循环）。
+//  冲突核查（0.6.9.26）：DKXSAutoMessageHooks.xm 的同方法 hook 只做
+//  FriendShare 的 playerWillLoop: 上报再 %orig，与本 hook 串联；本 hook
+//  跳过 %orig 时那次上报少一次（视频实际没循环，上报本来就不该有），
+//  无害。推进只读详情页的 tableView，不 hook 详情页任何方法。
+//
 
 #import <UIKit/UIKit.h>
 
@@ -73,6 +88,12 @@
 @interface AWEDPlayerViewController_Merge : UIViewController
 - (void)setIsAutoPlay:(BOOL)isAutoPlay;
 - (BOOL)isAutoPlay;
+@end
+
+// 详情页控制器：本文件内无完整声明，只补推进逻辑要读的 tableView 属性。
+// 用 (id) + respondsToSelector: 守卫访问，声明仅作说明。
+@interface AWEAwemeDetailTableViewController : UIViewController
+@property(nonatomic, strong) UITableView *tableView;
 @end
 
 %group AutoPlay
@@ -181,6 +202,44 @@ static void DKXSAutoPlayForceInChildren(UIViewController *vc, int depth) {
     }
 }
 
+// ---- 第三版（0.6.9.26）：播完跳下一个 ----
+
+// 沿 parent/presenting 链找详情页控制器；遇到远端直播流
+//（AFDPlayRemoteFeedTableViewController）直接返回 nil，不推进。
+// 复用 DKXSFullscreenCoordinator usesDetailLayoutForController: 的思路
+//（同文件父链 walk + 远端排除）。
+static UIViewController *DKXSAutoPlayDetailTableVC(UIViewController *vc) {
+    Class detailClass = NSClassFromString(@"AWEAwemeDetailTableViewController");
+    Class remoteClass = NSClassFromString(@"AFDPlayRemoteFeedTableViewController");
+    for (UIViewController *c = vc; c != nil; ) {
+        if (remoteClass && [c isKindOfClass:remoteClass]) return nil;
+        if (detailClass && [c isKindOfClass:detailClass]) return c;
+        UIViewController *next = c.parentViewController;
+        if (!next) next = c.presentingViewController;
+        if (next == c) break;
+        c = next;
+    }
+    return nil;
+}
+
+// 详情页滚到下一行；成功返回 YES。只读 tableView，不 hook 它。
+// 当前行取可视区域中心点所在行（详情页一次只显示一个全屏 cell），
+// 取不到时退到第一个可见行；已是最后一行时不推进。
+static BOOL DKXSAutoPlayAdvanceDetailTable(UIViewController *detailVC) {
+    if (!detailVC) return NO;
+    if (![detailVC respondsToSelector:@selector(tableView)]) return NO;
+    UITableView *tableView = [(id)detailVC tableView];
+    if (!tableView) return NO;
+    NSIndexPath *current = [tableView indexPathForRowAtPoint:CGPointMake(CGRectGetMidX(tableView.bounds), CGRectGetMidY(tableView.bounds))];
+    if (!current) current = [[tableView indexPathsForVisibleRows] firstObject];
+    if (!current) return NO;
+    NSInteger nextRow = current.row + 1;
+    if (nextRow >= [tableView numberOfRowsInSection:current.section]) return NO;
+    NSIndexPath *next = [NSIndexPath indexPathForRow:nextRow inSection:current.section];
+    [tableView scrollToRowAtIndexPath:next atScrollPosition:UITableViewScrollPositionTop animated:YES];
+    return YES;
+}
+
 %hook AWEAwemePlayVideoViewController
 
 // 调用方传 NO 时，详情页内的播放器改为 YES 再 %orig；详情页外原样 %orig。
@@ -256,6 +315,31 @@ static void DKXSAutoPlayForceInChildren(UIViewController *vc, int depth) {
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
     %orig;
     DKXSAutoPlayForceInChildren((UIViewController *)self, 0);
+}
+
+%end
+
+%hook AWEDPlayerViewController_Merge
+
+// 视频播完要循环重播时截住：详情页内就滚到下一行（不循环）；
+// 详情页外、已是最后一行、或 0.5 秒内同一播放器重复触发时走 %orig 照常循环。
+// 注意：DKXSAutoMessageHooks.xm 也 hook 了同方法（FriendShare 上报），
+// 两处串联；本 hook 跳过 %orig 时那次上报少一次（视频实际没循环），无害。
+- (void)playerWillStartNextLoop:(id)player {
+    UIViewController *detailVC = DKXSAutoPlayDetailTableVC((UIViewController *)self);
+    if (detailVC) {
+        static __weak UIViewController *sLastPlayer = nil;
+        static NSTimeInterval sLastAdvanceTime = 0;
+        NSTimeInterval now = CFAbsoluteTimeGetCurrent();
+        if (!(sLastPlayer == self && now - sLastAdvanceTime < 0.5)) {
+            if (DKXSAutoPlayAdvanceDetailTable(detailVC)) {
+                sLastPlayer = self;
+                sLastAdvanceTime = now;
+                return; // 已推进，跳过 %orig，旧视频不循环
+            }
+        }
+    }
+    %orig;
 }
 
 %end
