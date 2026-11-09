@@ -66,6 +66,19 @@
 //  跳过 %orig 时那次上报少一次（视频实际没循环，上报本来就不该有），
 //  无害。推进只读详情页的 tableView，不 hook 详情页任何方法。
 //
+//  第四版（0.6.9.27）：0.6.9.26 只做了详情页的播完推进，用户 16:25
+//  反馈主推荐页（Feed）播完仍不跳下一个。本版新增推荐页推进：hook
+//  AWEFeedTableViewController 的 -videoControllerWillStartNextLoop:
+//  （39.5 头文件有声明；DKXSAutoMessageHooks.xm 已 hook 同方法，证实
+//  39.6.0 上真实存在；Logos 同方法双 hook 是串联），视频播完要循环
+//  时截住，用原生入口 reloadWithCurrentIndex:（FriendShare 的
+//  reloadFeed:atIndex: 已在用的跳转入口，同步 Cell、currentAweme 和
+//  播放器）滚到 currentIndex+1，再调 playVideoOnScrollDidEnd 触发播放。
+//  只在开关开且当前为主推荐 Feed 时触发；搜索页、直播远端流、详情页
+//  一律排除（沿 parent/presenting 链查类名）；已是最后一个视频、或
+//  0.5 秒内重复触发时走 %orig 照常循环。详情页仍走 0.6.9.26 那套，
+//  本版不动它。
+//
 
 #import <UIKit/UIKit.h>
 
@@ -94,6 +107,18 @@
 // 用 (id) + respondsToSelector: 守卫访问，声明仅作说明。
 @interface AWEAwemeDetailTableViewController : UIViewController
 @property(nonatomic, strong) UITableView *tableView;
+@end
+
+// 主推荐页控制器：39.5 头文件里声明了 videoControllerWillStartNextLoop: /
+// currentIndex / reloadWithCurrentIndex: / playVideoOnScrollDidEnd 等，
+// 但无 tableView 属性；本文件不 import 上游头文件，按 PR #31 的教训在
+// 此补最小声明。所有调用均用 (id) + respondsToSelector: 守卫。
+@interface AWEFeedTableViewController : UIViewController
+@property(nonatomic, readonly) long long currentIndex;
+@property(nonatomic, strong) UITableView *tableView;
+- (void)reloadTableViewData;
+- (void)reloadWithCurrentIndex:(long long)index;
+- (void)playVideoOnScrollDidEnd;
 @end
 
 %group AutoPlay
@@ -240,6 +265,53 @@ static BOOL DKXSAutoPlayAdvanceDetailTable(UIViewController *detailVC) {
     return YES;
 }
 
+// ---- 第四版（0.6.9.27）：主推荐页播完跳下一个 ----
+
+// 是不是主推荐 Feed：沿 parent/presenting 链排除直播远端流、搜索页、
+// 详情页，命中任一排除类返回 NO；其余（主推荐 Tab、关注 Tab，同为首页
+// Feed）认作主推荐页。类不存在时 NSClassFromString 返回 nil，不会崩。
+static BOOL DKXSAutoPlayIsMainFeed(UIViewController *vc) {
+    Class remoteClass = NSClassFromString(@"AFDPlayRemoteFeedTableViewController");
+    Class searchClass = NSClassFromString(@"AWESearchViewController");
+    Class detailClass = NSClassFromString(@"AWEAwemeDetailTableViewController");
+    for (UIViewController *c = vc; c != nil; ) {
+        if ((remoteClass && [c isKindOfClass:remoteClass]) ||
+            (searchClass && [c isKindOfClass:searchClass]) ||
+            (detailClass && [c isKindOfClass:detailClass])) {
+            return NO;
+        }
+        UIViewController *next = c.parentViewController;
+        if (!next) next = c.presentingViewController;
+        if (next == c) break;
+        c = next;
+    }
+    return YES;
+}
+
+// 推荐页滚到下一个视频；成功返回 YES。用 FriendShare 已在用的原生入口
+// reloadWithCurrentIndex:（同步 Cell、currentAweme 和播放器），再调
+// playVideoOnScrollDidEnd 触发播放。下一行未加载时不推进，留给用户
+// 手动下滑加载。数据不变时不调 reloadTableViewData，避免整表闪烁。
+static BOOL DKXSAutoPlayAdvanceFeed(UIViewController *feedVC) {
+    if (!feedVC) return NO;
+    if (![feedVC respondsToSelector:@selector(currentIndex)]) return NO;
+    // 用本文件声明的最小接口做类型化读取：(id) 消息返回 id，不能直接做
+    // long long 算术；currentIndex / tableView 均先过 respondsToSelector:。
+    AWEFeedTableViewController *feed = (AWEFeedTableViewController *)feedVC;
+    long long next = feed.currentIndex + 1;
+    if (next < 0) return NO;
+    if (![feedVC respondsToSelector:@selector(tableView)]) return NO;
+    UITableView *tableView = feed.tableView;
+    if (!tableView) return NO;
+    if (next >= [tableView numberOfRowsInSection:0]) return NO;
+    if (![feedVC respondsToSelector:@selector(reloadWithCurrentIndex:)]) return NO;
+    [feed reloadWithCurrentIndex:next];
+    if ([feedVC respondsToSelector:@selector(playVideoOnScrollDidEnd)]) {
+        [feed playVideoOnScrollDidEnd];
+    }
+    return YES;
+}
+
 %hook AWEAwemePlayVideoViewController
 
 // 调用方传 NO 时，详情页内的播放器改为 YES 再 %orig；详情页外原样 %orig。
@@ -334,6 +406,33 @@ static BOOL DKXSAutoPlayAdvanceDetailTable(UIViewController *detailVC) {
         if (!(sLastPlayer == self && now - sLastAdvanceTime < 0.5)) {
             if (DKXSAutoPlayAdvanceDetailTable(detailVC)) {
                 sLastPlayer = self;
+                sLastAdvanceTime = now;
+                return; // 已推进，跳过 %orig，旧视频不循环
+            }
+        }
+    }
+    %orig;
+}
+
+%end
+
+%hook AWEFeedTableViewController
+
+// 视频播完要循环重播时截住：主推荐页内就滚到下一个视频（不循环）；
+// 开关关、非主推荐页（搜索/直播/详情页）、已是最后一个视频、
+// 或 0.5 秒内重复触发时走 %orig 照常循环。
+// 注意：DKXSAutoMessageHooks.xm 也 hook 了同方法（FriendShare 上报），
+// 两处串联；本 hook 跳过 %orig 时那次上报少一次（视频实际没循环），无害。
+// 开关在 hook 内再读一次：%ctor 只管加载时，关开关后当次会话内即停，
+// 不必等重启；与 0.6.9.26 的详情页 hook 保持各自原样，不互相改。
+- (void)videoControllerWillStartNextLoop:(id)controller {
+    if (DKXSGetBool(@"DKXSEnableAutoPlay") && DKXSAutoPlayIsMainFeed((UIViewController *)self)) {
+        static __weak AWEFeedTableViewController *sLastFeed = nil;
+        static NSTimeInterval sLastAdvanceTime = 0;
+        NSTimeInterval now = CFAbsoluteTimeGetCurrent();
+        if (!(sLastFeed == self && now - sLastAdvanceTime < 0.5)) {
+            if (DKXSAutoPlayAdvanceFeed((UIViewController *)self)) {
+                sLastFeed = self;
                 sLastAdvanceTime = now;
                 return; // 已推进，跳过 %orig，旧视频不循环
             }
