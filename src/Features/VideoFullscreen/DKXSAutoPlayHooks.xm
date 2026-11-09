@@ -255,7 +255,7 @@ static void DKXSAutoPlayForceInChildren(UIViewController *vc, int depth) {
 // 三个播放器类之一且 isAutoPlay 为 NO 的一律置 YES。
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
     %orig;
-    DKXSAutoPlayForceInChildren(self, 0);
+    DKXSAutoPlayForceInChildren((UIViewController *)self, 0);
 }
 
 %end
