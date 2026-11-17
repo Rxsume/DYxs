@@ -161,6 +161,7 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                 DKSection(@"播放页元素", @[
                     DKRow(DKKeyPlaybackFullscreenMode, @"ic_fullscreen_outlined_16"),
                     DKRow(DKKeyPlaybackDanmakuMode, @"ic_comment_outlined_20"),
+                    DKRow(DKKeyDoubleColumnRemoveCopilot, @"ic_magic_outlined_20"),
                     // 第 3 批 3c（5 键）：头像与遮罩。
                     DKRow(@"DKXSHideAvatarButton", @"ic_personcircleclean_outlined_20"),
                     DKRow(@"DKXSHideAvatarLive", @"ic_tv_outlined_20"),
@@ -604,6 +605,9 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
         ]),
         DKSection(@"图文详情页", @[
             DKRow(DKKeyNoteDetailGlass, @"ic_image_outlined_20"),
+        ]),
+        DKSection(@"听抖音", @[
+            DKRow(DKKeyListenFeedGlass, @"ic_playbackquaver_outlined"),
         ]),
         // 第 10 批（DYads- 0ee4792，3 键）：内容详情页与双列，默认关闭。
         DKSection(@"内容详情页", @[
