@@ -11,6 +11,7 @@
 #import "DKClassDump.h"
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 
 @implementation DKDebugExportContext
 @end
