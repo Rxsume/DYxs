@@ -21,6 +21,16 @@
 //  榜（liveAnalysis.audience）、数值展示（liveAnalysis.audienceValues，
 //  默认开，未证实）、观众/礼物通知（liveAnalysis.audienceNotice/giftNotice，
 //  默认关）。getVisitor/clearVisitor/resetPosition/info 是按钮动作，不桥接。
+//  1.0-8 模块 3（红包自动抢 + 超级福袋）同按此桥接：总开关
+//  （redEnvelope.enabled / superLucky.enabled，默认关）、自动领取
+//  （redEnvelope.autoClaim，默认关）、模式（redEnvelope.mode，
+//  0 = 静默观测、1 = 手动点按钮、2 = 网页，默认静默）、延迟
+//  （redEnvelope.delay / superLucky.delay，默认 3 秒，钳制 0–30 秒）、
+//  入口位置（redEnvelope/superLucky.entryPosition.portrait/.landscape，
+//  默认右下角）、开奖提醒（superLucky/lucky.drawReminder，默认关，
+//  键归模块 3、行为归模块 4）、提醒提前秒数（drawReminderSeconds，
+//  默认 60 秒，钳制 0–3600 秒）。lucky.* 共享键的 1.0-3 默认值不动。
+//  history/resetPosition/info 是按钮动作，不桥接。
 //  未在 DYxs 设置里动过的键沿用 DY778RegisterDefaults 注册的默认值（全部关闭）。
 //  死键不登记：lucky.autoPhrase / lucky.autoJoin 只出现在 DY778 默认值表里，
 //  本 commit 的福袋代码并不读取它们。
@@ -30,6 +40,8 @@
 #import "DY778Core.h"
 #import "DY778DisplayStats.h"
 #import "DY778LiveAnalysis.h"
+#import "DY778RedEnvelope.h"
+#import "DY778SuperLucky.h"
 
 static void DY778SyncRemainingSettings(void) {
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
@@ -57,6 +69,22 @@ static void DY778SyncRemainingSettings(void) {
         {@"DKXSLiveAnalysisGiftNotice", @"liveAnalysis.giftNotice"},
         {@"DKXSLiveAnalysisAudience", @"liveAnalysis.audience"},
         {@"DKXSLiveAnalysisAudienceValues", @"liveAnalysis.audienceValues"},
+        // 1.0-8 模块 3：红包自动抢 + 超级福袋（总开关与通知默认关）。
+        {@"DKXSRedEnvelopeEnabled", @"redEnvelope.enabled"},
+        {@"DKXSRedEnvelopeAutoClaim", @"redEnvelope.autoClaim"},
+        {@"DKXSRedEnvelopeShowEntry", @"redEnvelope.showEntry"},
+        {@"DKXSRedEnvelopeHaptics", @"redEnvelope.haptics"},
+        {@"DKXSRedEnvelopeCompact", @"redEnvelope.compact"},
+        {@"DKXSRedEnvelopeNotifyResult", @"redEnvelope.notifyResult"},
+        {@"DKXSRedEnvelopePrompt", @"redEnvelope.prompt"},
+        {@"DKXSSuperLuckyEnabled", @"superLucky.enabled"},
+        {@"DKXSSuperLuckyShowEntry", @"superLucky.showEntry"},
+        {@"DKXSSuperLuckyNotifyResult", @"superLucky.notifyResult"},
+        {@"DKXSSuperLuckyHaptics", @"superLucky.haptics"},
+        {@"DKXSSuperLuckyCompact", @"superLucky.compact"},
+        {@"DKXSSuperLuckyAutoFollow", @"superLucky.autoFollow"},
+        {@"DKXSSuperLuckyDrawReminder", @"superLucky.drawReminder"},
+        {@"DKXSLuckyDrawReminder", @"lucky.drawReminder"},
         // 桥接用：DKXSShowLiveDuration 登记在 DKXSBatch5RestSettings.xm，
         // 这里只把它的值同步进 DY778 suite，保持 liveInfo.duration 一致。
         {@"DKXSShowLiveDuration", @"liveInfo.duration"},
@@ -79,6 +107,28 @@ static void DY778SyncRemainingSettings(void) {
         DY778Set(@"liveAnalysis.entryPosition.portrait", position);
         DY778Set(@"liveAnalysis.entryPosition.landscape", position);
     }
+    // 1.0-8 模块 3：红包/福袋入口位置（同款四值）。
+    if ([defaults objectForKey:@"DKXSRedEnvelopeEntryPosition"]) {
+        NSArray<NSString *> *positions = @[@"bottom-right", @"bottom-left", @"top-right", @"top-left"];
+        NSInteger index = [defaults integerForKey:@"DKXSRedEnvelopeEntryPosition"];
+        NSString *position = positions[(NSUInteger)MAX(0, MIN(3, index))];
+        DY778Set(@"redEnvelope.entryPosition.portrait", position);
+        DY778Set(@"redEnvelope.entryPosition.landscape", position);
+    }
+    if ([defaults objectForKey:@"DKXSSuperLuckyEntryPosition"]) {
+        NSArray<NSString *> *positions = @[@"bottom-right", @"bottom-left", @"top-right", @"top-left"];
+        NSInteger index = [defaults integerForKey:@"DKXSSuperLuckyEntryPosition"];
+        NSString *position = positions[(NSUInteger)MAX(0, MIN(3, index))];
+        DY778Set(@"superLucky.entryPosition.portrait", position);
+        DY778Set(@"superLucky.entryPosition.landscape", position);
+    }
+    // 红包领取模式：选择下标 0 = 静默（只观测、不拦截官方领取视图），
+    // 1 = 手动（点按钮），2 = 网页（WKWebView JS）。
+    if ([defaults objectForKey:@"DKXSRedEnvelopeMode"]) {
+        NSArray<NSString *> *modes = @[@"quiet", @"manual", @"web"];
+        NSInteger index = [defaults integerForKey:@"DKXSRedEnvelopeMode"];
+        DY778Set(@"redEnvelope.mode", modes[(NSUInteger)MAX(0, MIN(2, index))]);
+    }
     // 人数格式：选择下标 0 = 简洁（compact），1 = 完整（exact）
     if ([defaults objectForKey:@"DKXSLivePreviewCountFormat"]) {
         DY778Set(@"liveInfo.countFormat", [defaults integerForKey:@"DKXSLivePreviewCountFormat"] == 1 ? @"exact" : @"compact");
@@ -93,6 +143,12 @@ static void DY778SyncRemainingSettings(void) {
         {@"DKXSLivePreviewRefresh", @"liveInfo.refresh"},
         // 1.0-8 模块 1：弹幕间隔（秒），DY778Set 钳制在 5–300 秒。
         {@"DKXSLiveToolsInterval", @"liveTools.interval"},
+        // 1.0-8 模块 3：领取延迟（秒），DY778Set 钳制在 0–30 秒；
+        // 提醒提前秒数，DY778Set 钳制在 0–3600 秒。
+        {@"DKXSRedEnvelopeDelay", @"redEnvelope.delay"},
+        {@"DKXSSuperLuckyDelay", @"superLucky.delay"},
+        {@"DKXSSuperLuckyDrawReminderSeconds", @"superLucky.drawReminderSeconds"},
+        {@"DKXSLuckyDrawReminderSeconds", @"lucky.drawReminderSeconds"},
     };
     for (NSUInteger i = 0; i < sizeof(numberKeys) / sizeof(numberKeys[0]); i++) {
         id value = [defaults objectForKey:numberKeys[i][0]];
@@ -312,6 +368,148 @@ static void DY778SyncRemainingSettings(void) {
             (void)item;
             DY778ShowNotice(presenter, @"直播数据分析",
                 @"观测当前直播间的观众榜、礼物、PK 与人气数据，只读展示。数据经 WebSocket（protobuf）拉取，失败时走 HTTP 兜底。Protobuf 字段映射须运行时抓包反推，首次使用部分字段可能不完整。");
+        }));
+    });
+
+    // ---------- DY778 1.0-8 模块 3 新增：红包自动抢 + 超级福袋 ----------
+    // 风险提示（规格 §11.2）：红包与福袋是真实利益发放，频繁自动领取
+    // 极可能触发限流、验证码或账号风控；只证明了原版「尝试领取」的代码
+    // 路径，没有任何证据证明在抖音 40.8.0 上仍能成功领取。默认全部关闭。
+    DKSettingsRegister(@"DKXSRedEnvelopeEnabled", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSRedEnvelopeEnabled", @"启用红包自动抢", @""),
+            @"开启后，在直播间内发现红包并按下方模式处理。只证明了原版「尝试领取」的代码路径，没有证据证明在抖音 40.8.0 上仍能成功领取；频繁自动领取可能触发限流、验证码或账号风控。默认关闭。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSRedEnvelopeAutoClaim", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSRedEnvelopeAutoClaim", @"自动领取红包", @""),
+            @"关闭时只观测、不执行领取。开启后按所选模式尝试领取，仅免费/无条件红包会进入领取流程，有门槛的（灯牌/粉丝/钻/关注/口令/付费/送礼）一律跳过。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSRedEnvelopeMode", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeChoice(@"DKXSRedEnvelopeMode", @"红包领取模式", @[@"静默（只观测）", @"手动（点按钮）", @"网页（WKWebView）"]),
+            @"静默模式在 DYxs 侧只做观测与记录，不拦截官方领取视图（静默领取的原生调用未静态还原，拦截会使用户丢红包）；手动模式在官方红包面板里按按钮文本点领取；网页模式在找到的 WKWebView 里用 JS 点领取。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSRedEnvelopeShowEntry", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKMakeSwitch(@"DKXSRedEnvelopeShowEntry", @"显示红包入口按钮", @""),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSRedEnvelopeEntryPosition", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKMakeChoice(@"DKXSRedEnvelopeEntryPosition", @"红包入口位置", @[@"右下角", @"左下角", @"右上角", @"左上角"]),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSRedEnvelopeDelay", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeTextInput(@"DKXSRedEnvelopeDelay", @"红包领取延迟（秒）", @"3", 4),
+            @"0–30 秒，默认 3 秒。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSRedEnvelopeHaptics", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKMakeSwitch(@"DKXSRedEnvelopeHaptics", @"红包触感反馈", @""),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSRedEnvelopeCompact", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKMakeSwitch(@"DKXSRedEnvelopeCompact", @"红包紧凑显示", @""),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSRedEnvelopeNotifyResult", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKMakeSwitch(@"DKXSRedEnvelopeNotifyResult", @"红包领取结果通知", @""),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSRedEnvelopePrompt", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKMakeSwitch(@"DKXSRedEnvelopePrompt", @"红包提示文案", @""),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSRedEnvelopeResetPosition", ^AWESettingItemModel *{
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSRedEnvelopeResetPosition", @"重置红包入口位置", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+            (void)item; (void)presenter;
+            DY778Set(@"redEnvelope.entryPosition.portrait", @"bottom-right");
+            DY778Set(@"redEnvelope.entryPosition.landscape", @"bottom-right");
+            [[NSUserDefaults standardUserDefaults] setInteger:0 forKey:@"DKXSRedEnvelopeEntryPosition"];
+            DY778SyncRemainingSettings();
+            DY778ShowToast(@"redEnvelope", @"入口位置已重置为右下角", NO, YES);
+        }));
+    });
+    DKSettingsRegister(@"DKXSRedEnvelopeHistory", ^AWESettingItemModel *{
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSRedEnvelopeHistory", @"红包记录", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+            (void)item;
+            DY778PresentController(presenter, [[DY778REHistoryController alloc] init]);
+        }));
+    });
+    DKSettingsRegister(@"DKXSSuperLuckyEnabled", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSSuperLuckyEnabled", @"启用超级福袋", @""),
+            @"开启后，在直播间内发现超级福袋并按任务上下文尝试参与。观看任务须真实停留，DYxs 不伪造观看时长；关注/加团/送礼类任务不代做。只证明了原版「尝试领取」的代码路径，没有证据证明在抖音 40.8.0 上仍能成功参与。默认关闭。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSSuperLuckyShowEntry", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKMakeSwitch(@"DKXSSuperLuckyShowEntry", @"显示福袋入口按钮", @""),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSSuperLuckyEntryPosition", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKMakeChoice(@"DKXSSuperLuckyEntryPosition", @"福袋入口位置", @[@"右下角", @"左下角", @"右上角", @"左上角"]),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSSuperLuckyDelay", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeTextInput(@"DKXSSuperLuckyDelay", @"福袋执行延迟（秒）", @"3", 4),
+            @"0–30 秒，默认 3 秒。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSSuperLuckyHaptics", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKMakeSwitch(@"DKXSSuperLuckyHaptics", @"福袋触感反馈", @""),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSSuperLuckyCompact", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKMakeSwitch(@"DKXSSuperLuckyCompact", @"福袋紧凑显示", @""),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSSuperLuckyNotifyResult", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKMakeSwitch(@"DKXSSuperLuckyNotifyResult", @"福袋参与结果通知", @""),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSSuperLuckyAutoFollow", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSSuperLuckyAutoFollow", @"福袋自动关注", @""),
+            @"参与任务需要关注主播时是否自动关注。默认关闭。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSSuperLuckyDrawReminder", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSSuperLuckyDrawReminder", @"福袋开奖提醒", @""),
+            @"开奖提醒的键归本模块，提醒行为（到点弹窗/通知）由模块 4 的抽奖提醒实现。默认关闭。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSSuperLuckyDrawReminderSeconds", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeTextInput(@"DKXSSuperLuckyDrawReminderSeconds", @"福袋提醒提前（秒）", @"60", 4),
+            @"0–3600 秒，默认 60 秒。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLuckyDrawReminder", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKMakeSwitch(@"DKXSLuckyDrawReminder", @"共享开奖提醒", @""),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLuckyDrawReminderSeconds", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeTextInput(@"DKXSLuckyDrawReminderSeconds", @"共享提醒提前（秒）", @"60", 4),
+            @"0–3600 秒，默认 60 秒。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSSuperLuckyResetPosition", ^AWESettingItemModel *{
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSSuperLuckyResetPosition", @"重置福袋入口位置", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+            (void)item; (void)presenter;
+            DY778Set(@"superLucky.entryPosition.portrait", @"bottom-right");
+            DY778Set(@"superLucky.entryPosition.landscape", @"bottom-right");
+            [[NSUserDefaults standardUserDefaults] setInteger:0 forKey:@"DKXSSuperLuckyEntryPosition"];
+            DY778SyncRemainingSettings();
+            DY778ShowToast(@"superLucky", @"入口位置已重置为右下角", NO, YES);
+        }));
+    });
+    DKSettingsRegister(@"DKXSSuperLuckyHistory", ^AWESettingItemModel *{
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSSuperLuckyHistory", @"福袋记录", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+            (void)item;
+            DY778PresentController(presenter, [[DY778SLHistoryController alloc] init]);
+        }));
+    });
+    DKSettingsRegister(@"DKXSRedEnvelopeInfo", ^AWESettingItemModel *{
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSRedEnvelopeInfo", @"关于红包福袋", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+            (void)item;
+            DY778ShowNotice(presenter, @"红包福袋",
+                @"红包自动抢与超级福袋：发现直播间红包/福袋并按模式尝试领取。只证明了原版「尝试领取」的代码路径，没有证据证明在抖音 40.8.0 上仍能成功领取；频繁自动领取可能触发限流、验证码或账号风控。静默模式只做观测、不拦截官方领取视图；观看任务须真实停留，DYxs 不伪造观看时长；开奖提醒行为由模块 4 实现。");
         }));
     });
 

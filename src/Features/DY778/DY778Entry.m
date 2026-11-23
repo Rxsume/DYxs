@@ -9,6 +9,11 @@
 //  1.0-8 模块 2（2026-11-23，按 1.0-8 deb 拆包规格重写）：直播数据分析
 //  （观众/礼物/PK/人气，只读观测），见 DY778LiveAnalysis.m。作者已转 TG 频道，
 //  GitHub 不再更新源码，后续模块按同一方式拆包重写。
+//  1.0-8 模块 3（2026-11-23，按 1.0-8 deb 拆包规格重写）：红包自动抢
+//  （RE，见 DY778RedEnvelope.m）与超级福袋（SL，见 DY778SuperLucky.m）。
+//  只证明了原版「尝试领取」的代码路径，没有任何证据证明在抖音 40.8.0
+//  上仍能成功领取；静默领取的原生调用未静态还原，DYxs 侧 quiet 模式
+//  只做观测与记录、不拦截官方领取视图（见 DY778RedEnvelope.m 头注）。
 //  2026-11-03 用户决定删除 DY778 其余部分：消息留存/编辑历史
 //  （src/Features/MessageArchive/）、缓存清理、Feed 过滤、播放倍速均已删除，
 //  只留上述模块及其共用的 Core/Toast/Avatar 基础（PlaybackPolicy.h 仅作
@@ -28,6 +33,8 @@
 #import "DY778LiveTools.h"
 #import "DY778LiveGuest.h"
 #import "DY778LiveAnalysis.h"
+#import "DY778RedEnvelope.h"
+#import "DY778SuperLucky.h"
 #import "DY778FansUI.h"
 #import "DY778DisplayStats.h"
 
@@ -39,6 +46,13 @@ static void DY778InstallRemainingModules(void) {
     DY778InstallLiveToolsHooks();
     DY778InstallLiveGuestHooks();
     DY778InstallLiveAnalysisHooks();
+    // 1.0-8 模块 3：先装 RE（内含先静默后主安装的双重 hook 链），
+    // 后装 SL——两模块在 IESLiveAudienceViewController 上共享 4 个
+    // hook 目标（viewDidAppear:/roomDidBecomeActive:/
+    // roomWillResignActive:/onStartLeaveRoomAnimation），SL 的替换实现
+    // 外层包 RE 的替换实现，orig 链完整。
+    DY778InstallRedEnvelopeHooks();
+    DY778InstallSuperLuckyHooks();
     DY778InstallFansHooks();
     DY778InstallDisplayStats();
 }
