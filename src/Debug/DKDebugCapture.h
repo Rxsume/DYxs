@@ -54,6 +54,12 @@ DKDebugExportContext *DKDebugCaptureContext(UIWindow *targetWindow, CGPoint poin
 /// 只采元信息与截图，不遍历 view tree；音频专项导出用。
 DKDebugExportContext *DKDebugCaptureMetadataContext(UIWindow *targetWindow);
 
+/// 摇一摇导出用的紧凑视图树文本（huami DYYY 3.0.1 describeViewTree 风格，
+//  按本模块工具函数口径改写）：每行「类名 [vc:类] {x,y,w,h} bg=… lbg=… abg=… a=… HIDDEN tag=…」；
+//  UITableView 与详情页 VC 后附只读运行时探针行（# …，见 3.0.2）。
+//  只读遍历，不改任何状态；探针调用包在 @try/@catch 里。
+NSString *DKDescribeViewTreeText(UIView *root);
+
 #ifdef __cplusplus
 }
 #endif

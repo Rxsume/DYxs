@@ -306,6 +306,197 @@ static void DKAppendViewTreeText(UIView *view, NSUInteger depth, NSMutableString
     for (UIView *subview in view.subviews) DKAppendViewTreeText(subview, depth + 1, out);
 }
 
+#pragma mark - 紧凑视图树（摇一摇导出）
+
+// huami DYYY 3.0.1 的 describeViewTree 与 3.0.2 的运行时探针，按本模块口径改写。
+// 与 DKAppendViewTreeText 的区别：单行更紧凑（类名 + 帧 + 颜色 + 显隐 + tag，
+// 不带指针地址），且 UITableView / 详情页 VC 后附只读探针行（# …），
+// 供真机上核对行高类问题（如详情页 873/956 混排）。
+// 探针只读：先 respondsToSelector 再按方法签名调无参方法，绝不写状态；
+// 整段探针调用包在 @try/@catch 里，异常只记一行，不中断整棵树。
+// 注意：[vc:] 与探针只看 view 的直接 nextResponder 是不是 VC——
+// 用 DKViewControllerForView 沿链上溯会在每层子 view 上重复探同一个 VC。
+
+// 只读地调一个无参方法，按返回类型格式化；调不到返回 @"-"，签名不对返回 @"?"。
+static NSString *DKRuntimeProbeValue(id object, NSString *selName) {
+    SEL sel = NSSelectorFromString(selName);
+    if (!object || ![object respondsToSelector:sel]) return @"-";
+    NSMethodSignature *sig = [object methodSignatureForSelector:sel];
+    if (!sig || sig.numberOfArguments != 2) return @"?";
+    const char *rt = sig.methodReturnType;
+    switch (rt[0]) {
+        case 'd': return [NSString stringWithFormat:@"%.1f", ((double (*)(id, SEL))objc_msgSend)(object, sel)];
+        case 'f': return [NSString stringWithFormat:@"%.1f", ((float (*)(id, SEL))objc_msgSend)(object, sel)];
+        case 'B': case 'c': return ((BOOL (*)(id, SEL))objc_msgSend)(object, sel) ? @"YES" : @"NO";
+        case 'q': case 'Q': case 'i': case 'I': case 'l': case 'L':
+            return [NSString stringWithFormat:@"%ld", (long)((NSInteger (*)(id, SEL))objc_msgSend)(object, sel)];
+        case '@': {
+            id result = ((id (*)(id, SEL))objc_msgSend)(object, sel);
+            if (!result) return @"nil";
+            if ([result isKindOfClass:[NSString class]]) return [NSString stringWithFormat:@"\"%@\"", result];
+            return NSStringFromClass([result class]);
+        }
+        default: return [NSString stringWithFormat:@"<%s>", rt];
+    }
+}
+
+// 只读地调一个 (NSInteger) -> double 的方法（如 cellHeightAtIndex:）。
+static NSString *DKRuntimeProbeIndexedValue(id object, NSString *selName, NSInteger index) {
+    SEL sel = NSSelectorFromString(selName);
+    if (!object || ![object respondsToSelector:sel]) return @"-";
+    NSMethodSignature *sig = [object methodSignatureForSelector:sel];
+    if (!sig || sig.numberOfArguments != 3 || sig.methodReturnType[0] != 'd') return @"?";
+    return [NSString stringWithFormat:@"%.1f", ((double (*)(id, SEL, NSInteger))objc_msgSend)(object, sel, index)];
+}
+
+static void DKAppendRuntimeProbeLine(NSMutableString *out, NSUInteger depth, NSString *line) {
+    for (NSUInteger i = 0; i <= depth; i++) [out appendString:@"  "];
+    [out appendFormat:@"# %@\n", line];
+}
+
+// UITableView 的滚动与行高状态：bounds/offset/contentSize/inset、delegate 与 dataSource 类名、
+// 可见行的 delegate 行高、以及 delegate 上的 fixedCellHeight/cellHeight/originalTableViewHeight。
+static void DKAppendScrollProbe(UIView *view, NSMutableString *out, NSUInteger depth) {
+    if (![view isKindOfClass:[UITableView class]]) return;
+    UITableView *tableView = (UITableView *)view;
+    id delegate = tableView.delegate;
+    DKAppendRuntimeProbeLine(out, depth, [NSString stringWithFormat:@"table bounds=%.0fx%.0f offset=%.1f contentH=%.1f inset=(%.0f,%.0f) adj=(%.0f,%.0f) paging=%d rowHeight=%.1f est=%.1f",
+        tableView.bounds.size.width, tableView.bounds.size.height, tableView.contentOffset.y, tableView.contentSize.height,
+        tableView.contentInset.top, tableView.contentInset.bottom, tableView.adjustedContentInset.top, tableView.adjustedContentInset.bottom,
+        tableView.pagingEnabled, tableView.rowHeight, tableView.estimatedRowHeight]);
+    DKAppendRuntimeProbeLine(out, depth, [NSString stringWithFormat:@"delegate=%@ dataSource=%@",
+        delegate ? NSStringFromClass([delegate class]) : @"nil",
+        tableView.dataSource ? NSStringFromClass([(id)tableView.dataSource class]) : @"nil"]);
+    if ([delegate respondsToSelector:@selector(tableView:heightForRowAtIndexPath:)]) {
+        NSMutableString *heights = [NSMutableString string];
+        for (NSIndexPath *indexPath in [tableView.indexPathsForVisibleRows subarrayWithRange:NSMakeRange(0, MIN((NSUInteger)4, tableView.indexPathsForVisibleRows.count))]) {
+            [heights appendFormat:@" row%ld=%.1f(rect %.1f)", (long)indexPath.row, [delegate tableView:tableView heightForRowAtIndexPath:indexPath], [tableView rectForRowAtIndexPath:indexPath].size.height];
+        }
+        DKAppendRuntimeProbeLine(out, depth, [NSString stringWithFormat:@"delegate heightForRow:%@", heights]);
+    } else {
+        DKAppendRuntimeProbeLine(out, depth, @"delegate does NOT implement tableView:heightForRowAtIndexPath:");
+    }
+    for (NSString *key in @[@"fixedCellHeight", @"cellHeight", @"originalTableViewHeight"]) {
+        NSString *value = DKRuntimeProbeValue(delegate, key);
+        if (![value isEqualToString:@"-"]) DKAppendRuntimeProbeLine(out, depth, [NSString stringWithFormat:@"delegate.%@=%@", key, value]);
+    }
+}
+
+// 详情页 VC 的行高与交互挂载状态：DetailCellViewController 看交互层延迟挂载的几个状态位；
+// DetailTableViewController 看行高源（fixedCellHeight/cellHeightAtIndex/smartSnap）与直播卡片高度。
+static void DKAppendViewControllerProbe(UIViewController *vc, NSMutableString *out, NSUInteger depth) {
+    NSString *cls = NSStringFromClass([vc class]);
+    if ([cls containsString:@"DetailCellViewController"]) {
+        // 交互层（文案/右侧按钮）是首帧后延迟挂载的，这里只读几个状态位，看卡在哪一步。
+        NSMutableString *line = [NSMutableString stringWithString:@"cellVC:"];
+        for (NSString *key in @[@"interactionController", @"shouldDelayAddInteraction", @"shouldForbidInitInteraction", @"innerInteractionDelay",
+                              @"shouldOptimizeInteractionDelayProcess", @"awe_isWaitingForDelayedInteractionInit", @"awe_isWaitingForDelayedInteractionUpdate",
+                              @"awe_defersInteractionUpdate", @"awe_hasDeferredInteractionUpdate", @"referString"]) {
+            [line appendFormat:@" %@=%@", key, DKRuntimeProbeValue(vc, key)];
+        }
+        id model = nil; SEL modelSel = NSSelectorFromString(@"model");
+        if ([vc respondsToSelector:modelSel]) model = ((id (*)(id, SEL))objc_msgSend)(vc, modelSel);
+        [line appendFormat:@" | model=%@ awemeType=%@ isAds=%@", model ? NSStringFromClass([model class]) : @"nil", DKRuntimeProbeValue(model, @"awemeType"), DKRuntimeProbeValue(model, @"isAds")];
+        id interactionController = nil; SEL icSel = NSSelectorFromString(@"interactionController");
+        if ([vc respondsToSelector:icSel]) interactionController = ((id (*)(id, SEL))objc_msgSend)(vc, icSel);
+        if ([interactionController isKindOfClass:[UIViewController class]]) {
+            UIViewController *icvc = (UIViewController *)interactionController;
+            [line appendFormat:@" | interaction viewLoaded=%d superview=%@", icvc.isViewLoaded,
+                            icvc.isViewLoaded ? (icvc.view.superview ? NSStringFromClass([icvc.view.superview class]) : @"-") : @"-"];
+        }
+        DKAppendRuntimeProbeLine(out, depth, line);
+        return;
+    }
+    if (![cls containsString:@"DetailTableViewController"]) return;
+    NSMutableString *line = [NSMutableString stringWithFormat:@"vc %@:", cls];
+    for (NSString *key in @[@"referString", @"fixedCellHeight", @"cellHeight", @"canShowFixedBottomBar", @"getCanShowFixedBottomBar",
+                          @"currentIndex", @"detailFeedTakeoverUIContainer", @"rootContainer", @"liveCardLayoutController", @"bottomBarCoordinator"]) {
+        [line appendFormat:@" %@=%@", key, DKRuntimeProbeValue(vc, key)];
+    }
+    DKAppendRuntimeProbeLine(out, depth, line);
+    NSMutableString *heightsLine = [NSMutableString stringWithString:@"vc cellHeightAtIndex:"];
+    for (NSInteger i = 0; i < 4; i++) [heightsLine appendFormat:@" [%ld]=%@", (long)i, DKRuntimeProbeIndexedValue(vc, @"cellHeightAtIndex:", i)];
+    [heightsLine appendFormat:@" | smartSnap[1]=%@", DKRuntimeProbeIndexedValue(vc, @"smartSlidePageSnapCellHeightForIndex:", 1)];
+    DKAppendRuntimeProbeLine(out, depth, heightsLine);
+    id live = nil;
+    SEL liveSel = NSSelectorFromString(@"liveCardLayoutController");
+    if ([vc respondsToSelector:liveSel]) live = ((id (*)(id, SEL))objc_msgSend)(vc, liveSel);
+    if (live) DKAppendRuntimeProbeLine(out, depth, [NSString stringWithFormat:@"liveCardLayoutController %@ originalTableViewHeight=%@ normalHeight=%@",
+        NSStringFromClass([live class]), DKRuntimeProbeValue(live, @"originalTableViewHeight"), DKRuntimeProbeValue(live, @"normalHeight")]);
+    id ui = nil;
+    SEL uiSel = NSSelectorFromString(@"detailFeedTakeoverUIContainer");
+    if ([vc respondsToSelector:uiSel]) ui = ((id (*)(id, SEL))objc_msgSend)(vc, uiSel);
+    if (ui) {
+        id scrollDelegate = nil; SEL sdSel = NSSelectorFromString(@"scrollDelegate");
+        if ([ui respondsToSelector:sdSel]) scrollDelegate = ((id (*)(id, SEL))objc_msgSend)(ui, sdSel);
+        DKAppendRuntimeProbeLine(out, depth, [NSString stringWithFormat:@"takeover ui=%@ fixedCellHeight=%@ cellHeightAtIndex[1]=%@ | scrollDelegate=%@ fixed=%@ variableHeightProviders=%@",
+            NSStringFromClass([ui class]), DKRuntimeProbeValue(ui, @"fixedCellHeight"), DKRuntimeProbeIndexedValue(ui, @"cellHeightAtIndex:", 1),
+            scrollDelegate ? NSStringFromClass([scrollDelegate class]) : @"nil", DKRuntimeProbeValue(scrollDelegate, @"fixedCellHeight"), DKRuntimeProbeValue(scrollDelegate, @"variableHeightProviders")]);
+    }
+}
+
+static void DKAppendCompactViewTree(UIView *view, NSMutableString *out, NSUInteger depth) {
+    if (!view) return;
+    for (NSUInteger i = 0; i < depth; i++) [out appendString:@"  "];
+    NSString *vc = @"";
+    UIResponder *next = [view nextResponder];
+    if ([next isKindOfClass:[UIViewController class]])
+        vc = [NSString stringWithFormat:@" [vc:%@]", NSStringFromClass([next class])];
+    NSString *bg = @"";
+    UIColor *c = view.backgroundColor;
+    if (c) {
+        CGFloat r = 0, g = 0, b = 0, a = 0;
+        if ([c getRed:&r green:&g blue:&b alpha:&a] && a > 0.01)
+            bg = [NSString stringWithFormat:@" bg=(%.2f,%.2f,%.2f,%.2f)", r, g, b, a];
+    }
+    // 诊断：layer.backgroundColor（CGColor 直接上色时 view.backgroundColor 读不到）。
+    NSString *lbg = @"";
+    CGColorRef lc = view.layer.backgroundColor;
+    if (lc && CGColorGetAlpha(lc) > 0.01) {
+        UIColor *lcu = [UIColor colorWithCGColor:lc];
+        CGFloat r = 0, g = 0, b = 0, a = 0;
+        if ([lcu getRed:&r green:&g blue:&b alpha:&a])
+            lbg = [NSString stringWithFormat:@" lbg=(%.2f,%.2f,%.2f,%.2f)", r, g, b, a];
+    }
+    // 诊断：UILabel 富文本背景色属性（NSBackgroundColorAttributeName）。
+    NSString *abg = @"";
+    if ([view isKindOfClass:[UILabel class]]) {
+        NSAttributedString *att = ((UILabel *)view).attributedText;
+        if (att.length > 0) {
+            UIColor *ac = [att attribute:NSBackgroundColorAttributeName atIndex:0 effectiveRange:NULL];
+            if (ac) {
+                CGFloat r = 0, g = 0, b = 0, a = 0;
+                if ([ac getRed:&r green:&g blue:&b alpha:&a] && a > 0.01)
+                    abg = [NSString stringWithFormat:@" abg=(%.2f,%.2f,%.2f,%.2f)", r, g, b, a];
+            }
+        }
+    }
+    if ([view isKindOfClass:[UILabel class]] && (view.opaque || view.layer.opaque))
+        abg = [abg stringByAppendingFormat:@" opq=%d/%d", view.opaque, view.layer.opaque];
+    CGRect f = view.frame;
+    [out appendFormat:@"%@%@ {%.0f,%.0f,%.0f,%.0f}%@%@%@%@%@%@\n",
+                      NSStringFromClass([view class]), vc,
+                      f.origin.x, f.origin.y, f.size.width, f.size.height, bg, lbg, abg,
+                      (view.alpha < 0.99) ? [NSString stringWithFormat:@" a=%.2f", view.alpha] : @"",
+                      view.hidden ? @" HIDDEN" : @"",
+                      (view.tag != 0) ? [NSString stringWithFormat:@" tag=%ld", (long)view.tag] : @""];
+    @try {
+        if ([next isKindOfClass:[UIViewController class]])
+            DKAppendViewControllerProbe((UIViewController *)next, out, depth);
+        DKAppendScrollProbe(view, out, depth);
+    } @catch (NSException *e) {
+        DKAppendRuntimeProbeLine(out, depth, [NSString stringWithFormat:@"probe exception: %@", e.reason]);
+    }
+    for (UIView *sub in view.subviews)
+        DKAppendCompactViewTree(sub, out, depth + 1);
+}
+
+NSString *DKDescribeViewTreeText(UIView *root) {
+    NSMutableString *out = [NSMutableString string];
+    DKAppendCompactViewTree(root, out, 0);
+    return out;
+}
+
 static NSDictionary *DKWindowJSON(UIWindow *window) {
     return @{
         @"class": DKClassName(window),

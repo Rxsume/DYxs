@@ -499,5 +499,7 @@ static NSString *const DKKeyProfileSettingsEntryName = @"DYxsProfileSettingsEntr
 #pragma mark - 功能组：调试工具
 
 static NSString *const DKKeyDebugInspectorEnabled = @"DYxsDebugInspectorEnabled";
+// 摇一摇导出当前视图树到剪贴板（调试用，默认关闭）。
+static NSString *const DKKeyShakeExportViewTree = @"DYxsShakeExportViewTree";
 
 #endif /* DKKeys_h */
