@@ -67,6 +67,25 @@ static NSDictionary *DY778DefaultValues(void) {
         @"liveAnalysis.entryPosition.portrait": @"bottom-right", @"liveAnalysis.entryPosition.landscape": @"bottom-right",
         @"liveAnalysis.audienceNotice": @NO, @"liveAnalysis.giftNotice": @NO,
         @"liveAnalysis.audience": @NO, @"liveAnalysis.audienceValues": @YES,
+        // DY778 1.0-8 模块 3（红包自动抢 + 超级福袋）：全部开关默认关闭；
+        // 入口默认右下角；延迟默认 3 秒；提醒提前 60 秒。默认值未证实
+        // （规格 §8、§11.3），以设置页运行时实测为准。redEnvelope.mode
+        // 取值未证实，DYxs 侧默认 quiet（只观测、不拦截官方领取视图）。
+        // lucky.* 共享键的 1.0-3 默认值（enabled/mode/autoPhrase/autoJoin/
+        // delay/prompt/haptics/showStatus/compact）不得改动，只补新增键。
+        @"redEnvelope.enabled": @NO, @"redEnvelope.autoClaim": @NO, @"redEnvelope.mode": @"quiet",
+        @"redEnvelope.showEntry": @YES, @"redEnvelope.delay": @3, @"redEnvelope.haptics": @YES,
+        @"redEnvelope.compact": @NO, @"redEnvelope.notifyResult": @NO, @"redEnvelope.prompt": @NO,
+        @"redEnvelope.priority": @0, @"redEnvelope.cardX": @0, @"redEnvelope.cardY": @0,
+        @"redEnvelope.entryPosition.portrait": @"bottom-right", @"redEnvelope.entryPosition.landscape": @"bottom-right",
+        @"redEnvelope.records": @[],
+        @"superLucky.enabled": @NO, @"superLucky.showEntry": @YES, @"superLucky.notifyResult": @NO,
+        @"superLucky.haptics": @YES, @"superLucky.compact": @NO, @"superLucky.delay": @3,
+        @"superLucky.autoFollow": @NO, @"superLucky.drawReminder": @NO, @"superLucky.drawReminderSeconds": @60,
+        @"superLucky.entryPosition.portrait": @"bottom-right", @"superLucky.entryPosition.landscape": @"bottom-right",
+        @"superLucky.records": @[],
+        @"lucky.drawReminder": @NO, @"lucky.drawReminderSeconds": @60, @"lucky.handled": @NO,
+        @"lucky.promptDismissed": @NO, @"lucky.records": @[], @"lucky.enableNoticeShown": @NO,
         @"playback.stopAtEnd": @NO, @"playback.longPressEnabled": @NO, @"playback.longPressRate": @2,
         @"playback.defaultEnabled": @NO, @"playback.defaultRate": @1.25, @"experimental.skipAds": @NO,
         @"cache.enabled": @NO, @"cache.onLaunch": @NO, @"cache.onReturn": @NO, @"cache.maxMB": @0, @"cache.maxAgeHours": @0,
@@ -119,7 +138,9 @@ void DY778Set(NSString *key, id value) {
     NSDictionary *ranges = @{@"time.fontSize": @[@9, @17], @"time.opacity": @[@0.35, @1],
         @"liveInfo.refresh": @[@2, @10], @"liveInfo.fontSize": @[@11, @19], @"liveInfo.opacity": @[@0.15, @1],
         @"liveTools.interval": @[@5, @300],
-        @"lucky.delay": @[@0.5, @5], @"recall.retentionDays": @[@0, @36500],
+        @"lucky.delay": @[@0.5, @5], @"redEnvelope.delay": @[@0, @30], @"superLucky.delay": @[@0, @30],
+        @"superLucky.drawReminderSeconds": @[@0, @3600], @"lucky.drawReminderSeconds": @[@0, @3600],
+        @"recall.retentionDays": @[@0, @36500],
         @"recall.maxRecords": @[@0, @10000000], @"edit.retentionDays": @[@0, @36500], @"edit.maxRecords": @[@0, @10000000],
         @"playback.longPressRate": @[@1, @3], @"playback.defaultRate": @[@1, @3], @"cache.maxMB": @[@0, @1048576], @"cache.maxAgeHours": @[@0, @876000]};
     NSArray *range = ranges[key];

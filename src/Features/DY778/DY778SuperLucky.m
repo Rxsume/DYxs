@@ -1,0 +1,729 @@
+#import "DY778SuperLucky.h"
+#import "DY778Core.h"
+#import "DY778LiveInfo.h"
+#import "DY778RedEnvelope.h"
+#import "DY778RedEnvelopePolicy.h"
+#import "DY778SuperLuckyPolicy.h"
+#import "DY778LiveAnalysisPolicy.h"
+#import <objc/message.h>
+
+// DY778 1.0-8 模块 3 移植：超级福袋（SL）。
+// 规格：~/workspace/plugin-merge/DY778/spec-module3-redenvelope-superlucky.md
+// hook 常驻装载，行为全部由开关在调用时控制，默认全部关闭：
+//   superLucky.enabled   总开关（关则不驱动参与）
+//   superLucky.showEntry 显示入口按钮（默认开，未证实）
+//   superLucky.notifyResult 领取结果通知（默认关）
+//   superLucky.haptics   触觉反馈（默认开，未证实）
+//   superLucky.compact   紧凑展示（默认关，未证实）
+//   superLucky.delay     执行延迟（秒，默认 3，钳制 0–30，未证实）
+//   superLucky.autoFollow 自动关注（参与任务用，默认关）
+//   superLucky.drawReminder 开奖提醒（键归模块 3，行为归模块 4，默认关）
+//   superLucky.drawReminderSeconds 提前提醒秒数（默认 60，钳制 0–3600，未证实）
+//   superLucky.entryPosition.portrait/.landscape 入口位置（默认右下角，未证实）
+//   superLucky.records   领取记录（持久化）
+//   lucky.* 共享键见 DY778Core.m（1.0-3 已有默认值，模块 3 不得改动）。
+// TODO（需真机验证，规格 §11）：
+//   - 是否真能领到：只证明了原版「尝试领取」的代码路径，没有任何证据
+//     证明这些调用在抖音 40.8.0 上仍能成功领取；服务端可能已改接口、
+//     加签、限流或风控。真机验证前不得宣称「能参与/能中奖」。
+//   - 观看任务是否须真实停留未证实（规格 §11.10）：DYxs 侧绝不伪造
+//     观看时长，只认任务上下文上报的已完成状态（task_state /
+//     hasParticipated）；观看时长不足时只记 watch-time-insufficient。
+//   - SL 安装末尾的 4 个 NSNotificationCenter 观察者名字取自运行时全局，
+//     静态不可恢复：DYxs 侧不注册猜测的通知名，pause/tick 改由 hook
+//     与组心跳定时器驱动（见 DY778InstallSuperLuckyHooks 末尾说明）。
+//   - 4 段 XOR 串（0x3cc2b0–0x3cc350）未解：可能是 URL 或签名字段，
+//     DYxs 侧不猜；原生请求用 NSURLSession POST 到规格 §5 的 lottery
+//     端点，服务端是否接受此路径未证实。
+//   - S4 onStartLeaveRoomAnimation 的期望参数数组取自运行时全局，
+//     静态未证实（应为空数组）：按空数组校验，不过则不装。
+//   - SLGroup 记录键（0x38433c）XOR 混淆静态不可读：自拟前缀。
+
+// ---------- 签名校验（照 DY778LiveLike.m / DY778LiveAnalysis.m 的做法） ----------
+static const char *DY778SLType(const char *type) {
+    while (type && *type && strchr("rnNoORV", *type)) type++;
+    return type ?: "";
+}
+static BOOL DY778SLMatches(const char *result, const char *arguments, NSMethodSignature *signature) {
+    if (!signature) return NO;
+    if (!strchr(result, *DY778SLType(signature.methodReturnType))) return NO;
+    if (signature.numberOfArguments != strlen(arguments) + 2) return NO;
+    for (NSUInteger i = 0; i < strlen(arguments); i++) {
+        const char *actual = DY778SLType([signature getArgumentTypeAtIndex:i + 2]);
+        char expected = arguments[i];
+        if (expected == 'B' ? !(actual[0] == 'B' || actual[0] == 'c') :
+            expected == 'q' ? !(actual[0] == 'q' || actual[0] == 'Q') :
+            expected == 'P' ? strcmp(actual, @encode(CGPoint)) != 0 :
+            expected == '^' ? !(actual[0] == '^' || actual[0] == '@') : actual[0] != expected) return NO;
+    }
+    return YES;
+}
+static BOOL DY778SLSignature(Class cls, SEL selector, const char *result, const char *arguments) {
+    Method method = cls ? class_getInstanceMethod(cls, selector) : NULL;
+    if (!method) return NO;
+    return DY778SLMatches(result, arguments, [NSMethodSignature signatureWithObjCTypes:method_getTypeEncoding(method)]);
+}
+static void DY778SLMain(dispatch_block_t block) {
+    if (NSThread.isMainThread) block(); else dispatch_async(dispatch_get_main_queue(), block);
+}
+
+// ---------- 原 IMP 存储（S1–S4、G1） ----------
+static IMP DY778SLOriginalViewDidAppear;          // S1
+static IMP DY778SLOriginalRoomDidBecomeActive;    // S2
+static IMP DY778SLOriginalRoomWillResignActive;   // S3
+static IMP DY778SLOriginalStartLeaveRoom;         // S4
+static IMP DY778SLOriginalSetHybridLotteryPanel;  // G1
+
+// ---------- 安装 helper ----------
+static void DY778SLInstall(NSString *className, NSString *selector, const char *result, const char *arguments, IMP replacement, IMP *original) {
+    if (*original) return;
+    Class cls = NSClassFromString(className); SEL sel = NSSelectorFromString(selector);
+    NSString *recordKey = [NSString stringWithFormat:@"superLucky.%@.%@", className, selector];
+    BOOL installed = DY778SLSignature(cls, sel, result, arguments) && DY778Hook(cls, sel, replacement, original);
+    DY778RecordHook(recordKey, installed);
+}
+
+BOOL DY778SuperLuckyEnabled(void) { return DY778Bool(@"superLucky.enabled"); }
+
+// ---------- 通用取值 helper ----------
+static NSString *DY778SLText(id value) {
+    if ([value isKindOfClass:NSString.class]) return value;
+    if ([value isKindOfClass:NSNumber.class]) return [value stringValue];
+    return nil;
+}
+static id DY778SLValue(id object, NSString *key) {
+    if (!object || !key.length) return nil;
+    id value = nil;
+    @try {
+        if ([object isKindOfClass:NSDictionary.class]) value = object[key];
+        else value = DY778Read(object, key);
+    } @catch (__unused NSException *exception) { return nil; }
+    return [value isKindOfClass:NSNull.class] ? nil : value;
+}
+static NSTimeInterval DY778SLSeconds(id object, NSString *key) {
+    id value = DY778SLValue(object, key);
+    return [value respondsToSelector:@selector(doubleValue)] ? [value doubleValue] : 0;
+}
+static BOOL DY778SLFlag(id object, NSString *key) {
+    id value = DY778SLValue(object, key);
+    if ([value isKindOfClass:NSNumber.class]) return [value boolValue];
+    NSString *text = DY778SLText(value);
+    return text.length ? [text boolValue] : NO;
+}
+
+// ---------- 任务上下文（规格 §4.2） ----------
+@implementation DY778SLTaskContext
+- (instancetype)initWithDictionary:(NSDictionary *)dictionary {
+    if ((self = [super init])) {
+        _raw = [dictionary copy] ?: @{};
+        id infos = DY778SLValue(dictionary, @"task_infos_v2");
+        NSDictionary *task = nil;
+        if ([infos isKindOfClass:NSArray.class] && ((NSArray *)infos).count && [infos[0] isKindOfClass:NSDictionary.class]) task = infos[0];
+        else if ([infos isKindOfClass:NSDictionary.class]) task = infos;
+        NSDictionary *source = task ?: dictionary;
+        _taskID = DY778SLText(DY778SLValue(source, @"task_id")) ?: DY778SLText(DY778SLValue(dictionary, @"task_id")) ?: @"";
+        _taskType = DY778SLText(DY778SLValue(source, @"task_type")) ?: DY778SLText(DY778SLValue(dictionary, @"task_type")) ?: @"";
+        _taskState = DY778SLText(DY778SLValue(source, @"task_state")) ?: DY778SLText(DY778SLValue(dictionary, @"task_state")) ?: @"";
+        _hasParticipated = DY778SLFlag(source, @"hasParticipated") || DY778SLFlag(dictionary, @"hasParticipated");
+        _remainingSeconds = DY778SLSeconds(source, @"remainingSeconds");
+        if (_remainingSeconds == 0) _remainingSeconds = DY778SLSeconds(dictionary, @"remainingSeconds");
+        _activityID = DY778SLText(DY778SLValue(dictionary, @"activityID")) ?: DY778SLText(DY778SLValue(dictionary, @"activity_id")) ?: @"";
+        _roomID = DY778SLText(DY778SLValue(dictionary, @"roomID")) ?: DY778SLText(DY778SLValue(dictionary, @"roomId")) ?:
+            DY778SLText(DY778SLValue(dictionary, @"roomIdStr")) ?: @"";
+    }
+    return self;
+}
+- (BOOL)complete {
+    if (_hasParticipated) return YES;
+    NSString *state = _taskState.lowercaseString;
+    return [state isEqualToString:@"complete"] || [state isEqualToString:@"completed"] || [state isEqualToString:@"finished"];
+}
+@end
+
+// ---------- 参与计划（规格 §4.3） ----------
+// 观看时长不足时只记 watch-time-insufficient，不伪造完成；过期只认
+// task_state/reason 的过期表述，不按 remainingSeconds == 0 猜过期
+// （无时长限制的任务 remainingSeconds 本来就是 0）。
+@implementation DY778SLParticipationPlan
+- (instancetype)initWithDictionary:(NSDictionary *)dictionary {
+    if ((self = [super init])) {
+        _watchRemainingSeconds = DY778SLSeconds(dictionary, @"watchRemainingSeconds");
+        _watchRequiredSeconds = DY778SLSeconds(dictionary, @"watchRequiredSeconds");
+        _watchTaskKey = DY778SLText(DY778SLValue(dictionary, @"watchTaskKey")) ?: @"";
+        _watchAdmitted = DY778SLFlag(dictionary, @"watchAdmitted");
+        _hasParticipated = DY778SLFlag(dictionary, @"hasParticipated");
+        _taskID = DY778SLText(DY778SLValue(dictionary, @"task_id")) ?: @"";
+        _taskType = DY778SLText(DY778SLValue(dictionary, @"task_type")) ?: @"";
+        _taskState = DY778SLText(DY778SLValue(dictionary, @"task_state")) ?: @"";
+        _reason = DY778SLText(DY778SLValue(dictionary, @"reason")) ?: DY778SLText(DY778SLValue(dictionary, @"reasonText")) ?: @"";
+    }
+    return self;
+}
+- (BOOL)watchTimeInsufficient {
+    return _watchRequiredSeconds > 0 && _watchRemainingSeconds > 0 && _watchRemainingSeconds < _watchRequiredSeconds;
+}
+- (BOOL)expired {
+    NSString *state = _taskState.lowercaseString;
+    NSString *reason = _reason.lowercaseString;
+    return [state isEqualToString:@"expired"] || [reason containsString:@"expired"] || [reason containsString:@"已过期"] || [reason containsString:@"过期"];
+}
+@end
+
+// ---------- 原生请求（规格 §4.4） ----------
+// 原版经 IESLiveCommonNetworkRequester 发 POST，其方法名未静态还原；
+// DYxs 侧用 NSURLSession POST 到规格 §5 的 lottery 端点，附当前域的
+// Cookie。服务端是否接受此路径、4 段 XOR 串是否含签名字段，均未证实。
+@implementation DY778SLNativeCall
+- (NSURLRequest *)DY778SLRequestWithActivity:(NSString *)activityID room:(NSString *)roomID task:(NSDictionary *)task extra:(NSDictionary *)extra {
+    NSString *path = activityID.length ? activityID : @"";
+    NSString *urlString = [NSString stringWithFormat:[NSString stringWithUTF8String:DY778SLLotteryAPIFormat], path];
+    NSURL *url = [NSURL URLWithString:urlString];
+    if (!url) return nil;
+    NSMutableDictionary *body = [NSMutableDictionary dictionary];
+    body[@"url"] = urlString;
+    body[@"version"] = @"1.0";
+    if (roomID.length) { body[@"room_id"] = roomID; body[@"roomID"] = roomID; }
+    body[@"scene"] = @"live";
+    body[@"method"] = @"POST";
+    if (task.count) body[@"data"] = task;
+    if (extra.count) [body addEntriesFromDictionary:extra];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.HTTPMethod = @"POST";
+    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    return [request copy];
+}
+- (void)DY778SLPost:(NSURLRequest *)request completion:(void (^)(NSDictionary *response, NSError *error))completion {
+    if (!request) { if (completion) completion(nil, [NSError errorWithDomain:@"DY778SL" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"bad request"}]); return; }
+    NSURLSession *session = [NSURLSession sharedSession];
+    NSURLSessionDataTask *task = [session dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error) { if (completion) completion(nil, error); return; }
+        NSDictionary *json = nil;
+        if (data.length) json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        if (![json isKindOfClass:NSDictionary.class]) json = @{};
+        NSMutableDictionary *result = [json mutableCopy];
+        if ([response isKindOfClass:NSHTTPURLResponse.class]) result[@"status_code"] = @(((NSHTTPURLResponse *)response).statusCode);
+        if (completion) completion([result copy], nil);
+    }];
+    [task resume];
+}
+- (void)postActivity:(NSString *)activityID room:(NSString *)roomID task:(NSDictionary *)task completion:(void (^)(NSDictionary *response, NSError *error))completion {
+    [[NSNotificationCenter defaultCenter] postNotificationName:[NSString stringWithUTF8String:DY778SLNativeRequestStartedNotification] object:nil
+                                                      userInfo:@{@"activityID": activityID ?: @"", @"roomID": roomID ?: @""}];
+    [self DY778SLPost:[self DY778SLRequestWithActivity:activityID room:roomID task:task extra:nil] completion:completion];
+}
+- (void)executeTask:(NSString *)taskID activity:(NSString *)activityID room:(NSString *)roomID completion:(void (^)(NSDictionary *response, NSError *error))completion {
+    NSDictionary *task = @{@"execute_task": taskID ?: @"", @"task_id": taskID ?: @"", @"activityID": activityID ?: @"",
+                           @"activity_id": activityID ?: @"", @"participate": @YES};
+    [[NSNotificationCenter defaultCenter] postNotificationName:[NSString stringWithUTF8String:DY778SLNativeRequestStartedNotification] object:nil
+                                                      userInfo:@{@"activityID": activityID ?: @"", @"taskID": taskID ?: @""}];
+    [self DY778SLPost:[self DY778SLRequestWithActivity:activityID room:roomID task:task extra:nil] completion:completion];
+}
+@end
+
+// ---------- 领取目标与记录 ----------
+@implementation DY778SLOTarget
+- (instancetype)initWithActivity:(NSString *)activityID room:(NSString *)roomID task:(NSString *)taskID {
+    if ((self = [super init])) {
+        _activityID = [activityID copy]; _roomID = [roomID copy]; _taskID = [taskID copy];
+    }
+    return self;
+}
+@end
+
+@implementation DY778SLRecords
++ (NSArray<NSDictionary *> *)records {
+    id records = [DY778Preferences() objectForKey:@"superLucky.records"];
+    if (![records isKindOfClass:NSArray.class]) return @[];
+    NSMutableArray *valid = [NSMutableArray array];
+    for (id record in records) if ([record isKindOfClass:NSDictionary.class]) [valid addObject:record];
+    return [valid copy];
+}
++ (void)rememberRecord:(NSDictionary *)record status:(NSString *)status {
+    if (![record isKindOfClass:NSDictionary.class]) return;
+    NSMutableDictionary *entry = [record mutableCopy];
+    if (status.length) entry[@"status"] = status;
+    entry[@"at"] = @([[NSDate date] timeIntervalSince1970]);
+    NSMutableArray *records = [[self records] mutableCopy];
+    NSString *activityID = DY778SLText(entry[@"activityID"]) ?: DY778SLText(entry[@"activity_id"]);
+    if (activityID.length) {
+        NSMutableArray *kept = [NSMutableArray array];
+        for (NSDictionary *old in records) {
+            NSString *oldID = DY778SLText(old[@"activityID"]) ?: DY778SLText(old[@"activity_id"]);
+            if (oldID.length && [oldID isEqualToString:activityID] && [DY778SLText(old[@"status"]) isEqualToString:DY778SLText(entry[@"status"])]) continue;
+            [kept addObject:old];
+        }
+        records = kept;
+    }
+    [records insertObject:[entry copy] atIndex:0];
+    while (records.count > DY778SLMaximumRecords) [records removeLastObject];
+    [DY778Preferences() setObject:[records copy] forKey:@"superLucky.records"];
+}
++ (BOOL)hasParticipatedActivity:(NSString *)activityID {
+    if (!activityID.length) return NO;
+    for (NSDictionary *record in [self records]) {
+        NSString *recordID = DY778SLText(record[@"activityID"]) ?: DY778SLText(record[@"activity_id"]);
+        if (![recordID isEqualToString:activityID]) continue;
+        NSString *status = DY778SLText(record[@"status"]);
+        if ([status isEqualToString:@"participated"] || [status isEqualToString:@"submitted"] || [status isEqualToString:@"succeed"]) return YES;
+    }
+    return NO;
+}
+@end
+
+// ---------- 开奖提醒记录（规格 §9.3：键归模块 3，行为归模块 4） ----------
+// 模块 3 只做记录键的写入（recordStage），提醒的到点弹窗/通知实现
+// 留给模块 4，不得在本模块重复实现。
+void DY778SLRecordStage(NSString *message) {
+    if (!message.length) return;
+    [DY778SLRecords rememberRecord:@{@"kind": @"stage", @"message": message} status:@"stage"];
+}
+
+// ---------- 状态机：DY778SLCoordinator（规格 §4.1，50 方法的精简复刻） ----------
+@interface DY778SLCoordinator ()
+@property(nonatomic, strong) DY778SLAuto *automatic;
+@property(nonatomic, strong) DY778SLNativeCall *nativeCall;
+@property(nonatomic, copy) NSString *currentActivityID;
+@property(nonatomic, strong) DY778SLTaskContext *taskContext;
+@property(nonatomic) NSUInteger groupFailures;
+- (id)DY778SLFindEntryButtonInView:(UIView *)view depth:(NSUInteger)depth;
+@end
+
+@implementation DY778SLCoordinator
++ (instancetype)shared {
+    static DY778SLCoordinator *shared;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ shared = [[DY778SLCoordinator alloc] init]; });
+    return shared;
+}
+- (instancetype)init {
+    if ((self = [super init])) {
+        _nativeCall = [[DY778SLNativeCall alloc] init];
+        _automatic = [[DY778SLAuto alloc] initWithCoordinator:self];
+    }
+    return self;
+}
+- (BOOL)canRun {
+    if (!DY778SuperLuckyEnabled()) return NO;
+    if (!_roomActive || !_roomID.length) return NO;
+    if (DY778LuckyAutomationBlocked(_host)) return NO;
+    return YES;
+}
+- (BOOL)isViewing { return _roomActive && _host != nil; }
+- (void)activate:(id)host {
+    if (host) _host = host;
+    NSString *roomID = DY778LiveContextRoomID(host ?: _host);
+    if (roomID.length) _roomID = roomID;
+    if (!_accountID.length) _accountID = DY778CurrentAccountID();
+    _roomActive = YES;
+    [self discoverEntry];
+    [self scheduleAutomatic];
+    [[DY778SLEntry shared] refresh];
+}
+- (void)resign:(id)host {
+    if (host && host != _host) return;
+    _roomActive = NO;
+    [self pauseAutomatic];
+}
+- (void)leave {
+    _roomActive = NO;
+    [self pauseAutomatic];
+    [self clearState];
+    [[DY778SLEntry shared] hide];
+}
+- (void)open {
+    DY778SLPanel *panel = [[DY778SLPanel alloc] initWithCoordinator:self];
+    UIViewController *presenter = DY778TopController();
+    if (presenter) DY778PresentController(presenter, panel);
+}
+- (void)pauseAutomatic {
+    [_actionTimer invalidate]; _actionTimer = nil;
+    [_timer invalidate]; _timer = nil;
+}
+- (void)scheduleAutomatic {
+    [_actionTimer invalidate]; _actionTimer = nil;
+    if (![self canRun]) return;
+    double delay = DY778REDelay(DY778Number(@"superLucky.delay"));
+    __weak typeof(self) weakSelf = self;
+    _actionTimer = [NSTimer scheduledTimerWithTimeInterval:delay repeats:NO block:^(NSTimer *timer) {
+        (void)timer;
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf) [strongSelf runAutomatic];
+    }];
+}
+- (void)runAutomatic {
+    if (![self canRun]) return;
+    [_automatic run];
+}
+- (void)publishStatus {
+    if (DY778Bool(@"superLucky.notifyResult")) DY778ShowToast(@"superLucky", [self displayState], NO, YES);
+    [[DY778SLEntry shared] refresh];
+}
+- (void)tick {
+    if (!DY778SuperLuckyEnabled()) return;
+    if (![self canRun]) return;
+    [self runAutomatic];
+    [self publishStatus];
+}
+- (void)discoverEntry {
+    // 从房间的组件图里找福袋入口（规格 §4.5 Seeds 的 DYxs 侧简化版）：
+    // 只读 host 视图层级里标题含「福袋」/lottery 的按钮并记为 button，
+    // 不改任何状态、不触发点击。
+    UIView *view = nil;
+    if ([_host isKindOfClass:UIViewController.class]) view = ((UIViewController *)_host).view;
+    else if ([_host isKindOfClass:UIView.class]) view = _host;
+    if (!view) return;
+    _button = [self DY778SLFindEntryButtonInView:view depth:0];
+}
+- (id)DY778SLFindEntryButtonInView:(UIView *)view depth:(NSUInteger)depth {
+    if (!view || depth > 8 || view.hidden) return nil;
+    if ([view isKindOfClass:UIButton.class]) {
+        NSString *title = [((UIButton *)view) titleForState:UIControlStateNormal] ?: @"";
+        NSString *lower = title.lowercaseString;
+        if ([title containsString:@"福袋"] || [lower containsString:@"lottery"] || [lower containsString:@"lucky"]) return view;
+    }
+    for (UIView *subview in view.subviews) {
+        id found = [self DY778SLFindEntryButtonInView:subview depth:depth + 1];
+        if (found) return found;
+    }
+    return nil;
+}
+- (void)clearState {
+    _roomID = nil; _accountID = nil; _roomTitle = nil;
+    _currentActivityID = nil; _taskContext = nil; _visit = 0;
+    _groupFailures = 0;
+}
+- (NSString *)displayState {
+    if (!_roomActive) return @"未在直播间";
+    if (_taskContext) return [NSString stringWithFormat:@"福袋 %@ · %@", _taskContext.activityID, _taskContext.taskState];
+    return @"福袋待发现";
+}
+@end
+
+// ---------- 自动任务执行器：DY778SLAuto（规格 §4.1，19 方法的精简复刻） ----------
+@implementation DY778SLAuto
+- (instancetype)initWithCoordinator:(DY778SLCoordinator *)coordinator {
+    if ((self = [super init])) _coordinator = coordinator;
+    return self;
+}
+- (void)run {
+    DY778SLCoordinator *coordinator = _coordinator;
+    if (!coordinator || ![coordinator canRun]) return;
+    // 任务上下文来自持久化的 DY778.superLucky.taskContext（规格 §4.2）；
+    // 无上下文时不猜任务，只做组心跳。
+    id stored = [DY778Preferences() objectForKey:[NSString stringWithUTF8String:DY778SLTaskContextRecordKey]];
+    NSDictionary *context = [stored isKindOfClass:NSDictionary.class] ? stored : nil;
+    if (!context.count) return;
+    DY778SLTaskContext *taskContext = [[DY778SLTaskContext alloc] initWithDictionary:context];
+    coordinator.taskContext = taskContext;
+    [self performBoundTask:context];
+}
+- (void)performBoundTask:(NSDictionary *)task {
+    DY778SLCoordinator *coordinator = _coordinator;
+    if (!coordinator || ![coordinator canRun]) return;
+    DY778SLParticipationPlan *plan = [[DY778SLParticipationPlan alloc] initWithDictionary:task];
+    DY778SLTaskContext *context = [[DY778SLTaskContext alloc] initWithDictionary:task];
+    NSString *activityID = context.activityID.length ? context.activityID : plan.taskID;
+    if (!activityID.length) return;
+    if ([DY778SLRecords hasParticipatedActivity:activityID]) return;
+    if ([plan expired]) {
+        [DY778SLRecords rememberRecord:@{@"activityID": activityID, @"taskID": context.taskID, @"reason": @"expired"} status:@"skipped"];
+        return;
+    }
+    if ([plan watchTimeInsufficient]) {
+        // 观看时长不足：只记 watch-time-insufficient，不伪造观看完成
+        // （规格 §11.10）。等用户真实观看满时长、任务上下文更新后再试。
+        [DY778SLRecords rememberRecord:@{@"activityID": activityID, @"taskID": context.taskID,
+                                          @"watchRemainingSeconds": @(plan.watchRemainingSeconds),
+                                          @"watchRequiredSeconds": @(plan.watchRequiredSeconds)} status:@"watch-time-insufficient"];
+        return;
+    }
+    if (context.complete) {
+        [DY778SLRecords rememberRecord:@{@"activityID": activityID, @"taskID": context.taskID} status:@"participated"];
+        return;
+    }
+    // 其余任务类型（关注/加团/送礼等）是否须真实操作未证实（规格 §11.10）：
+    // autoFollow 关时不自动关注；其余一律不代做，只调 execute_task 参与
+    // 接口——服务端是否接受此调用未证实，失败记 record 不再重试。
+    __weak typeof(self) weakSelf = self;
+    [coordinator.nativeCall executeTask:context.taskID activity:activityID room:coordinator.roomID completion:^(NSDictionary *response, NSError *error) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        (void)strongSelf;
+        if (error) {
+            [DY778SLRecords rememberRecord:@{@"activityID": activityID, @"taskID": context.taskID,
+                                              @"error": error.localizedDescription ?: @""} status:@"failed"];
+            return;
+        }
+        BOOL ok = [response[@"succeed"] boolValue] || [response[@"status_code"] integerValue] == 200;
+        [DY778SLRecords rememberRecord:@{@"activityID": activityID, @"taskID": context.taskID} status:ok ? @"submitted" : @"failed"];
+        if (ok) [coordinator publishStatus];
+    }];
+}
+- (void)stop { [_coordinator pauseAutomatic]; }
+@end
+
+// ---------- 组心跳（规格 §4.7） ----------
+// 读 superLucky.enabled/delay；受 SL 的 4 门控约束（与模块 1 的接口）；
+// 原版另调 _DY778SLNativeGroupFragment / _DY778SLNativeTaskContext /
+// _DY778SLPushTaskContext / _DY778SLOPerformBoundTask /
+// _DY778SLRestoreTaskContext——这些是抖音内部原生调用，DYxs 侧无对应
+// 接口，改由 coordinator tick + auto runner 驱动；连续失败达上限即停。
+void DY778SLGroupTick(void) {
+    if (!DY778SuperLuckyEnabled()) return;
+    DY778SLCoordinator *coordinator = [DY778SLCoordinator shared];
+    if (DY778LuckyAutomationBlocked(coordinator.host)) return;
+    if (![coordinator canRun]) return;
+    @try {
+        [coordinator tick];
+        coordinator.groupFailures = 0;
+    } @catch (__unused NSException *exception) {
+        coordinator.groupFailures += 1;
+        if (coordinator.groupFailures >= DY778SLMaximumGroupFailures) [coordinator pauseAutomatic];
+    }
+    // 下一拍：5 秒后（规格 §4.7 的组心跳间隔，DYxs 侧保守设定）。
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(DY778SLGroupTickSeconds * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (DY778SuperLuckyEnabled()) DY778SLGroupTick();
+    });
+}
+
+// ---------- 面板 / 历史 / 入口 ----------
+@interface DY778SLPanel () <UITableViewDataSource, UITableViewDelegate>
+@property(nonatomic, strong) DY778SLCoordinator *coordinator;
+@property(nonatomic, strong) UITableView *tableView;
+@end
+
+@implementation DY778SLPanel
+- (instancetype)initWithCoordinator:(DY778SLCoordinator *)coordinator {
+    if ((self = [super init])) _coordinator = coordinator ?: [DY778SLCoordinator shared];
+    return self;
+}
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"超级福袋";
+    DY778StyleController(self);
+    _tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
+    _tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    _tableView.dataSource = self; _tableView.delegate = self;
+    [self.view addSubview:_tableView];
+}
+- (void)refresh { [_tableView reloadData]; }
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { (void)tableView; return 2; }
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    (void)tableView;
+    if (section == 0) return 1;
+    return MAX(1, (NSInteger)[DY778SLRecords records].count);
+}
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    (void)tableView;
+    return section == 0 ? @"当前福袋" : @"参与记录";
+}
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"DY778SLCell"];
+    if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"DY778SLCell"];
+    if (indexPath.section == 0) {
+        cell.textLabel.text = [_coordinator displayState];
+        cell.detailTextLabel.text = @"观看任务须真实停留，DYxs 不伪造观看时长";
+    } else {
+        NSArray *records = [DY778SLRecords records];
+        if (!records.count) { cell.textLabel.text = @"暂无记录"; cell.detailTextLabel.text = @""; }
+        else {
+            NSDictionary *record = records[indexPath.row];
+            cell.textLabel.text = DY778SLText(record[@"activityID"]) ?: DY778SLText(record[@"activity_id"]) ?: DY778SLText(record[@"message"]) ?: @"未知福袋";
+            cell.detailTextLabel.text = DY778SLText(record[@"status"]) ?: @"";
+        }
+    }
+    return cell;
+}
+@end
+
+@interface DY778SLHistoryController () <UITableViewDataSource, UITableViewDelegate>
+@end
+
+@implementation DY778SLHistoryController
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"福袋记录";
+    DY778StyleController(self);
+    UITableView *tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
+    tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    tableView.dataSource = self; tableView.delegate = self;
+    [self.view addSubview:tableView];
+}
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { (void)tableView; return 1; }
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    (void)tableView; (void)section;
+    return MAX(1, (NSInteger)[DY778SLRecords records].count);
+}
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"DY778SLHistoryCell"];
+    if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"DY778SLHistoryCell"];
+    NSArray *records = [DY778SLRecords records];
+    if (!records.count) { cell.textLabel.text = @"暂无记录"; cell.detailTextLabel.text = @""; return cell; }
+    NSDictionary *record = records[indexPath.row];
+    cell.textLabel.text = DY778SLText(record[@"activityID"]) ?: DY778SLText(record[@"activity_id"]) ?: DY778SLText(record[@"message"]) ?: @"未知福袋";
+    NSDate *date = [NSDate dateWithTimeIntervalSince1970:[record[@"at"] doubleValue]];
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    formatter.dateFormat = @"MM-dd HH:mm:ss";
+    cell.detailTextLabel.text = [NSString stringWithFormat:@"%@ · %@", DY778SLText(record[@"status"]) ?: @"", [formatter stringFromDate:date]];
+    return cell;
+}
+@end
+
+// ---------- 入口悬浮按钮 ----------
+@interface DY778SLEntry ()
+@property(nonatomic, strong) UIButton *button;
+@end
+
+@implementation DY778SLEntry
++ (instancetype)shared {
+    static DY778SLEntry *shared;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ shared = [[DY778SLEntry alloc] init]; });
+    return shared;
+}
+- (NSString *)DY778SLEntryPosition {
+    UIWindow *window = DY778ActiveWindow();
+    BOOL landscape = window && window.bounds.size.width > window.bounds.size.height;
+    NSString *position = DY778String(landscape ? @"superLucky.entryPosition.landscape" : @"superLucky.entryPosition.portrait");
+    return DY778LiveAnalysisValidEntryPosition(position.UTF8String) ? position : @"bottom-right";
+}
+- (void)refresh {
+    if (!DY778SuperLuckyEnabled() || !DY778Bool(@"superLucky.showEntry")) { [self hide]; return; }
+    DY778SLMain(^{
+        UIWindow *window = DY778ActiveWindow();
+        if (!window) return;
+        if (!self->_button) {
+            self->_button = [UIButton buttonWithType:UIButtonTypeSystem];
+            UIImage *image = [UIImage systemImageNamed:@"star.fill"];
+            [self->_button setImage:image forState:UIControlStateNormal];
+            self->_button.backgroundColor = [UIColor.blackColor colorWithAlphaComponent:0.64];
+            self->_button.tintColor = UIColor.whiteColor;
+            self->_button.layer.cornerRadius = 22;
+            self->_button.layer.masksToBounds = YES;
+            [self->_button addTarget:self action:@selector(DY778SLEntryTapped) forControlEvents:UIControlEventTouchUpInside];
+            self->_button.accessibilityLabel = @"超级福袋";
+        }
+        NSString *position = [self DY778SLEntryPosition];
+        CGFloat margin = 16, size = 44;
+        CGRect bounds = window.bounds;
+        CGFloat x = [position containsString:@"left"] ? margin : bounds.size.width - margin - size;
+        CGFloat y = [position containsString:@"top"] ? margin + 44 : bounds.size.height - margin - size - 44;
+        self->_button.frame = CGRectMake(x, y, size, size);
+        if (self->_button.superview != window) [window addSubview:self->_button];
+        [window bringSubviewToFront:self->_button];
+    });
+}
+- (void)hide {
+    DY778SLMain(^{
+        [self->_button removeFromSuperview];
+        self->_button = nil;
+    });
+}
+- (void)DY778SLEntryTapped {
+    DY778SLPanel *panel = [[DY778SLPanel alloc] initWithCoordinator:[DY778SLCoordinator shared]];
+    UIViewController *presenter = DY778TopController();
+    if (presenter) DY778PresentController(presenter, panel);
+}
+@end
+
+// ---------- 替换实现：SL 主安装体（S1–S4，类固定 IESLiveAudienceViewController） ----------
+// 注意：S1–S4 与 RE 的 W12/W17/W16/W15 是同一类上的同一方法
+// （viewDidAppear: / roomDidBecomeActive: / roomWillResignActive: /
+// onStartLeaveRoomAnimation）；入口先装 RE、后装 SL，故 SL 的替换实现
+// 外层包 RE 的替换实现，orig 链完整，两模块互不干扰。
+// S2/S3/S4 对应 coordinator 方法的映射是推断（规格 §2.3 只说「对应状态
+// 方法」，未逐一指明）：S2 → activate:，S3 → pauseAutomatic，
+// S4（开始离房）→ leave。
+static void DY778SLViewDidAppear(id self, SEL _cmd, BOOL animated) {
+    if (DY778SLOriginalViewDidAppear) ((void (*)(id, SEL, BOOL))DY778SLOriginalViewDidAppear)(self, _cmd, animated);
+    @try { if (DY778SuperLuckyEnabled()) [[DY778SLCoordinator shared] activate:self]; } @catch (__unused NSException *exception) { }
+}
+static void DY778SLRoomDidBecomeActive(id self, SEL _cmd, id room) {
+    if (DY778SLOriginalRoomDidBecomeActive) ((void (*)(id, SEL, id))DY778SLOriginalRoomDidBecomeActive)(self, _cmd, room);
+    @try { if (DY778SuperLuckyEnabled()) [[DY778SLCoordinator shared] activate:self]; } @catch (__unused NSException *exception) { }
+    (void)room;
+}
+static void DY778SLRoomWillResignActive(id self, SEL _cmd, id room) {
+    if (DY778SLOriginalRoomWillResignActive) ((void (*)(id, SEL, id))DY778SLOriginalRoomWillResignActive)(self, _cmd, room);
+    @try { if (DY778SuperLuckyEnabled()) [[DY778SLCoordinator shared] pauseAutomatic]; } @catch (__unused NSException *exception) { }
+    (void)room;
+}
+static void DY778SLStartLeaveRoom(id self, SEL _cmd) {
+    if (DY778SLOriginalStartLeaveRoom) ((void (*)(id, SEL))DY778SLOriginalStartLeaveRoom)(self, _cmd);
+    @try { if (DY778SuperLuckyEnabled()) [[DY778SLCoordinator shared] leave]; } @catch (__unused NSException *exception) { }
+}
+
+// ---------- 替换实现：SLGroup（G1） ----------
+static const char DY778SLHybridLotteryPanelKey;
+static void DY778SLSetHybridLotteryPanel(id self, SEL _cmd, id panel) {
+    if (DY778SLOriginalSetHybridLotteryPanel) ((void (*)(id, SEL, id))DY778SLOriginalSetHybridLotteryPanel)(self, _cmd, panel);
+    // 原版同款：先调原 IMP，再 objc_setAssociatedObject（policy 1 =
+    // OBJC_ASSOCIATION_RETAIN_NONATOMIC）。记录键 XOR 混淆静态不可读，
+    // 自拟 superLucky.group.* 前缀。
+    @try { objc_setAssociatedObject(self, &DY778SLHybridLotteryPanelKey, panel, OBJC_ASSOCIATION_RETAIN_NONATOMIC); } @catch (__unused NSException *exception) { }
+    @try {
+        if (DY778SuperLuckyEnabled() && panel) {
+            // 面板到达即尝试恢复任务上下文（规格 §4.2 的 Restore 路径）：
+            // 只读 panel 上的任务字段，不改状态。
+            id taskInfo = DY778SLValue(panel, @"task_infos_v2") ?: DY778SLValue(panel, @"taskInfo");
+            if ([taskInfo isKindOfClass:NSDictionary.class]) {
+                [DY778Preferences() setObject:taskInfo forKey:[NSString stringWithUTF8String:DY778SLTaskContextRecordKey]];
+            }
+        }
+    } @catch (__unused NSException *exception) { }
+}
+
+// ---------- 安装 ----------
+void DY778InstallSLGroupHooks(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        DY778SLInstall(@"IESLiveLotteryFragment", @"setHybridLotteryPanel:", "v", "@",
+                       (IMP)DY778SLSetHybridLotteryPanel, &DY778SLOriginalSetHybridLotteryPanel);
+    });
+}
+
+void DY778InstallSuperLuckyHooks(void) {
+    // SL 安装可在任意线程调用：非主线程 dispatch_async 到主队列重调
+    // （规格 §1.3）。dispatch_once 保证只装一次。
+    if (!NSThread.isMainThread) {
+        dispatch_async(dispatch_get_main_queue(), ^{ DY778InstallSuperLuckyHooks(); });
+        return;
+    }
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        // 先装 SLGroup，再装主安装体（规格 §1.3）。
+        DY778InstallSLGroupHooks();
+        // S1–S4：期望参数类型数组（规格 §2.3）。S4 的期望参数取自运行时
+        // 全局，静态未证实（应为空数组）：按空数组校验，不过则不装。
+        DY778SLInstall(@"IESLiveAudienceViewController", @"viewDidAppear:", "v", "B",
+                       (IMP)DY778SLViewDidAppear, &DY778SLOriginalViewDidAppear);
+        DY778SLInstall(@"IESLiveAudienceViewController", @"roomDidBecomeActive:", "v", "@",
+                       (IMP)DY778SLRoomDidBecomeActive, &DY778SLOriginalRoomDidBecomeActive);
+        DY778SLInstall(@"IESLiveAudienceViewController", @"roomWillResignActive:", "v", "@",
+                       (IMP)DY778SLRoomWillResignActive, &DY778SLOriginalRoomWillResignActive);
+        DY778SLInstall(@"IESLiveAudienceViewController", @"onStartLeaveRoomAnimation", "v", "",
+                       (IMP)DY778SLStartLeaveRoom, &DY778SLOriginalStartLeaveRoom);
+        // 偏好变更观察：superLucky.* 键变化时刷新入口与 coordinator。
+        [NSNotificationCenter.defaultCenter addObserverForName:DY778PreferencesChangedNotification object:nil
+            queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *notification) {
+                NSString *key = notification.userInfo[@"key"];
+                if (!key.length || [key hasPrefix:@"superLucky."]) {
+                    [[DY778SLCoordinator shared] tick];
+                    [[DY778SLEntry shared] refresh];
+                }
+            }];
+        // 组心跳启动（5 秒一拍，见 DY778SLGroupTick）。
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(DY778SLGroupTickSeconds * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (DY778SuperLuckyEnabled()) DY778SLGroupTick();
+        });
+        // 尾部取 coordinator 做 host 初始化（原版同款）。
+        (void)[DY778SLCoordinator shared];
+    });
+}
+
+// ---------- 未安装的 hook/通知（规格 §11.7，须在汇报里说明） ----------
+// SL 安装末尾注册的 4 个 NSNotificationCenter 观察者名字取自运行时全局
+// （0x3901c0、0x392ff8、0x396870、0x3901a0），静态不可恢复；DYxs 侧不
+// 注册猜测的通知名。原版观察块做的两件事——pauseAutomatic + 隐藏 entry
+// button、tick——改由 S3/S4 hook 与组心跳定时器驱动，功能等价，
+// 不依赖通知名。须运行时抓名后才能补齐。
