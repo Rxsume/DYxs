@@ -176,6 +176,15 @@
         state.style = style;
         state.transparency = transparency;
     }
+    // 上游 DYYY 3.0.1：清掉直接盖在模糊层上的那层不透明容器（最外层 UICollectionView 等），
+    // 只清直接子 view，不碰深层；模糊层自身（tag 999）跳过。
+    for (UIView *sub in view.subviews) {
+        if ([sub isKindOfClass:[UIVisualEffectView class]] || sub.tag == 999) continue;
+        UIColor *bg = sub.backgroundColor;
+        if (bg && CGColorGetAlpha(bg.CGColor) >= 0.99) {
+            sub.backgroundColor = [UIColor clearColor];
+        }
+    }
     if (effect && !CGRectEqualToRect(effect.frame, view.bounds)) effect.frame = view.bounds;
 }
 
