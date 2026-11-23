@@ -465,10 +465,6 @@ static void DY778LANativeObserve(void) {}
 @property(nonatomic, readwrite) BOOL connecting;
 @property(nonatomic, readwrite) BOOL polling;
 @property(nonatomic, readwrite) BOOL fallbackUsed;
-@property(nonatomic, copy, readwrite) NSString *cursor;
-@property(nonatomic, copy, readwrite) NSString *internalExt;
-@property(nonatomic, copy, readwrite) NSString *webID;
-@property(nonatomic, copy, readwrite) NSString *visitorID;
 @end
 @implementation DY778LAStream
 - (void)connectRoom:(NSString *)roomID {
