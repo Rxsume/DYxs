@@ -11,6 +11,7 @@
 #import "DKKeys.h"
 #import "DKSettings.h"
 #import "DKUtils.h"
+#import <objc/message.h>
 
 static BOOL DKEntryIsDebugWindow(UIWindow *window) {
     return [NSStringFromClass(window.class) hasPrefix:@"DKDebug"];
@@ -23,7 +24,7 @@ static void DKDebugShowToast(NSString *text) {
     dispatch_async(dispatch_get_main_queue(), ^{
         Class toastClass = NSClassFromString(@"DUXToast");
         if (toastClass && [toastClass respondsToSelector:@selector(showText:)]) {
-            [toastClass showText:text];
+            ((void (*)(id, SEL, id))objc_msgSend)(toastClass, @selector(showText:), text);
             return;
         }
         UIWindow *window = DKDebugTargetWindow();
