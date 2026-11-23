@@ -15,6 +15,13 @@
 //     第 2 批倍速按钮自有速度状态机，两套改写叠加会互相顶掉。
 //  4. 本文件不 hook AWEPlayInteractionSpeedController 的 changeSpeed:，
 //     手势调节直接调原生 changeSpeed: 生效。
+//  5. huami DYYY 3.0 (4658034) 修复移植（2026-11-23）：
+//     a. longPressFastSpeedValue 手势期间返回实时档位（原只返回设定值，
+//        上下滑调档会被压回）；手势状态变量为此提到文件作用域。
+//     b. UILabel.setText: 把倍速文案里的数字按正则替换为实时档位
+//        （上游只替换 "2"，设定 1.5x/3x 时文案仍显示旧数字）；仅在
+//        长按倍速开关开时改写。DPlayer 的 AWEDSpeed* 容器族是 41.x
+//        新架构，40.8.0 头文件里没有，不搬。
 //
 #import <UIKit/UIKit.h>
 #import <objc/message.h>
@@ -122,11 +129,27 @@ static void DKXSBatch5bApplyDefaultSpeed(id playerVC) {
 // 上下控制倍速：长按时上下滑动以 0.25 步进调倍速（0.5–3.0），松手恢复默认倍速。
 // 注意：上游键名是 DYYYEnableLongPressSpeedGesture，DKXS 版键名见本文件
 // DKXSEnableLongPressSpeedGesture；不要与第 2 批的长按倍速值键混淆。
+// 手势状态放文件作用域，供 longPressFastSpeedValue 与倍速文案共用
+// （huami DYYY 3.0 修复：长按期间抖音持续读 longPressFastSpeedValue，
+// 必须返回实时档位，否则会被设定值压回）。
+static CGFloat dkxsInitialTouchY = 0;
+static BOOL dkxsGestureActive = NO;
+static CGFloat dkxsCurrentSpeed = 0;
+
+static CGFloat DKXSBatch5bLongPressDisplaySpeed(void) {
+    if (dkxsGestureActive && dkxsCurrentSpeed > 0) {
+        return dkxsCurrentSpeed;
+    }
+    return DKXSBatch5bLongPressSpeedValue();
+}
+
 %hook AWEPlayInteractionSpeedController
+
+- (CGFloat)longPressFastSpeedValue {
+    return DKXSBatch5bLongPressDisplaySpeed();
+}
+
 - (void)handleLongPressFastSpeed:(UILongPressGestureRecognizer *)gesture {
-    static CGFloat dkxsInitialTouchY = 0;
-    static BOOL dkxsGestureActive = NO;
-    static CGFloat dkxsCurrentSpeed = 0;
     BOOL isBeginning = gesture.state == UIGestureRecognizerStateBegan;
     BOOL isEnding = gesture.state == UIGestureRecognizerStateEnded ||
                     gesture.state == UIGestureRecognizerStateCancelled ||
@@ -172,6 +195,35 @@ static void DKXSBatch5bApplyDefaultSpeed(id playerVC) {
         }
     }
 }
+%end
+
+// 长按倍速文案：官方倍速浮层（AFDFastSpeedView）里的数字按实时档位改写。
+// huami DYYY 3.0 (4658034) 原只把 "2" 换成设定值；改为正则替换任意数字，
+// 否则设定 1.5x/3x 时文案仍显示旧数字。只在长按倍速开关开时改写，
+// 其余 UILabel 原样放行（DKInnerNotificationGlass.xm 另有一处 setText:
+// hook，两处经 %orig 串联，各改各的，不冲突）。
+%hook UILabel
+
+- (void)setText:(NSString *)text {
+    UIView *superview = self.superview;
+    if (superview && [superview isKindOfClass:%c(AFDFastSpeedView)] && text &&
+        DKXSBatch5bGetBool(@"DKXSEnableLongPressSpeedGesture")) {
+        CGFloat displaySpeed = DKXSBatch5bLongPressDisplaySpeed();
+        NSString *speedString = [NSString stringWithFormat:@"%.2f", displaySpeed];
+        if ([speedString hasSuffix:@".00"]) {
+            speedString = [speedString substringToIndex:speedString.length - 3];
+        } else if ([speedString hasSuffix:@"0"]) {
+            speedString = [speedString substringToIndex:speedString.length - 1];
+        }
+        NSRegularExpression *dkxsSpeedRe = [NSRegularExpression regularExpressionWithPattern:@"[0-9]+(\\.[0-9]+)?" options:0 error:nil];
+        NSTextCheckingResult *dkxsSpeedMatch = [dkxsSpeedRe firstMatchInString:text options:0 range:NSMakeRange(0, text.length)];
+        if (dkxsSpeedMatch) {
+            text = [text stringByReplacingCharactersInRange:dkxsSpeedMatch.range withString:speedString];
+        }
+    }
+    %orig(text);
+}
+
 %end
 
 // 默认倍速应用：新视频准备播放 / 自动播放切换时应用默认倍速值。
