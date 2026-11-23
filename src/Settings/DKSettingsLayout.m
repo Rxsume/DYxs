@@ -377,6 +377,15 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     DKRow(@"DKXSLiveLikeInterval", @"ic_clock_outlined_20"),
                     DKRow(@"DKXSLiveLikePause", @"ic_clock_outlined_20"),
                 ]),
+                // DY778 直播间工具（1.0-8 模块 1；键见 DY778RemainingSettings.xm）。
+                DKSection(@"直播间工具", @[
+                    DKRow(@"DKXSLiveToolsStealth", @"ic_eyeslash_outlined_20"),
+                    DKRow(@"DKXSLiveToolsScheduler", @"ic_comment_outlined_20"),
+                    DKRow(@"DKXSLiveToolsInterval", @"ic_clock_outlined_20"),
+                    DKRow(@"DKXSLiveToolsText", @"ic_text_outlined_20"),
+                    DKRow(@"DKXSLiveToolsRisk", @"ic_star_outlined_20"),
+                    DKRow(@"DKXSLiveToolsTTWID", @"ic_text_outlined_20"),
+                ]),
                 // DY778 星牌查询（1.0-3 新增；键见 DY778RemainingSettings.xm）。
                 DKSection(@"星牌查询", @[
                     DKRow(@"DKXSFansEnabled", @"ic_star_outlined_20"),
