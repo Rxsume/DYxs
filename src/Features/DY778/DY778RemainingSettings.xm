@@ -42,6 +42,11 @@
 #import "DY778LiveAnalysis.h"
 #import "DY778RedEnvelope.h"
 #import "DY778SuperLucky.h"
+#import "DY778Backup.h"
+#import "DY778DrawReminder.h"
+#import "DY778CommentExpand.h"
+#import "DY778ListClear.h"
+#import "DY778LiveAppearance.h"
 
 static void DY778SyncRemainingSettings(void) {
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
@@ -85,6 +90,9 @@ static void DY778SyncRemainingSettings(void) {
         {@"DKXSSuperLuckyAutoFollow", @"superLucky.autoFollow"},
         {@"DKXSSuperLuckyDrawReminder", @"superLucky.drawReminder"},
         {@"DKXSLuckyDrawReminder", @"lucky.drawReminder"},
+        // 1.0-8 模块 4：评论展开与清理关注总开关（默认关，未证实）。
+        {@"DKXSMiscCommentsEnabled", @"comments.enabled"},
+        {@"DKXSMiscListClearEnabled", @"listClear.enabled"},
         // 桥接用：DKXSShowLiveDuration 登记在 DKXSBatch5RestSettings.xm，
         // 这里只把它的值同步进 DY778 suite，保持 liveInfo.duration 一致。
         {@"DKXSShowLiveDuration", @"liveInfo.duration"},
@@ -129,6 +137,17 @@ static void DY778SyncRemainingSettings(void) {
         NSInteger index = [defaults integerForKey:@"DKXSRedEnvelopeMode"];
         DY778Set(@"redEnvelope.mode", modes[(NSUInteger)MAX(0, MIN(2, index))]);
     }
+    // 1.0-8 模块 4：直播外观对齐/顺序（选择下标 0/1/2 与 0/1）。
+    if ([defaults objectForKey:@"DKXSMiscLiveAppearanceAlignment"]) {
+        NSArray<NSString *> *alignments = @[@"left", @"center", @"right"];
+        NSInteger index = [defaults integerForKey:@"DKXSMiscLiveAppearanceAlignment"];
+        DY778Set(@"liveAppearance.alignment", alignments[(NSUInteger)MAX(0, MIN(2, index))]);
+    }
+    if ([defaults objectForKey:@"DKXSMiscLiveAppearanceOrder"]) {
+        NSArray<NSString *> *orders = @[@"viewersFirst", @"durationFirst"];
+        NSInteger index = [defaults integerForKey:@"DKXSMiscLiveAppearanceOrder"];
+        DY778Set(@"liveAppearance.order", orders[(NSUInteger)MAX(0, MIN(1, index))]);
+    }
     // 人数格式：选择下标 0 = 简洁（compact），1 = 完整（exact）
     if ([defaults objectForKey:@"DKXSLivePreviewCountFormat"]) {
         DY778Set(@"liveInfo.countFormat", [defaults integerForKey:@"DKXSLivePreviewCountFormat"] == 1 ? @"exact" : @"compact");
@@ -149,6 +168,8 @@ static void DY778SyncRemainingSettings(void) {
         {@"DKXSSuperLuckyDelay", @"superLucky.delay"},
         {@"DKXSSuperLuckyDrawReminderSeconds", @"superLucky.drawReminderSeconds"},
         {@"DKXSLuckyDrawReminderSeconds", @"lucky.drawReminderSeconds"},
+        // 1.0-8 模块 4：外观缩放，DY778Set 钳制在 0.75–1.5。
+        {@"DKXSMiscLiveAppearanceScale", @"liveAppearance.scale"},
     };
     for (NSUInteger i = 0; i < sizeof(numberKeys) / sizeof(numberKeys[0]); i++) {
         id value = [defaults objectForKey:numberKeys[i][0]];
@@ -171,6 +192,20 @@ static void DY778SyncRemainingSettings(void) {
         } else if ([value isKindOfClass:NSNumber.class]) {
             DY778Set(stringKeys[i][1], [value description]);
         }
+    }
+    // 1.0-8 模块 4：外观三值同步进 liveInfo.cardAppearance（编辑器与
+    // 直播间胶囊只读该字典）。选择行/文本框改的是 liveAppearance.*，
+    // 这里再合成为 cardAppearance 字典。
+    if ([defaults objectForKey:@"DKXSMiscLiveAppearanceAlignment"] ||
+        [defaults objectForKey:@"DKXSMiscLiveAppearanceOrder"] ||
+        [defaults objectForKey:@"DKXSMiscLiveAppearanceScale"]) {
+        DY778LiveAppearance appearance = DY778LiveAppearanceCurrent();
+        NSString *alignment = DY778String(@"liveAppearance.alignment");
+        if (alignment.length) appearance.alignment = [alignment isEqualToString:@"left"] ? 0 : [alignment isEqualToString:@"right"] ? 2 : 1;
+        NSString *order = DY778String(@"liveAppearance.order");
+        if (order.length) appearance.order = [order isEqualToString:@"durationFirst"] ? 1 : 0;
+        appearance.scale = DY778Number(@"liveAppearance.scale");
+        DY778Set(@"liveInfo.cardAppearance", DY778LiveAppearanceStoredValue(appearance));
     }
 }
 
@@ -510,6 +545,76 @@ static void DY778SyncRemainingSettings(void) {
             (void)item;
             DY778ShowNotice(presenter, @"红包福袋",
                 @"红包自动抢与超级福袋：发现直播间红包/福袋并按模式尝试领取。只证明了原版「尝试领取」的代码路径，没有证据证明在抖音 40.8.0 上仍能成功领取；频繁自动领取可能触发限流、验证码或账号风控。静默模式只做观测、不拦截官方领取视图；观看任务须真实停留，DYxs 不伪造观看时长；开奖提醒行为由模块 4 实现。");
+        }));
+    });
+
+    // ---------- DY778 1.0-8 模块 4：备份恢复 + 抽奖提醒 + 评论展开 +
+    // 清理关注 + 直播外观编辑 ----------
+    DKSettingsRegister(@"DKXSMiscCommentsEnabled", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSMiscCommentsEnabled", @"启用评论展开", @""),
+            @"开启后，在评论列表里扫描长评论并记录展开候选。展开的具体 UI 动作未静态还原，当前版本只做 hook 与扫描记录，不改评论显示。默认关闭。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSMiscListClearEnabled", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSMiscListClearEnabled", @"启用清理关注", @""),
+            @"开启后，可读取关注列表并选择要取关的用户。取关是否走服务端接口、是否立即生效、是否可逆，一律未证实；当前版本不会发出任何取关请求。默认关闭。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSMiscListClearSettings", ^AWESettingItemModel *{
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSMiscListClearSettings", @"清理关注设置", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+            (void)item;
+            DY778PresentController(presenter, DY778ListClearSettingsController());
+        }));
+    });
+    DKSettingsRegister(@"DKXSMiscBackupExport", ^AWESettingItemModel *{
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSMiscBackupExport", @"导出备份", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+            (void)item;
+            DY778BackupExport(presenter);
+        }));
+    });
+    DKSettingsRegister(@"DKXSMiscBackupImport", ^AWESettingItemModel *{
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSMiscBackupImport", @"导入备份", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+            (void)item;
+            DY778BackupImport(presenter);
+        }));
+    });
+    DKSettingsRegister(@"DKXSMiscBackupClear", ^AWESettingItemModel *{
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSMiscBackupClear", @"清除备份", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+            (void)item; (void)presenter;
+            DY778Confirm(presenter, @"清除备份", @"将删除已保存的备份文件，此操作不可恢复。", @"清除", YES, ^{ DY778BackupClear(); });
+        }));
+    });
+    DKSettingsRegister(@"DKXSMiscLiveAppearanceEditor", ^AWESettingItemModel *{
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSMiscLiveAppearanceEditor", @"直播外观编辑", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+            (void)item;
+            DY778PresentLiveAppearanceEditor(presenter);
+        }));
+    });
+    DKSettingsRegister(@"DKXSMiscLiveAppearanceAlignment", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKMakeChoice(@"DKXSMiscLiveAppearanceAlignment", @"外观对齐", @[@"左", @"中", @"右"]),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSMiscLiveAppearanceOrder", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKMakeChoice(@"DKXSMiscLiveAppearanceOrder", @"外观顺序", @[@"人数在前", @"时长在前"]),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSMiscLiveAppearanceScale", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeTextInput(@"DKXSMiscLiveAppearanceScale", @"外观缩放", @"1.0", 4),
+            @"0.75–1.5，默认 1.0。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSMiscDrawReminderInfo", ^AWESettingItemModel *{
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSMiscDrawReminderInfo", @"关于抽奖提醒", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+            (void)item;
+            DY778ShowNotice(presenter, @"抽奖提醒",
+                @"红包/福袋开奖前按提前秒数弹窗提醒，点「去直播间」可跳回开奖直播间。提醒开关与提前秒数在「红包福袋」节里设置（键归模块 3，提醒行为归本模块）。");
+        }));
+    });
+    DKSettingsRegister(@"DKXSMiscInfo", ^AWESettingItemModel *{
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSMiscInfo", @"关于备份杂项", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+            (void)item;
+            DY778ShowNotice(presenter, @"备份杂项",
+                @"备份恢复是合并不是覆盖，恢复会一并影响 Recall/编辑历史/Radar 的数据；凭证类键永不备份。清理关注是破坏性操作：取关是否可逆未证实，当前版本不会发出任何取关请求。评论展开只做扫描记录，不改评论显示。");
         }));
     });
 
