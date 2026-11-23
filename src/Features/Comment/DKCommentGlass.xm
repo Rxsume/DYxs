@@ -54,6 +54,17 @@
 #import <math.h>
 #import <objc/runtime.h>
 
+// 编译期接口声明（仅供本文件内的 %hook 用）：这三个类是抖音运行时类，
+// 没有头文件声明，Logos 只会生成 @class 前向声明，self.backgroundColor /
+// self.subviews 在前向声明上编不过。声明成 UIView 子类只影响编译期类型，
+// 运行时 hook 绑的是 NSClassFromString 找到的真类；类不存在时 %ctor 里不安装。
+@interface AWEBaseListSectionBackgroundView : UIView
+@end
+@interface AWEListKitTabContentCollectionView : UIView
+@end
+@interface DKCommentBlurLabel : UIView
+@end
+
 // 依赖的抖音类名集中在此，抖音改名时只改这里。
 static NSString *const kDKInnerControllerClass =
     @"AWECommentPanelContainerSwiftImpl.CommentContainerInnerViewController";
