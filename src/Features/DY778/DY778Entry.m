@@ -5,7 +5,9 @@
 //  主页与作品数字自定义。
 //  1.0-8 模块 1（2026-11-23，按 1.0-8 deb 拆包规格重写）：直播间工具
 //  （隐身进直播间、定时弹幕、礼物风控）与游客身份（请求层去 token + 注入
-//  游客 TTWID），见 DY778LiveTools.m / DY778LiveGuest.m。作者已转 TG 频道，
+//  游客 TTWID），见 DY778LiveTools.m / DY778LiveGuest.m。
+//  1.0-8 模块 2（2026-11-23，按 1.0-8 deb 拆包规格重写）：直播数据分析
+//  （观众/礼物/PK/人气，只读观测），见 DY778LiveAnalysis.m。作者已转 TG 频道，
 //  GitHub 不再更新源码，后续模块按同一方式拆包重写。
 //  2026-11-03 用户决定删除 DY778 其余部分：消息留存/编辑历史
 //  （src/Features/MessageArchive/）、缓存清理、Feed 过滤、播放倍速均已删除，
@@ -25,6 +27,7 @@
 #import "DY778LiveInfo.h"
 #import "DY778LiveTools.h"
 #import "DY778LiveGuest.h"
+#import "DY778LiveAnalysis.h"
 #import "DY778FansUI.h"
 #import "DY778DisplayStats.h"
 
@@ -35,6 +38,7 @@ static void DY778InstallRemainingModules(void) {
     DY778InstallLiveInfoHooks();
     DY778InstallLiveToolsHooks();
     DY778InstallLiveGuestHooks();
+    DY778InstallLiveAnalysisHooks();
     DY778InstallFansHooks();
     DY778InstallDisplayStats();
 }

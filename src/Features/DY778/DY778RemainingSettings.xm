@@ -15,6 +15,12 @@
 //  1.0-8 模块 1（直播间工具 + 游客身份）同按此桥接：隐身（liveTools.stealth）、
 //  定时弹幕（liveTools.scheduler / interval / selectedText）、礼物风控
 //  （liveTools.risk）、游客 TTWID（liveTools.ttwid），开关默认全部关闭。
+//  1.0-8 模块 2（直播数据分析）同按此桥接：总开关（liveAnalysis.enabled，
+//  默认关）、紧凑模式（liveAnalysis.compact）、入口位置
+//  （liveAnalysis.entryPosition.portrait/.landscape，默认右下角）、观众
+//  榜（liveAnalysis.audience）、数值展示（liveAnalysis.audienceValues，
+//  默认开，未证实）、观众/礼物通知（liveAnalysis.audienceNotice/giftNotice，
+//  默认关）。getVisitor/clearVisitor/resetPosition/info 是按钮动作，不桥接。
 //  未在 DYxs 设置里动过的键沿用 DY778RegisterDefaults 注册的默认值（全部关闭）。
 //  死键不登记：lucky.autoPhrase / lucky.autoJoin 只出现在 DY778 默认值表里，
 //  本 commit 的福袋代码并不读取它们。
@@ -23,6 +29,7 @@
 #import "DKSettings.h"
 #import "DY778Core.h"
 #import "DY778DisplayStats.h"
+#import "DY778LiveAnalysis.h"
 
 static void DY778SyncRemainingSettings(void) {
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
@@ -43,6 +50,13 @@ static void DY778SyncRemainingSettings(void) {
         {@"DKXSLiveToolsStealth", @"liveTools.stealth"},
         {@"DKXSLiveToolsScheduler", @"liveTools.scheduler"},
         {@"DKXSLiveToolsRisk", @"liveTools.risk"},
+        // 1.0-8 模块 2：直播数据分析（总开关与通知默认关，数值展示默认开，未证实）。
+        {@"DKXSLiveAnalysisEnabled", @"liveAnalysis.enabled"},
+        {@"DKXSLiveAnalysisCompact", @"liveAnalysis.compact"},
+        {@"DKXSLiveAnalysisAudienceNotice", @"liveAnalysis.audienceNotice"},
+        {@"DKXSLiveAnalysisGiftNotice", @"liveAnalysis.giftNotice"},
+        {@"DKXSLiveAnalysisAudience", @"liveAnalysis.audience"},
+        {@"DKXSLiveAnalysisAudienceValues", @"liveAnalysis.audienceValues"},
         // 桥接用：DKXSShowLiveDuration 登记在 DKXSBatch5RestSettings.xm，
         // 这里只把它的值同步进 DY778 suite，保持 liveInfo.duration 一致。
         {@"DKXSShowLiveDuration", @"liveInfo.duration"},
@@ -55,6 +69,15 @@ static void DY778SyncRemainingSettings(void) {
     // 福袋模式：选择下标 0 = 确认后参与（confirm），1 = 自动参与（auto）
     if ([defaults objectForKey:@"DKXSLuckyMode"]) {
         DY778Set(@"lucky.mode", [defaults integerForKey:@"DKXSLuckyMode"] == 1 ? @"auto" : @"confirm");
+    }
+    // 入口位置：选择下标 0 = 右下角，1 = 左下角，2 = 右上角，3 = 左上角；
+    // portrait 与 landscape 两个子键写同一值（规格 §8）。
+    if ([defaults objectForKey:@"DKXSLiveAnalysisEntryPosition"]) {
+        NSArray<NSString *> *positions = @[@"bottom-right", @"bottom-left", @"top-right", @"top-left"];
+        NSInteger index = [defaults integerForKey:@"DKXSLiveAnalysisEntryPosition"];
+        NSString *position = positions[(NSUInteger)MAX(0, MIN(3, index))];
+        DY778Set(@"liveAnalysis.entryPosition.portrait", position);
+        DY778Set(@"liveAnalysis.entryPosition.landscape", position);
     }
     // 人数格式：选择下标 0 = 简洁（compact），1 = 完整（exact）
     if ([defaults objectForKey:@"DKXSLivePreviewCountFormat"]) {
@@ -219,6 +242,77 @@ static void DY778SyncRemainingSettings(void) {
         return DKSettingsOnChange(DKSettingsWithInfo(DKMakeTextInput(@"DKXSLiveToolsTTWID", @"游客 TTWID", @"留空则不注入", 12),
             @"游客模式使用的 TTWID（16–64 位十六进制串），留空则不注入。需要时从抓包获取。"),
             ^{ DY778SyncRemainingSettings(); });
+    });
+
+    // ---------- DY778 1.0-8 模块 2 新增：直播数据分析 ----------
+    DKSettingsRegister(@"DKXSLiveAnalysisEnabled", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSLiveAnalysisEnabled", @"启用直播数据分析", @""),
+            @"开启后，在直播间内观测观众榜、礼物、PK 与人气数据，入口按钮出现在直播画面角落。只读展示，不修改直播间行为；关闭后 hook 不安装。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLiveAnalysisCompact", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSLiveAnalysisCompact", @"紧凑模式", @""),
+            @"入口按钮与数据面板使用更小的布局。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLiveAnalysisEntryPosition", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKMakeChoice(@"DKXSLiveAnalysisEntryPosition", @"入口位置", @[@"右下角", @"左下角", @"右上角", @"左上角"]),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLiveAnalysisAudience", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSLiveAnalysisAudience", @"观众榜弹层", @""),
+            @"开启后，观众榜数据在弹层中展示，支持分页加载。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLiveAnalysisAudienceValues", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSLiveAnalysisAudienceValues", @"显示观众数值", @""),
+            @"观众榜行显示分数与名次。默认值未证实，以运行时实测为准。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLiveAnalysisAudienceNotice", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSLiveAnalysisAudienceNotice", @"观众通知", @""),
+            @"观众榜数据变化时提示。默认关闭。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLiveAnalysisGiftNotice", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSLiveAnalysisGiftNotice", @"礼物通知", @""),
+            @"收到礼物数据时提示。默认关闭。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLiveAnalysisGetVisitor", ^AWESettingItemModel *{
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSLiveAnalysisGetVisitor", @"获取游客身份", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+            (void)item; (void)presenter;
+            DY778LiveAnalysisRegisterVisitor(^(NSString *ttwid) {
+                if (ttwid.length) { DY778ShowToast(@"liveAnalysis", @"已获取游客身份", NO, YES); return; }
+                // 注册失败时走网页登录抓 Cookie（规格 §5）。
+                DY778LiveAnalysisAcquireCredential(^(BOOL success) {
+                    DY778ShowToast(@"liveAnalysis", success ? @"已获取登录凭证" : @"获取身份失败，请稍后重试", NO, success);
+                });
+            });
+        }));
+    });
+    DKSettingsRegister(@"DKXSLiveAnalysisClearVisitor", ^AWESettingItemModel *{
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSLiveAnalysisClearVisitor", @"清除游客身份", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+            (void)item; (void)presenter;
+            DY778LiveAnalysisClearCredential();
+        }));
+    });
+    DKSettingsRegister(@"DKXSLiveAnalysisResetPosition", ^AWESettingItemModel *{
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSLiveAnalysisResetPosition", @"重置入口位置", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+            (void)item; (void)presenter;
+            DY778Set(@"liveAnalysis.entryPosition.portrait", @"bottom-right");
+            DY778Set(@"liveAnalysis.entryPosition.landscape", @"bottom-right");
+            [[NSUserDefaults standardUserDefaults] setInteger:0 forKey:@"DKXSLiveAnalysisEntryPosition"];
+            DY778SyncRemainingSettings();
+            DY778ShowToast(@"liveAnalysis", @"入口位置已重置为右下角", NO, YES);
+        }));
+    });
+    DKSettingsRegister(@"DKXSLiveAnalysisInfo", ^AWESettingItemModel *{
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSLiveAnalysisInfo", @"关于直播数据分析", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+            (void)item;
+            DY778ShowNotice(presenter, @"直播数据分析",
+                @"观测当前直播间的观众榜、礼物、PK 与人气数据，只读展示。数据经 WebSocket（protobuf）拉取，失败时走 HTTP 兜底。Protobuf 字段映射须运行时抓包反推，首次使用部分字段可能不完整。");
+        }));
     });
 
 }
