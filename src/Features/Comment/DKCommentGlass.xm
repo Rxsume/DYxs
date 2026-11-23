@@ -976,13 +976,78 @@ static void DKTrackEmoticonBar(UIView *bar) API_AVAILABLE(ios(26.0)) {
 
 - (void)layoutSubviews {
     %orig;
+    // 经典毛玻璃（第 4 批）：列表背景每布局清一次，开关关时协调器内部门控为空操作。
+    // 以前这行被液态玻璃开关 gate 住——只开经典毛玻璃时永远走不到，列表一重绘就把模糊层盖住。
+    [DKXSCommentBlurCoordinator layoutListView:self];
+    // 上游 DYYY 3.0.1：清掉列表自身同级的不透明填充块（如底部黑块）。
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DKXSEnableCommentBlur"]) {
+        UIView *magicSuper = self.superview;
+        for (UIView *sib in magicSuper.subviews) {
+            if ([sib isMemberOfClass:[UIView class]]) {
+                UIColor *sbg = sib.backgroundColor;
+                if (sbg && CGColorGetAlpha(sbg.CGColor) >= 0.99) {
+                    sib.backgroundColor = [UIColor clearColor];
+                }
+            }
+        }
+    }
     if (!DKCommentGlassEnabled()) return;
     Class foldClass = DKFoldDisplayClass();
     if (!foldClass) return;
     DKSyncFoldRowsIn(self, foldClass, 0);
-    // 第 4 批合并段 4-B2（评论列表布局驱动）：在原有调用之后追加一行；开关关时协调器内部门控为空操作。
-    {
-        [DKXSCommentBlurCoordinator layoutListView:self];
+}
+
+%end
+
+%end
+
+// 经典毛玻璃（DYYY 3.0.1 修法移植）：清掉盖住模糊层的不透明层，复用也保持。
+// 三组都只在 DKXSEnableCommentBlur 开时清底色，关时原样放行；类不存在时 %ctor 里不安装。
+// 不碰 iOS 26 液态玻璃 API，所以不进下面的 DKGlassOSAvailable() 门。
+%group DKCommentBlurSectionHook
+
+%hook AWEBaseListSectionBackgroundView
+
+- (void)layoutSubviews {
+    %orig;
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DKXSEnableCommentBlur"]) {
+        self.backgroundColor = [UIColor clearColor];
+    }
+}
+
+%end
+
+%end
+
+%group DKCommentBlurTabContentHook
+
+%hook AWEListKitTabContentCollectionView
+
+- (void)layoutSubviews {
+    %orig;
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DKXSEnableCommentBlur"]) {
+        self.backgroundColor = [UIColor clearColor];
+        for (UIView *sub in self.subviews) {
+            UIColor *bg = sub.backgroundColor;
+            if ([sub isMemberOfClass:[UIView class]] && bg && CGColorGetAlpha(bg.CGColor) >= 0.99) {
+                sub.backgroundColor = [UIColor clearColor];
+            }
+        }
+    }
+}
+
+%end
+
+%end
+
+%group DKCommentBlurLabelHook
+
+%hook DKCommentBlurLabel
+
+- (void)layoutSubviews {
+    %orig;
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DKXSEnableCommentBlur"]) {
+        self.backgroundColor = [UIColor clearColor];
     }
 }
 
@@ -1089,5 +1154,18 @@ static void DKTrackEmoticonBar(UIView *bar) API_AVAILABLE(ios(26.0)) {
         if ([abTest respondsToSelector:@selector(enableCommentRenderingOptimize:)]) {
             %init(DKCommentRenderOptimizeHook);
         }
+    }
+
+    // 经典毛玻璃（DYYY 3.0.1 修法移植）：以下三组只清不透明底色，不碰 iOS 26 液态玻璃 API，
+    // 所以不进上面的 DKGlassOSAvailable() 门；类不存在时不安装。
+    if (NSClassFromString(@"AWEBaseListSectionBackgroundView")) {
+        %init(DKCommentBlurSectionHook);
+    }
+    if (NSClassFromString(@"AWEListKitTabContentCollectionView")) {
+        %init(DKCommentBlurTabContentHook);
+    }
+    Class commentLabelClass = NSClassFromString(@"AWECommentSwiftBizUI.CommentInteractionBaseLabel");
+    if (commentLabelClass) {
+        %init(DKCommentBlurLabelHook, DKCommentBlurLabel = commentLabelClass);
     }
 }
