@@ -12,6 +12,9 @@
 //  （fans.enabled）、数字自定义（displayStats.enabled）。liveInfo.duration
 //  只作 suite 内一致性同步：直播间开播时长悬浮 DYxs 已有等价实现
 //  DKXSLiveDuration.xm，开关仍走 DKXSShowLiveDuration，不另设开关。
+//  1.0-8 模块 1（直播间工具 + 游客身份）同按此桥接：隐身（liveTools.stealth）、
+//  定时弹幕（liveTools.scheduler / interval / selectedText）、礼物风控
+//  （liveTools.risk）、游客 TTWID（liveTools.ttwid），开关默认全部关闭。
 //  未在 DYxs 设置里动过的键沿用 DY778RegisterDefaults 注册的默认值（全部关闭）。
 //  死键不登记：lucky.autoPhrase / lucky.autoJoin 只出现在 DY778 默认值表里，
 //  本 commit 的福袋代码并不读取它们。
@@ -36,6 +39,10 @@ static void DY778SyncRemainingSettings(void) {
         {@"DKXSLivePreviewCardDuration", @"liveInfo.cardDuration"},
         {@"DKXSFansEnabled", @"fans.enabled"},
         {@"DKXSDisplayStatsEnabled", @"displayStats.enabled"},
+        // 1.0-8 模块 1：直播间工具（开关默认全部关闭）。
+        {@"DKXSLiveToolsStealth", @"liveTools.stealth"},
+        {@"DKXSLiveToolsScheduler", @"liveTools.scheduler"},
+        {@"DKXSLiveToolsRisk", @"liveTools.risk"},
         // 桥接用：DKXSShowLiveDuration 登记在 DKXSBatch5RestSettings.xm，
         // 这里只把它的值同步进 DY778 suite，保持 liveInfo.duration 一致。
         {@"DKXSShowLiveDuration", @"liveInfo.duration"},
@@ -61,6 +68,8 @@ static void DY778SyncRemainingSettings(void) {
         {@"DKXSLiveLikePause", @"liveLike.pause"},
         // 1.0-3 新增：人数刷新间隔（秒），DY778Set 钳制在 2–10 秒。
         {@"DKXSLivePreviewRefresh", @"liveInfo.refresh"},
+        // 1.0-8 模块 1：弹幕间隔（秒），DY778Set 钳制在 5–300 秒。
+        {@"DKXSLiveToolsInterval", @"liveTools.interval"},
     };
     for (NSUInteger i = 0; i < sizeof(numberKeys) / sizeof(numberKeys[0]); i++) {
         id value = [defaults objectForKey:numberKeys[i][0]];
@@ -68,6 +77,20 @@ static void DY778SyncRemainingSettings(void) {
             DY778Set(numberKeys[i][1], ((NSString *)value).length ? @([(NSString *)value doubleValue]) : nil);
         } else if ([value isKindOfClass:NSNumber.class]) {
             DY778Set(numberKeys[i][1], value);
+        }
+    }
+    // 文本（直接存字符串；留空则清除回默认值）。
+    static NSString *const stringKeys[][2] = {
+        // 1.0-8 模块 1：定时弹幕文本、游客 TTWID。
+        {@"DKXSLiveToolsText", @"liveTools.selectedText"},
+        {@"DKXSLiveToolsTTWID", @"liveTools.ttwid"},
+    };
+    for (NSUInteger i = 0; i < sizeof(stringKeys) / sizeof(stringKeys[0]); i++) {
+        id value = [defaults objectForKey:stringKeys[i][0]];
+        if ([value isKindOfClass:NSString.class]) {
+            DY778Set(stringKeys[i][1], ((NSString *)value).length ? value : nil);
+        } else if ([value isKindOfClass:NSNumber.class]) {
+            DY778Set(stringKeys[i][1], [value description]);
         }
     }
 }
@@ -164,6 +187,38 @@ static void DY778SyncRemainingSettings(void) {
             (void)item;
             DY778PresentController(presenter, DY778DisplayStatsController());
         }));
+    });
+
+    // ---------- DY778 1.0-8 模块 1 新增：直播间工具 ----------
+    DKSettingsRegister(@"DKXSLiveToolsStealth", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSLiveToolsStealth", @"隐身进直播间", @""),
+            @"开启后，进直播间时不携带登录身份，服务端按游客处理。隐身期间无法发送弹幕与礼物（礼物拦截另需开启下方风控开关），退出直播间后恢复。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLiveToolsScheduler", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSLiveToolsScheduler", @"定时弹幕", @""),
+            @"开启后，在直播间内按间隔自动发送下方设置的弹幕文本。切换或离开直播间、进入后台、修改文本或间隔都会停止本轮，返回后需重新触发。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLiveToolsInterval", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeTextInput(@"DKXSLiveToolsInterval", @"弹幕发送间隔（秒）", @"30", 4),
+            @"5–300 秒，默认 30 秒。间隔越短、连续使用越频繁，越容易触发频率限制，建议优先使用默认节奏。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLiveToolsText", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeTextInput(@"DKXSLiveToolsText", @"定时弹幕文本", @"输入弹幕内容", 12),
+            @"定时发送的弹幕内容，最多 200 字。留空则不发送。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLiveToolsRisk", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSLiveToolsRisk", @"隐身时拦截礼物", @""),
+            @"开启后，隐身进直播间期间发送礼物的操作会被拦截，避免暴露身份。仅在隐身开关同时开启时生效。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSLiveToolsTTWID", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeTextInput(@"DKXSLiveToolsTTWID", @"游客 TTWID", @"留空则不注入", 12),
+            @"游客模式使用的 TTWID（16–64 位十六进制串），留空则不注入。需要时从抓包获取。"),
+            ^{ DY778SyncRemainingSettings(); });
     });
 
 }

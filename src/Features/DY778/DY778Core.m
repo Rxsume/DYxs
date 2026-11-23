@@ -57,6 +57,9 @@ static NSDictionary *DY778DefaultValues(void) {
         @"liveInfo.backgroundColor": @"#000000", @"liveInfo.opacity": @0.64, @"liveInfo.fontSize": @13,
         @"fans.enabled": @NO,
         @"displayStats.enabled": @NO,
+        // DY778 1.0-8 模块 1（直播间工具 + 游客身份）：全部开关默认关闭。
+        @"liveTools.stealth": @NO, @"liveTools.scheduler": @NO, @"liveTools.risk": @NO,
+        @"liveTools.interval": @30, @"liveTools.selectedText": @"", @"liveTools.ttwid": @"",
         @"playback.stopAtEnd": @NO, @"playback.longPressEnabled": @NO, @"playback.longPressRate": @2,
         @"playback.defaultEnabled": @NO, @"playback.defaultRate": @1.25, @"experimental.skipAds": @NO,
         @"cache.enabled": @NO, @"cache.onLaunch": @NO, @"cache.onReturn": @NO, @"cache.maxMB": @0, @"cache.maxAgeHours": @0,
@@ -108,6 +111,7 @@ void DY778Set(NSString *key, id value) {
     }
     NSDictionary *ranges = @{@"time.fontSize": @[@9, @17], @"time.opacity": @[@0.35, @1],
         @"liveInfo.refresh": @[@2, @10], @"liveInfo.fontSize": @[@11, @19], @"liveInfo.opacity": @[@0.15, @1],
+        @"liveTools.interval": @[@5, @300],
         @"lucky.delay": @[@0.5, @5], @"recall.retentionDays": @[@0, @36500],
         @"recall.maxRecords": @[@0, @10000000], @"edit.retentionDays": @[@0, @36500], @"edit.maxRecords": @[@0, @10000000],
         @"playback.longPressRate": @[@1, @3], @"playback.defaultRate": @[@1, @3], @"cache.maxMB": @[@0, @1048576], @"cache.maxAgeHours": @[@0, @876000]};

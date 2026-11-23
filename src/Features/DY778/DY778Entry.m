@@ -3,6 +3,10 @@
 //  DYxs — DY778（jijiang2333/DY778，1.0-3，b41e81b）保留模块：福袋助手、
 //  直播自动点赞、推荐页直播信息（在线人数/卡片开播时长）、星牌查询、
 //  主页与作品数字自定义。
+//  1.0-8 模块 1（2026-11-23，按 1.0-8 deb 拆包规格重写）：直播间工具
+//  （隐身进直播间、定时弹幕、礼物风控）与游客身份（请求层去 token + 注入
+//  游客 TTWID），见 DY778LiveTools.m / DY778LiveGuest.m。作者已转 TG 频道，
+//  GitHub 不再更新源码，后续模块按同一方式拆包重写。
 //  2026-11-03 用户决定删除 DY778 其余部分：消息留存/编辑历史
 //  （src/Features/MessageArchive/）、缓存清理、Feed 过滤、播放倍速均已删除，
 //  只留上述模块及其共用的 Core/Toast/Avatar 基础（PlaybackPolicy.h 仅作
@@ -19,6 +23,8 @@
 #import "DY778LuckyBag.h"
 #import "DY778LiveLike.h"
 #import "DY778LiveInfo.h"
+#import "DY778LiveTools.h"
+#import "DY778LiveGuest.h"
 #import "DY778FansUI.h"
 #import "DY778DisplayStats.h"
 
@@ -27,6 +33,8 @@ static void DY778InstallRemainingModules(void) {
     DY778InstallLuckyBagHooks();
     DY778InstallLiveLikeHooks();
     DY778InstallLiveInfoHooks();
+    DY778InstallLiveToolsHooks();
+    DY778InstallLiveGuestHooks();
     DY778InstallFansHooks();
     DY778InstallDisplayStats();
 }
