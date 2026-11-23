@@ -1,4 +1,6 @@
 #import "DY778LiveInfo.h"
+#import "DY778LiveAppearance.h"
+#import "DY778MiscPolicy.h"
 #import <QuartzCore/QuartzCore.h>
 #import <errno.h>
 #import <limits.h>
@@ -749,8 +751,12 @@ static UIScrollView *DY778PreviewPreviewScrollView(UIView *root) {
     NSMutableArray<DY778LiveCapsule *> *badges = [NSMutableArray array];
     if (self.badge) [badges addObject:self.badge]; if (self.durationBadge) [badges addObject:self.durationBadge];
     CGRect available = CGRectInset(UIEdgeInsetsInsetRect(root.bounds,root.safeAreaInsets),12,8);
-    CGFloat firstHeight=self.badge ? self.badge.intrinsicContentSize.height : 0;
-    CGFloat secondHeight=self.durationBadge ? self.durationBadge.intrinsicContentSize.height : 0;
+    // 模块 4 合流（规格 §7.4、§8.3）：直播外观值（liveInfo.cardAppearance）
+    // 在此应用——对齐/顺序/缩放以外观值为准；模块 4 不 hook 本类，只读值。
+    // 默认 {alignment=1, order=0, scale=1.0}，与原有居中布局一致。
+    DY778LiveAppearance appearance = DY778LiveAppearanceCurrent();
+    CGFloat firstHeight=self.badge ? self.badge.intrinsicContentSize.height * appearance.scale : 0;
+    CGFloat secondHeight=self.durationBadge ? self.durationBadge.intrinsicContentSize.height * appearance.scale : 0;
     CGFloat total=firstHeight+secondHeight+(firstHeight>0 && secondHeight>0 ? 6 : 0);
     if (!DY778PreviewUsableRect(available) || available.size.width < 60 || available.size.height < total) {
         for (UIView *badge in badges) badge.hidden = YES; [self retryInitialLayout]; return;
@@ -776,9 +782,16 @@ static UIScrollView *DY778PreviewPreviewScrollView(UIView *root) {
     }
     [self stopLayoutRetry];
     for (DY778LiveCapsule *badge in badges) {
-        CGSize size = badge.intrinsicContentSize; size.width = MIN(size.width,available.size.width);
-        CGFloat x = MAX(CGRectGetMinX(available),MIN(CGRectGetMidX(anchor)-size.width/2,CGRectGetMaxX(available)-size.width));
-        CGFloat y=badge==self.durationBadge ? secondTop : top;
+        CGSize size = badge.intrinsicContentSize;
+        // 模块 4 合流：按外观 scale 缩放，宽上限 294×scale（规格 §7.2）。
+        size.width = MIN(size.width * appearance.scale, MIN(DY778LiveAppearanceCapsuleBaseWidth * appearance.scale, available.size.width));
+        size.height = size.height * appearance.scale;
+        // 模块 4 合流：按外观 alignment 算 x；按 order 决定上下顺序
+        // （durationFirst 时时长胶囊在上）。
+        CGFloat x = DY778LiveAppearanceLayoutX(appearance.alignment, available, CGRectGetMidX(anchor), size.width);
+        BOOL durationFirst = appearance.order == 1;
+        CGFloat y = durationFirst ? (badge == self.durationBadge ? top : secondTop)
+                                  : (badge == self.durationBadge ? secondTop : top);
         badge.frame = CGRectMake(round(x),round(y),ceil(size.width),size.height); badge.hidden = NO;
         [root bringSubviewToFront:badge];
     }

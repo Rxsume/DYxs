@@ -14,6 +14,13 @@
 //  只证明了原版「尝试领取」的代码路径，没有任何证据证明在抖音 40.8.0
 //  上仍能成功领取；静默领取的原生调用未静态还原，DYxs 侧 quiet 模式
 //  只做观测与记录、不拦截官方领取视图（见 DY778RedEnvelope.m 头注）。
+//  1.0-8 模块 4（2026-11-23，按 1.0-8 deb 拆包规格重写）：备份恢复 +
+//  抽奖提醒 + 评论展开 + 清理关注 + 直播外观编辑（见 DY778Misc.m、
+//  DY778Backup.m、DY778DrawReminder.m、DY778CommentExpand.m、
+//  DY778ListClear.m、DY778LiveAppearance.m）。
+//  清理关注是破坏性操作：取关是否走服务端接口、是否立即生效、是否
+//  可逆，一律未证实，DYxs 侧取关提交不执行（见 DY778ListClear.h）；
+//  评论展开的“展开” UI 动作未静态还原，DYxs 侧只做 hook 与扫描记录。
 //  2026-11-03 用户决定删除 DY778 其余部分：消息留存/编辑历史
 //  （src/Features/MessageArchive/）、缓存清理、Feed 过滤、播放倍速均已删除，
 //  只留上述模块及其共用的 Core/Toast/Avatar 基础（PlaybackPolicy.h 仅作
@@ -35,6 +42,7 @@
 #import "DY778LiveAnalysis.h"
 #import "DY778RedEnvelope.h"
 #import "DY778SuperLucky.h"
+#import "DY778Misc.h"
 #import "DY778FansUI.h"
 #import "DY778DisplayStats.h"
 
@@ -53,6 +61,10 @@ static void DY778InstallRemainingModules(void) {
     // 外层包 RE 的替换实现，orig 链完整。
     DY778InstallRedEnvelopeHooks();
     DY778InstallSuperLuckyHooks();
+    // 1.0-8 模块 4：备份恢复 + 抽奖提醒 + 评论展开 + 清理关注 +
+    // 直播外观编辑（见 DY778Misc.m）。备份与外观无安装函数，
+    // 走设置页调用；抽奖提醒只 dispatch_async 调 DrawCenter tick。
+    DY778InstallMiscHooks();
     DY778InstallFansHooks();
     DY778InstallDisplayStats();
 }

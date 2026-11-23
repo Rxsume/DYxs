@@ -86,6 +86,16 @@ static NSDictionary *DY778DefaultValues(void) {
         @"superLucky.records": @[],
         @"lucky.drawReminder": @NO, @"lucky.drawReminderSeconds": @60, @"lucky.handled": @NO,
         @"lucky.promptDismissed": @NO, @"lucky.records": @[], @"lucky.enableNoticeShown": @NO,
+        // DY778 1.0-8 模块 4（备份恢复 + 抽奖提醒 + 评论展开 + 清理关注
+        // + 直播外观编辑）：全部开关默认关闭。默认值未证实（规格 §10），
+        // 以设置页运行时实测为准。外观 3 项除外：alignment=center、
+        // order=viewersFirst、scale=1.0 是反汇编实锤；cardAppearance
+        // 默认 {1, 0, 1.0}。
+        @"comments.enabled": @NO,
+        @"listClear.enabled": @NO,
+        @"drawReminders.records": @{},
+        @"liveAppearance.alignment": @"center", @"liveAppearance.order": @"viewersFirst", @"liveAppearance.scale": @1.0,
+        @"liveInfo.cardAppearance": @{@"alignment": @1, @"order": @0, @"scale": @1.0},
         @"playback.stopAtEnd": @NO, @"playback.longPressEnabled": @NO, @"playback.longPressRate": @2,
         @"playback.defaultEnabled": @NO, @"playback.defaultRate": @1.25, @"experimental.skipAds": @NO,
         @"cache.enabled": @NO, @"cache.onLaunch": @NO, @"cache.onReturn": @NO, @"cache.maxMB": @0, @"cache.maxAgeHours": @0,
@@ -140,6 +150,7 @@ void DY778Set(NSString *key, id value) {
         @"liveTools.interval": @[@5, @300],
         @"lucky.delay": @[@0.5, @5], @"redEnvelope.delay": @[@0, @30], @"superLucky.delay": @[@0, @30],
         @"superLucky.drawReminderSeconds": @[@0, @3600], @"lucky.drawReminderSeconds": @[@0, @3600],
+        @"liveAppearance.scale": @[@0.75, @1.5],
         @"recall.retentionDays": @[@0, @36500],
         @"recall.maxRecords": @[@0, @10000000], @"edit.retentionDays": @[@0, @36500], @"edit.maxRecords": @[@0, @10000000],
         @"playback.longPressRate": @[@1, @3], @"playback.defaultRate": @[@1, @3], @"cache.maxMB": @[@0, @1048576], @"cache.maxAgeHours": @[@0, @876000]};

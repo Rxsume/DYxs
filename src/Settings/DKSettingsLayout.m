@@ -434,6 +434,21 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                 DKSection(@"星牌查询", @[
                     DKRow(@"DKXSFansEnabled", @"ic_star_outlined_20"),
                 ]),
+                // DY778 备份杂项（1.0-8 模块 4；键见 DY778RemainingSettings.xm）。
+                DKSection(@"备份杂项", @[
+                    DKRow(@"DKXSMiscCommentsEnabled", @"ic_comment_outlined_20"),
+                    DKRow(@"DKXSMiscListClearEnabled", @"ic_userplus_outlined_20"),
+                    DKRow(@"DKXSMiscListClearSettings", @"ic_collection_outlined_20"),
+                    DKRow(@"DKXSMiscBackupExport", @"ic_arrowleft_outlined_20"),
+                    DKRow(@"DKXSMiscBackupImport", @"ic_arrowleft_outlined_20"),
+                    DKRow(@"DKXSMiscBackupClear", @"ic_eyeslash_outlined_20"),
+                    DKRow(@"DKXSMiscLiveAppearanceEditor", @"ic_text_outlined_20"),
+                    DKRow(@"DKXSMiscLiveAppearanceAlignment", @"ic_location_outlined_20"),
+                    DKRow(@"DKXSMiscLiveAppearanceOrder", @"ic_location_outlined_20"),
+                    DKRow(@"DKXSMiscLiveAppearanceScale", @"ic_text_outlined_20"),
+                    DKRow(@"DKXSMiscDrawReminderInfo", @"ic_bell_outlined_20"),
+                    DKRow(@"DKXSMiscInfo", @"ic_msg_outlined_20"),
+                ]),
                 // DY778 数字自定义（1.0-3 新增；键见 DY778RemainingSettings.xm）。
                 DKSection(@"数字自定义", @[
                     DKRow(@"DKXSDisplayStatsEnabled", @"ic_text_outlined_20"),
