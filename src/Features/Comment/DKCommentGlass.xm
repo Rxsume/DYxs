@@ -1058,7 +1058,9 @@ static void DKTrackEmoticonBar(UIView *bar) API_AVAILABLE(ios(26.0)) {
 - (void)layoutSubviews {
     %orig;
     if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DKXSEnableCommentBlur"]) {
-        self.backgroundColor = [UIColor clearColor];
+        // %init 别名安装的 hook 里 self 是 __unsafe_unretained id const，不能直接读属性，
+        // 先转 UIView* 再清底色（同 DKXSBatch5eMisc 里 (UILabel *)self 的做法）。
+        ((UIView *)self).backgroundColor = [UIColor clearColor];
     }
 }
 
