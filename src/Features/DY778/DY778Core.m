@@ -60,6 +60,13 @@ static NSDictionary *DY778DefaultValues(void) {
         // DY778 1.0-8 模块 1（直播间工具 + 游客身份）：全部开关默认关闭。
         @"liveTools.stealth": @NO, @"liveTools.scheduler": @NO, @"liveTools.risk": @NO,
         @"liveTools.interval": @30, @"liveTools.selectedText": @"", @"liveTools.ttwid": @"",
+        // DY778 1.0-8 模块 2（直播数据分析）：总开关默认关；入口默认右下角；
+        // 通知默认关；观众数值展示默认开。默认值未证实（规格 §8、§10.6），
+        // 以设置页运行时实测为准。
+        @"liveAnalysis.enabled": @NO, @"liveAnalysis.compact": @NO,
+        @"liveAnalysis.entryPosition.portrait": @"bottom-right", @"liveAnalysis.entryPosition.landscape": @"bottom-right",
+        @"liveAnalysis.audienceNotice": @NO, @"liveAnalysis.giftNotice": @NO,
+        @"liveAnalysis.audience": @NO, @"liveAnalysis.audienceValues": @YES,
         @"playback.stopAtEnd": @NO, @"playback.longPressEnabled": @NO, @"playback.longPressRate": @2,
         @"playback.defaultEnabled": @NO, @"playback.defaultRate": @1.25, @"experimental.skipAds": @NO,
         @"cache.enabled": @NO, @"cache.onLaunch": @NO, @"cache.onReturn": @NO, @"cache.maxMB": @0, @"cache.maxAgeHours": @0,

@@ -386,6 +386,20 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                     DKRow(@"DKXSLiveToolsRisk", @"ic_star_outlined_20"),
                     DKRow(@"DKXSLiveToolsTTWID", @"ic_text_outlined_20"),
                 ]),
+                // DY778 直播数据分析（1.0-8 模块 2；键见 DY778RemainingSettings.xm）。
+                DKSection(@"直播数据分析", @[
+                    DKRow(@"DKXSLiveAnalysisEnabled", @"ic_collection_outlined_20"),
+                    DKRow(@"DKXSLiveAnalysisCompact", @"ic_collection_outlined_20"),
+                    DKRow(@"DKXSLiveAnalysisEntryPosition", @"ic_location_outlined_20"),
+                    DKRow(@"DKXSLiveAnalysisAudience", @"ic_personcircleclean_outlined_20"),
+                    DKRow(@"DKXSLiveAnalysisAudienceValues", @"ic_text_outlined_20"),
+                    DKRow(@"DKXSLiveAnalysisAudienceNotice", @"ic_bell_outlined_20"),
+                    DKRow(@"DKXSLiveAnalysisGiftNotice", @"ic_bell_outlined_20"),
+                    DKRow(@"DKXSLiveAnalysisGetVisitor", @"ic_userplus_outlined_20"),
+                    DKRow(@"DKXSLiveAnalysisClearVisitor", @"ic_eyeslash_outlined_20"),
+                    DKRow(@"DKXSLiveAnalysisResetPosition", @"ic_arrowleft_outlined_20"),
+                    DKRow(@"DKXSLiveAnalysisInfo", @"ic_msg_outlined_20"),
+                ]),
                 // DY778 星牌查询（1.0-3 新增；键见 DY778RemainingSettings.xm）。
                 DKSection(@"星牌查询", @[
                     DKRow(@"DKXSFansEnabled", @"ic_star_outlined_20"),
