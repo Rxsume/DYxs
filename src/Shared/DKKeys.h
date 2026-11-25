@@ -17,6 +17,7 @@
 
 // 首页、朋友页、好友聊天页、搜索页、其他用户作品页统一由这一个开关控制。
 static NSString *const DKKeyVideoFullscreen = @"DYxsVideoFullscreen";
+static NSString *const DKKeyBlockFeedNowPlaying = @"DYxsBlockFeedNowPlaying";
 
 #pragma mark - 功能组：评论区
 
@@ -491,8 +492,10 @@ static NSString *const DKKeyAdjustRangeExtended = @"DYxsAdjustRangeExtended";
 
 #pragma mark - 功能组：快捷入口
 
-// 个人主页功能区末尾的 DYxs 设置入口（开关，只作用于自己的主页）。
+// 个人主页 DYxs 设置入口总开关（只作用于自己的主页）。
 static NSString *const DKKeyProfileSettingsEntry     = @"DYxsProfileSettingsEntry";
+// 入口位置（单选，整数）：0「功能区」/ 1「顶部」/ 2「顶部+功能区」。
+static NSString *const DKKeyProfileSettingsEntryPosition = @"DYxsProfileSettingsEntryPosition";
 // 入口文字（单选，整数）：0「DYxs」/ 1「插件设置」。
 static NSString *const DKKeyProfileSettingsEntryName = @"DYxsProfileSettingsEntryName";
 
