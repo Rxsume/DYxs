@@ -911,7 +911,7 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @interface AWEProfileMixItemCollectionViewCell : UICollectionViewCell
 @end
 
-@interface AWEProfileTaskCardStyleListCollectionViewCell : UIView
+@interface AWEUserProfileUGCTaskCardStyleListCollectionViewCell : UIView
 @end
 
 @interface AWEProfileUserDetailComponent : NSObject
@@ -1560,7 +1560,7 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @interface AWEAwemeHotSpotTableViewController : UIViewController
 - (BOOL)prefersStatusBarHidden;
 @end
-@interface AWEFullPageFeedNewContainerViewController : UIViewController
+@interface AWEFullPageFeedContainerViewController : UIViewController
 - (BOOL)prefersStatusBarHidden;
 @end
 @interface AFDPureModePageContainerViewController : UIViewController

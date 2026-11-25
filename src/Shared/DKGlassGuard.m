@@ -34,6 +34,8 @@ static NSSet<NSString *> *DKGlassGatedKeySet(void) {
                DKKeyGlassTabBar,
                DKKeyGlassTabBarClear,
                DKKeyGlassTabBarPadPosition,
+               DKKeyGlassTabBarCollapse,
+               DKKeyGlassTabBarCollapseHideDot,
                DKKeyGlassTabBarCapsuleHeight,
                DKKeyGlassTabBarCapsuleLength,
                DKKeyGlassTabBarPlusSize,

@@ -509,7 +509,7 @@
 }
 %end
 
-%hook AWEProfilePostEmptyPublishGuideCollectionViewCell
+%hook AWEProfilePublishGuideCollectionViewCell
 
 - (void)didMoveToSuperview {
     %orig;
@@ -522,7 +522,7 @@
 
 %end
 
-%hook AWEProfileTaskCardStyleListCollectionViewCell
+%hook AWEUserProfileUGCTaskCardStyleListCollectionViewCell
 - (BOOL)shouldShowPublishGuide {
     if (DKXSGetBool(@"DKXSHidePostView")) {
         return NO;
