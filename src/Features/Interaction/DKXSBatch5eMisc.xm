@@ -329,7 +329,7 @@ static void DKXSCollectFollowAuthorInfo(id model, NSString **nicknameOut, NSStri
 }
 %end
 
-%hook AWEFullPageFeedNewContainerViewController
+%hook AWEFullPageFeedContainerViewController
 - (BOOL)prefersStatusBarHidden {
     if (DKXSMisc5eGetBool(@"DKXSHideStatusbar") || DKXSStatusBarHiddenByClear(self)) return YES;
     return %orig;

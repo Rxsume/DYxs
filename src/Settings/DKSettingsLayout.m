@@ -645,6 +645,8 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
             DKRow(DKKeyGlassTabBarCapsuleHeight, @"ic_zoomout_outlined_20"),
             DKRow(DKKeyGlassTabBarCapsuleLength, @"ic_zoomoutrectangle_outlined"),
             DKRow(DKKeyGlassTabBarPlusSize, @"ic_camera_outlined"),
+            DKRow(DKKeyGlassTabBarCollapse, @"ic_squaresplit_outlined_20"),
+            DKRow(DKKeyGlassTabBarCollapseHideDot, @"ic_bellslash_outlined"),
             DKRow(DKKeyGlassTabBarPadPosition, @"ic_squaresplit_outlined_20"),
         ]),
         DKSection(@"音频可视化", @[
@@ -1074,6 +1076,8 @@ NSArray<NSString *> *DKSettingsLayoutRequires(NSString *key) {
         requires = @{
             DKKeyAudioVizPosition:       @[ DKKeyGlassTabBar ],
             DKKeyGlassTabBarPadPosition: @[ DKKeyGlassTabBar ],
+            DKKeyGlassTabBarCollapse:    @[ DKKeyGlassTabBar ],
+            DKKeyGlassTabBarCollapseHideDot: @[ DKKeyGlassTabBarCollapse ],
             DKKeyGlassTabBarCapsuleHeight: @[ DKKeyGlassTabBar ],
             DKKeyGlassTabBarCapsuleLength: @[ DKKeyGlassTabBar ],
             DKKeyGlassTabBarPlusSize:    @[ DKKeyGlassTabBar ],

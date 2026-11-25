@@ -79,6 +79,9 @@ static NSString *const DKKeyGlassTabBar      = @"DYxsGlassTabBar";
 static NSString *const DKKeyGlassTabBarClear = @"DYxsGlassTabBarClear";
 // iPad 玻璃底栏位置（单选）：0 默认居中 / 1 左端 / 2 右端；仅 iPad 生效（见 DKGlassPadElements.xm）。
 static NSString *const DKKeyGlassTabBarPadPosition = @"DYxsGlassTabBarPadPosition";
+// 底栏动态收缩（单选）：0 关闭 / 1 左侧 / 2 右侧 / 3 中间；仅 iPhone 生效（见 DKTabBarCollapse.xm）
+static NSString *const DKKeyGlassTabBarCollapse = @"DYxsGlassTabBarCollapse";
+static NSString *const DKKeyGlassTabBarCollapseHideDot = @"DYxsGlassTabBarCollapseHideDot";
 // 悬浮玻璃底栏尺寸（百分比，100 为抖音默认效果）：胶囊等比缩放、胶囊长度、拍摄圆键直径，三者都以底边为锚。
 // 常规范围见 DKAdjustRange.m，开启「扩展所有缩放与位移」后放宽。
 static NSString *const DKKeyGlassTabBarCapsuleHeight = @"DYxsGlassTabBarCapsuleHeight";

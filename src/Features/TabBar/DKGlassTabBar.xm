@@ -22,6 +22,7 @@
 #import "DKPlusIcon.h"
 #import "DKTabBarAppearance.h"
 #import "DKTabBarBackdrop.h"
+#import "DKTabBarCollapse.h"
 #import "DKTabBarPageImmersion.h"
 #import "DKTabBarIcons.h"
 #import "DKTabBarRemoval.h"
@@ -70,6 +71,10 @@ static const CGFloat kDKPlusIconCameraInset = 15.0;
 // 底栏样式「单图标」的图标边长；「图标+文字」为 24pt 图标加 10pt 文字。
 static const CGFloat kDKItemIconSide = 26.0;
 static const CGFloat kDKItemIconTextSide = 24.0;
+// 收缩后未读红点的直径（100% 时），随宿主视图一起缩放。
+static const CGFloat kDKCollapseDotSide = 10.0;
+// 按系统数字角标与图标的相对位置换算成 10pt 红点，偏移以图标边长为单位。
+static const CGPoint kDKCollapseDotIconOffsetRatio = {12.0 / 26.0, -11.0 / 26.0};
 static const CGFloat kDKItemIconTextGap = 2.0;
 static const CGFloat kDKItemCaptionFontSize = 10.0;
 // 标题图的最大宽度：相邻项间距只有 70pt，过宽会压到邻项，超出时缩字。
@@ -86,6 +91,15 @@ static const CGFloat kDKTabButtonFallbackPad = 4.0;
 
 static UITabBar *gBar = nil;
 static id gProxy = nil;
+// 动态收缩开启时持有 gBar：系统的收缩形变只对控制器管理的 UITabBar 生效。关闭时为 nil。
+// 控制器不进抖音的控制器层级，只把 view 挂进抖音底栏，几何改写到 view 上。
+static UITabBarController *gBarHost = nil;
+static DKTabBarCollapseSide gHostSide = DKTabBarCollapseSideOff;
+static BOOL gCollapsed = NO;
+// 收缩底板及其在 UITabBar 内的位置，由 DKGlassPlaceCollapsePlatter 算出。
+static __weak UIView *gCollapsePlatter = nil;
+static CGRect gCollapseFrame = {{0.0, 0.0}, {0.0, 0.0}};
+static UIView *gCollapseDot = nil;
 // 每个 item 对应的 tab 序号（validIndex）。与 items 同序等长。
 static NSArray<NSNumber *> *gItemKinds = nil;
 // 每个 item 对应的抖音按钮，转发点击与读取角标都用它。与 items 同序等长。
@@ -116,6 +130,14 @@ UITabBar *DKGlassTabBarCurrent(void) {
     return gBar;
 }
 
+static UIView *DKGlassHostView(void) {
+    return gBarHost ? gBarHost.view : gBar;
+}
+
+UIView *DKGlassBarHostCurrent(void) {
+    return DKGlassHostView();
+}
+
 UIVisualEffectView *DKGlassPlusKeyCurrent(void) {
     return gPlusKey;
 }
@@ -124,7 +146,7 @@ UIVisualEffectView *DKGlassPlusKeyCurrent(void) {
 static __weak UIView *gPlatter = nil;
 
 UIView *DKGlassPlatterCurrent(void) {
-    return gPlatter;
+    return gCollapsed ? nil : gPlatter;
 }
 
 #pragma mark - 小工具
@@ -270,7 +292,7 @@ static void DKGlassApplyPlatterGlass(UIView *platter, UIUserInterfaceStyle style
 }
 
 NSString *DKGlassPlatterGlassStatus(void) {
-    UIView *platter = DKGlassPlatterCurrent();
+    UIView *platter = gPlatter;
     if (!platter) return @"未尝试（platter 尚未建立）";
     if (gPlatterGlassProbed && !gPlatterGlassSupported) return @"属性不存在，已放弃——保持系统默认磨砂";
     NSNumber *applied = objc_getAssociatedObject(platter, &kDKPlatterAppliedStyleKey);
@@ -370,6 +392,7 @@ static UIColor *DKGlassInkColor(BOOL selected) {
 }
 
 static UIImage *DKGlassItemImage(NSString *tabID, NSString *title, BOOL selected, UIColor *color);
+static UIImage *DKGlassCircleImage(NSString *tabID);
 
 // 按当前极性与底栏样式重渲染每个 item 的两张图。就地改 image / selectedImage，不重建 items——
 // 极性变化和切页是同一时刻，重建 items 会打断系统正在跑的透镜位移动画。
@@ -383,6 +406,11 @@ static void DKGlassApplyItemImages(void) {
         if (title.length == 0) return;
         id tabID = index < gItemTabIDs.count ? gItemTabIDs[index] : nil;
         if (![tabID isKindOfClass:NSString.class]) tabID = nil;
+        // 圆键显示选中项的图：文字样式也要换成图标。其余项不动，胶囊形变时保持原样。
+        if (gCollapsed && item == gBar.selectedItem && DKTabBarHasIcon(tabID)) {
+            item.image = item.selectedImage = DKGlassCircleImage(tabID);
+            return;
+        }
         item.image = DKGlassItemImage(tabID, title, NO, normal);
         item.selectedImage = DKGlassItemImage(tabID, title, YES, selected);
     }];
@@ -521,6 +549,12 @@ static UIImage *DKGlassIconCaptionImage(UIImage *icon, NSString *title, UIColor 
 }
 
 // 按底栏样式出一张 item 图，颜色烤进图里（悬浮 provider 不采纳 tint）。表外 tabID 回落标题图。
+static UIImage *DKGlassCircleImage(NSString *tabID) {
+    CGFloat side = DKTabBarCurrentStyle() == DKTabBarStyleIconText ? kDKItemIconTextSide : kDKItemIconSide;
+    return [DKTabBarIconTemplate(tabID, YES, side)
+        imageWithTintColor:DKGlassInkColor(YES) renderingMode:UIImageRenderingModeAlwaysOriginal];
+}
+
 static UIImage *DKGlassItemImage(NSString *tabID, NSString *title, BOOL selected, UIColor *color) {
     DKTabBarStyle style = DKTabBarCurrentStyle();
     if (style != DKTabBarStyleDefault && DKTabBarHasIcon(tabID)) {
@@ -630,7 +664,7 @@ static void DKGlassSyncPlusIcon(UIView *button) {
 
 #pragma mark - 点击转发
 
-@interface DKGlassTabBarProxy : NSObject <UITabBarDelegate>
+@interface DKGlassTabBarProxy : NSObject <UITabBarDelegate, UITabBarControllerDelegate>
 - (void)plusKeyDidTap;
 @end
 
@@ -646,8 +680,17 @@ static void DKGlassSyncPlusIcon(UIView *button) {
 }
 
 - (void)tabBar:(UITabBar *)tabBar didSelectItem:(UITabBarItem *)item {
-    UITabBarController *controller = DKGlassControllerForView(tabBar);
-    NSUInteger index = [tabBar.items indexOfObjectIdenticalTo:item];
+    [self forwardSelectionAtIndex:[tabBar.items indexOfObjectIdenticalTo:item]];
+}
+
+- (void)tabBarController:(UITabBarController *)tabBarController
+ didSelectViewController:(UIViewController *)viewController {
+    [self forwardSelectionAtIndex:[tabBarController.viewControllers indexOfObjectIdenticalTo:viewController]];
+}
+
+// 从抖音底栏取控制器：玻璃底栏向上会先遇到 gBarHost。
+- (void)forwardSelectionAtIndex:(NSUInteger)index {
+    UITabBarController *controller = gDouyinBar ? DKGlassControllerForView(gDouyinBar) : nil;
     if (!controller || index == NSNotFound || index >= gItemButtons.count) return;
 
     id button = gItemButtons[index];
@@ -697,17 +740,38 @@ static NSString *DKGlassBadgeValue(id button) {
 }
 
 // badgeValue 交给系统渲染即得 iOS 26 悬浮胶囊里的原生红点，badgeColor 留 nil 用系统默认色。
+// 圆键上的系统角标始终隐藏（见 DKGlassPlaceCollapsePlatter），未读红点按设置显示。
 static void DKGlassSyncBadges(void) {
     NSUInteger count = MIN(gItemButtons.count, gBar.items.count);
+    BOOL unread = NO;
     for (NSUInteger i = 0; i < count; i++) {
         UITabBarItem *item = gBar.items[i];
         NSString *value = DKGlassBadgeValue(gItemButtons[i]);
+        unread = unread || value != nil;
         NSString *current = item.badgeValue;
         if (current != value && ![current isEqualToString:value]) item.badgeValue = value;
     }
+    gCollapseDot.backgroundColor = [UIColor.systemRedColor resolvedColorWithTraitCollection:gBar.traitCollection];
+    gCollapseDot.hidden = !unread || DKPrefBool(DKKeyGlassTabBarCollapseHideDot);
 }
 
 #pragma mark - 内容镜像
+
+// 控制器管理的 UITabBar 不允许直接写 items，走占位页面；占位页不显示内容、不接收触摸。
+static void DKGlassInstallItems(NSArray<UITabBarItem *> *items) {
+    if (!gBarHost) {
+        gBar.items = items;
+        return;
+    }
+    NSMutableArray<UIViewController *> *pages = [NSMutableArray arrayWithCapacity:items.count];
+    for (UITabBarItem *item in items) {
+        UIViewController *page = [[UIViewController alloc] init];
+        page.tabBarItem = item;
+        page.view.userInteractionEnabled = NO;
+        [pages addObject:page];
+    }
+    gBarHost.viewControllers = pages;
+}
 
 // 抖音的按钮数组本身就是视觉顺序，直接照抄；拍摄入口按 type 认出来单独交给圆键，
 // 其余按 validIndex 映射到 tab。
@@ -764,7 +828,7 @@ static BOOL DKGlassSyncItems(UITabBarController *controller, NSArray *buttons) {
             item.accessibilityLabel = title;   // 标题不再是文字，旁白与探针都靠它认人
             [items addObject:item];
         }];
-        gBar.items = items;
+        DKGlassInstallItems(items);
         gItemKinds = kinds;
         gItemTabIDs = tabIDs;
         gSignature = [signature copy];
@@ -773,8 +837,15 @@ static BOOL DKGlassSyncItems(UITabBarController *controller, NSArray *buttons) {
 
     NSUInteger current = [gItemKinds indexOfObject:@((NSInteger)controller.selectedIndex)];
     if (current != NSNotFound && current < gBar.items.count) {
-        UITabBarItem *item = gBar.items[current];
-        if (gBar.selectedItem != item) gBar.selectedItem = item;
+        if (gBarHost) {
+            if (gBarHost.selectedIndex != current) {
+                gBarHost.selectedIndex = current;
+                if (gCollapsed) DKGlassApplyItemImages();
+            }
+        } else {
+            UITabBarItem *item = gBar.items[current];
+            if (gBar.selectedItem != item) gBar.selectedItem = item;
+        }
     }
 
     DKGlassSyncBadges();
@@ -844,11 +915,40 @@ static UIView *DKGlassFindKind(UIView *root, Class cls) {
     return nil;
 }
 
-static UIView *DKGlassFindPlatter(UIView *root) {
+static Class DKGlassPlatterClass(void) {
     static Class platterClass;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ platterClass = NSClassFromString(kDKPlatterClass); });
-    return platterClass ? DKGlassFindKind(root, platterClass) : nil;
+    return platterClass;
+}
+
+// 控制器管理的 UITabBar 有胶囊与收缩两块底板，都是底板类。收缩底板恒为正方形；
+// 胶囊在控制器还没有页面时宽度为 0，不能按宽度区分。
+static BOOL DKGlassIsCollapseShape(UIView *platter) {
+    CGSize size = platter.bounds.size;
+    return size.width == size.height;
+}
+
+static UIView *DKGlassFindPlatter(UIView *root) {
+    Class platterClass = DKGlassPlatterClass();
+    if (!platterClass) return nil;
+    UIView *first = DKGlassFindKind(root, platterClass);
+    for (UIView *sibling in first.superview.subviews) {
+        if ([sibling isKindOfClass:platterClass] && !DKGlassIsCollapseShape(sibling)) return sibling;
+    }
+    return first;
+}
+
+static UIView *DKGlassFindCollapsePlatter(void) {
+    if (gCollapsePlatter) return gCollapsePlatter;
+    Class platterClass = DKGlassPlatterClass();
+    if (!platterClass || !gBarHost || !gPlatter) return nil;
+    for (UIView *sibling in gPlatter.superview.subviews) {
+        if (sibling != gPlatter && [sibling isKindOfClass:platterClass] && DKGlassIsCollapseShape(sibling)) {
+            return sibling;
+        }
+    }
+    return nil;
 }
 
 #pragma mark - 几何
@@ -951,14 +1051,78 @@ NSString *DKGlassGeometryStatus(void) {
     if (!gBar) return @"未建立（功能关闭或尚未布局）";
     return [NSString stringWithFormat:
             @"项目 %lu / 参考 %lu · 胶囊目标 %.1f 实测 %.1f · 按钮宽 %.1f 首距 %.1f 高 %.1f · 内缩 %.1f（%@）"
-            @" · 尺寸 高 %ld%% 长 %ld%% 拍摄 %ld%% · 胶囊显示 %@ 圆键 %@",
+            @" · 尺寸 高 %ld%% 长 %ld%% 拍摄 %ld%% · 胶囊显示 %@ 圆键 %@ · 动态收缩 档位 %ld 状态 %@",
             (unsigned long)gGeometryCount, (unsigned long)gGeometryReference, gGeometryTarget, gGeometryMeasured,
             gMetrics.buttonWidth, gMetrics.buttonPad, gMetrics.height, gMetrics.inset,
             gInsetMeasured ? @"实测" : @"兜底",
             (long)DKAdjustValue(DKKeyGlassTabBarCapsuleHeight), (long)DKAdjustValue(DKKeyGlassTabBarCapsuleLength),
             (long)DKAdjustValue(DKKeyGlassTabBarPlusSize),
             gPlatter ? NSStringFromCGRect([gPlatter convertRect:gPlatter.bounds toView:gBar.superview]) : @"-",
-            gPlusKey.isHidden ? @"隐藏" : NSStringFromCGRect(gPlusKey.frame)];
+            gPlusKey.isHidden ? @"隐藏" : NSStringFromCGRect(gPlusKey.frame),
+            (long)gHostSide, gCollapsed ? @"收缩" : @"展开"];
+}
+
+// 圆键内容与角标是底板的嵌套类，按类名后缀区分。系统角标隐藏，未读由内容层里的红点表示：
+// 它随底板进入形变，直径由宿主变换带上底栏缩放。
+static void DKGlassPrepareCollapseContent(UIView *collapse) {
+    UIView *content = nil;
+    for (UIView *subview in collapse.subviews) {
+        NSString *name = NSStringFromClass(subview.class);
+        if ([name hasSuffix:@"BadgeContainerView"]) {
+            if (!subview.isHidden) subview.hidden = YES;
+        } else if ([name hasSuffix:@"ContentView"]) {
+            content = subview;
+        }
+    }
+    if (!content) return;
+    if (gCollapseDot.superview != content) [content addSubview:gCollapseDot];
+
+    CGRect iconFrame = CGRectZero;
+    for (UIView *button in content.subviews) {
+        if (![NSStringFromClass(button.class) isEqualToString:kDKTabButtonClass]) continue;
+        for (UIView *icon in button.subviews) {
+            if (![icon isKindOfClass:UIImageView.class] || CGRectIsEmpty(icon.bounds)) continue;
+            iconFrame = [icon convertRect:icon.bounds toView:content];
+            break;
+        }
+        if (!CGRectIsEmpty(iconFrame)) break;
+    }
+    if (CGRectIsEmpty(iconFrame)) {
+        CGRect circle = [collapse convertRect:collapse.bounds toView:content];
+        iconFrame = CGRectMake(CGRectGetMidX(circle) - kDKItemIconSide / 2.0,
+                               CGRectGetMidY(circle) - kDKItemIconSide / 2.0,
+                               kDKItemIconSide, kDKItemIconSide);
+    }
+    CGFloat iconSide = CGRectGetWidth(iconFrame);
+    CGRect dotFrame = CGRectMake(CGRectGetMidX(iconFrame) + kDKCollapseDotIconOffsetRatio.x * iconSide - kDKCollapseDotSide / 2.0,
+                                 CGRectGetMidY(iconFrame) + kDKCollapseDotIconOffsetRatio.y * iconSide - kDKCollapseDotSide / 2.0,
+                                 kDKCollapseDotSide, kDKCollapseDotSide);
+    if (!CGRectEqualToRect(gCollapseDot.frame, dotFrame)) gCollapseDot.frame = dotFrame;
+}
+
+// 圆键直径等于胶囊高度。按档位确定圆键左缘在抖音底栏内的 x，再换算到 UITabBar 坐标，作为系统形变终点。
+// capsuleLeft 是胶囊左缘在抖音底栏内的 x，capsuleX 是胶囊左缘在 UITabBar 内的 x。
+static void DKGlassPlaceCollapsePlatter(UIView *collapse, CGFloat barWidth, CGFloat capsuleLeft,
+                                        CGFloat capsuleX, CGFloat scale) {
+    if (!collapse) return;
+    CGFloat side = gMetrics.height;
+    CGFloat diameter = side * scale;
+    CGFloat targetX = gMetrics.inset;
+    switch (gHostSide) {
+        case DKTabBarCollapseSideRight:
+            targetX = barWidth - gMetrics.inset - diameter;
+            break;
+        case DKTabBarCollapseSideCenter:
+            targetX = (barWidth - diameter) / 2.0;
+            break;
+        case DKTabBarCollapseSideOff:
+        case DKTabBarCollapseSideLeft:
+            break;
+    }
+    gCollapseFrame = CGRectMake(capsuleX + (targetX - capsuleLeft) / scale, gMetrics.top, side, side);
+    gCollapsePlatter = collapse;
+    if (!CGRectEqualToRect(collapse.frame, gCollapseFrame)) collapse.frame = gCollapseFrame;
+    DKGlassPrepareCollapseContent(collapse);
 }
 
 // 胶囊与拍摄圆键作为一组在抖音底栏内水平居中，项目少了只缩短胶囊、不拉长。
@@ -985,15 +1149,16 @@ static void DKGlassLayoutGlass(AWENormalModeTabBar *douyinBar, NSUInteger refere
     CGFloat capsuleScale = DKGlassSizeFactor(DKKeyGlassTabBarCapsuleHeight);
     CGFloat length = DKGlassSizeFactor(DKKeyGlassTabBarCapsuleLength);
     NSUInteger count = gBar.items.count;
+    UIView *host = DKGlassHostView();
     UIView *platterView = nil;
     for (NSUInteger pass = 0; pass < 2; pass++) {
         gGeometryTarget = DKGlassCapsuleWidth(count, reference, size.width, length);
         CGFloat barWidth = gGeometryTarget + 2.0 * gMetrics.inset;
-        CGRect barBounds = gBar.bounds;
+        CGRect barBounds = host.bounds;
         if (fabs(CGRectGetWidth(barBounds) - barWidth) > 0.01 || CGRectGetHeight(barBounds) != size.height) {
-            gBar.bounds = CGRectMake(0.0, 0.0, barWidth, size.height);
+            host.bounds = CGRectMake(0.0, 0.0, barWidth, size.height);
         }
-        [gBar layoutIfNeeded];
+        [host layoutIfNeeded];
         platterView = DKGlassFindPlatter(gBar);
         if (!DKGlassMeasure(platterView, count)) break;
     }
@@ -1003,6 +1168,8 @@ static void DKGlassLayoutGlass(AWENormalModeTabBar *douyinBar, NSUInteger refere
     // 找到 platter 就顺手把它的玻璃换成 Clear。放在所有提前 return 之前：
     // 拍摄按钮被移除时下面会早退，但胶囊材质照样要生效。
     DKGlassApplyPlatterGlass(platterView, gGlassStyle);
+    UIView *collapsePlatter = DKGlassFindCollapsePlatter();
+    DKGlassApplyPlatterGlass(collapsePlatter, gGlassStyle);
 
     // 实测量都在 UITabBar 自身坐标里，不受它的缩放影响。
     CGRect platter = platterView ? [platterView convertRect:platterView.bounds toView:gBar] : CGRectZero;
@@ -1022,14 +1189,18 @@ static void DKGlassLayoutGlass(AWENormalModeTabBar *douyinBar, NSUInteger refere
     groupFrame.origin.x = DKGlassPadGroupLeft(douyinBar, groupFrame);
     CGFloat left = CGRectGetMinX(groupFrame);
     // 以胶囊左下角为锚，缩放后落在 (left, bottom)。
-    CGRect barBounds = gBar.bounds;
+    CGRect barBounds = host.bounds;
     CGPoint center = CGPointMake(left - capsuleScale * (capsuleX - CGRectGetMidX(barBounds)),
                                  bottom - capsuleScale * (bottom - CGRectGetMidY(barBounds)));
-    if (!CGPointEqualToPoint(gBar.center, center)) gBar.center = center;
+    if (!CGPointEqualToPoint(host.center, center)) host.center = center;
     CGAffineTransform transform = CGAffineTransformMakeScale(capsuleScale, capsuleScale);
-    if (!CGAffineTransformEqualToTransform(gBar.transform, transform)) gBar.transform = transform;
+    if (!CGAffineTransformEqualToTransform(host.transform, transform)) host.transform = transform;
+    DKGlassPlaceCollapsePlatter(collapsePlatter, size.width, left, capsuleX, capsuleScale);
     DKGlassPadElementsLayout(douyinBar, groupFrame);
     if (!available) return;
+
+    CGFloat plusAlpha = gCollapsed ? 0.0 : 1.0;
+    if (gPlusKey.alpha != plusAlpha) gPlusKey.alpha = plusAlpha;
 
     CGRect keyFrame = CGRectMake(left + capsuleWidth + kDKPlusKeyGap, bottom - diameter, diameter, diameter);
     if (!CGRectEqualToRect(gPlusKey.frame, keyFrame)) gPlusKey.frame = keyFrame;
@@ -1091,6 +1262,62 @@ static NSUInteger DKGlassReferenceCount(NSArray *buttons) {
 
 #pragma mark - 挂载与拆除
 
+static void DKGlassTeardown(AWENormalModeTabBar *douyinBar, NSArray *buttons) {
+    DKGlassSetDouyinContentVisible(douyinBar, buttons, YES);
+    DKTabBarCollapseDetach();
+    [DKGlassHostView() removeFromSuperview];
+    [gPlusKey removeFromSuperview];
+    gBarHost.delegate = nil;
+    gBarHost = nil;
+    gHostSide = DKTabBarCollapseSideOff;
+    gCollapsed = NO;
+    gCollapsePlatter = nil;
+    gCollapseDot = nil;
+    gBar = nil;
+    gPlatter = nil;
+    gPlusKey = nil;
+    gPlusIcon = nil;
+    gPlusAccent = nil;
+    gPlusStyleApplied = DKPlusStyleDefault;
+    gPlusHit = nil;
+    gPlusButton = nil;
+    gPlusSourceIcon = nil;
+    gProxy = nil;
+    gItemKinds = nil;
+    gItemButtons = nil;
+    gItemTabIDs = nil;
+    gSignature = nil;
+    // 重新开启时材质要能重新装上；platter 玻璃的记录挂在 platter 上，随新底栏一起重建。
+    // 探测结果不复位，那是设备能力，一次为准。
+    gGlassStyle = UIUserInterfaceStyleUnspecified;
+    gInkStyle = UIUserInterfaceStyleUnspecified;
+    gInkHostColor = nil;
+    gPlusIconInkStyle = UIUserInterfaceStyleUnspecified;
+    // 玻璃底栏是可视化的落位基准，它一撤可视化必须跟着撤，否则会留下一层孤儿视图。
+    DKAudioVisualizerLayout(douyinBar);
+    DKGlassPadElementsLayout(douyinBar, CGRectNull);
+}
+
+// 不写 UITabBar 的 delegate / items：控制器管理的底栏写入会抛异常。
+static void DKGlassMakeBar(DKTabBarCollapseSide side, CGRect frame) API_AVAILABLE(ios(26.0)) {
+    gHostSide = side;
+    if (side == DKTabBarCollapseSideOff) {
+        gBar = [[UITabBar alloc] initWithFrame:frame];
+        gBar.delegate = gProxy;
+        return;
+    }
+    gBarHost = [[UITabBarController alloc] init];
+    gBarHost.delegate = gProxy;
+    gBarHost.tabBarMinimizeBehavior = UITabBarMinimizeBehaviorOnScrollDown;
+    gBarHost.view.backgroundColor = UIColor.clearColor;
+    gBarHost.view.frame = frame;
+    gBar = gBarHost.tabBar;
+    gCollapseDot = [[UIView alloc] init];
+    gCollapseDot.layer.cornerRadius = kDKCollapseDotSide / 2.0;
+    gCollapseDot.userInteractionEnabled = NO;
+    gCollapseDot.hidden = YES;
+}
+
 // 整个功能只在 iOS 26 及以上成立——低版本没有 UIGlassEffect，装上去只是一条没有玻璃的
 // UITabBar 盖住抖音底栏，比原生还差。故在此一处挡住，各 helper 用 API_AVAILABLE 标注。
 static void DKGlassUpdate(AWENormalModeTabBar *douyinBar) API_AVAILABLE(ios(26.0)) {
@@ -1107,33 +1334,12 @@ static void DKGlassUpdate(AWENormalModeTabBar *douyinBar) API_AVAILABLE(ios(26.0
     NSArray *buttons = DKGlassValue(douyinBar, @"tabBarButtons");
     if (!DKGlassTabBarEnabled()) {
         if (!gBar) return;
-        DKGlassSetDouyinContentVisible(douyinBar, buttons, YES);
-        [gBar removeFromSuperview];
-        [gPlusKey removeFromSuperview];
-        gBar = nil;
-        gPlusKey = nil;
-        gPlusIcon = nil;
-        gPlusAccent = nil;
-        gPlusStyleApplied = DKPlusStyleDefault;
-        gPlusHit = nil;
-        gPlusButton = nil;
-        gPlusSourceIcon = nil;
-        gProxy = nil;
-        gItemKinds = nil;
-        gItemButtons = nil;
-        gItemTabIDs = nil;
-        gSignature = nil;
-        // 重新开启时材质要能重新装上；platter 玻璃的记录挂在 platter 上，随新底栏一起重建。
-        // 探测结果不复位，那是设备能力，一次为准。
-        gGlassStyle = UIUserInterfaceStyleUnspecified;
-        gInkStyle = UIUserInterfaceStyleUnspecified;
-        gInkHostColor = nil;
-        gPlusIconInkStyle = UIUserInterfaceStyleUnspecified;
-        // 玻璃底栏是可视化的落位基准，它一撤可视化必须跟着撤，否则会留下一层孤儿视图。
-        DKAudioVisualizerLayout(douyinBar);
-        DKGlassPadElementsLayout(douyinBar, CGRectNull);
+        DKGlassTeardown(douyinBar, buttons);
         return;
     }
+    // 动态收缩档位决定底栏由谁持有，档位变了拆掉重建。
+    DKTabBarCollapseSide side = DKTabBarCollapseCurrentSide();
+    if (gBar && side != gHostSide) DKGlassTeardown(douyinBar, buttons);
     // 场景监听不撤：handler 只在 gBar 存在时才动手，重新开启开关后照旧生效。
 
     UITabBarController *controller = DKGlassControllerForView(douyinBar);
@@ -1143,17 +1349,18 @@ static void DKGlassUpdate(AWENormalModeTabBar *douyinBar) API_AVAILABLE(ios(26.0
         gProxy = [[DKGlassTabBarProxy alloc] init];
         // 不碰 appearance：实测出厂态与装了 Regular backgroundEffect 渲染逐像素相同，
         // 悬浮 provider 不读这个旧 API。材质统一由 DKGlassApplyPlatterGlass 决定。
-        gBar = [[UITabBar alloc] initWithFrame:douyinBar.bounds];
-        gBar.delegate = gProxy;
+        DKGlassMakeBar(side, douyinBar.bounds);
         gPlusKey = DKGlassMakePlusKey(gProxy);
     }
+    if (gBarHost) DKTabBarCollapseAttach(controller.view);
 
     // 作为子视图挂在抖音底栏内：显隐/透明度/位置全部随父视图继承。
-    if (gBar.superview != douyinBar) [douyinBar addSubview:gBar];
+    UIView *host = DKGlassHostView();
+    if (host.superview != douyinBar) [douyinBar addSubview:host];
     if (gPlusKey.superview != douyinBar) [douyinBar addSubview:gPlusKey];
     // 置顶兜底——其他插件遍历底栏子视图后可能改动层级。圆键在胶囊之上。
     if (douyinBar.subviews.lastObject != gPlusKey) {
-        [douyinBar bringSubviewToFront:gBar];
+        [douyinBar bringSubviewToFront:host];
         [douyinBar bringSubviewToFront:gPlusKey];
     }
 
@@ -1173,6 +1380,53 @@ void DKGlassTabBarRefresh(void) {
     AWENormalModeTabBar *bar = gDouyinBar;
     if (!bar) return;
     if (@available(iOS 26.0, *)) DKGlassUpdate(bar);
+}
+
+#pragma mark - 动态收缩
+
+// 拍摄键与系统形变同时淡入淡出；形变本身由 UIKit 完成。
+static void DKGlassAnimatePlusKey(void) {
+    [UIView animateWithDuration:0.4 delay:0.0 usingSpringWithDamping:0.86 initialSpringVelocity:0.0
+                        options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
+                     animations:^{ gPlusKey.alpha = gCollapsed ? 0.0 : 1.0; } completion:nil];
+    DKAudioVisualizerLayout(gDouyinBar);
+}
+
+// 系统没有公开手动收缩的方法，入口在 visual provider。系统改名时不收缩，底栏保持展开。
+void DKGlassTabBarSetCollapsed(BOOL collapsed) {
+    if (collapsed == gCollapsed || !gCollapsePlatter) return;
+    static Ivar providerIvar;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ providerIvar = class_getInstanceVariable(UITabBar.class, "_visualProvider"); });
+    id provider = providerIvar ? object_getIvar(gBar, providerIvar) : nil;
+    SEL selector = NSSelectorFromString(@"setMinimized:");
+    if (![provider respondsToSelector:selector]) return;
+
+    // 图片先换好：圆键沿用选中项的图。
+    gCollapsed = collapsed;
+    DKGlassApplyItemImages();
+    ((void (*)(id, SEL, BOOL))objc_msgSend)(provider, selector, collapsed);
+    DKGlassAnimatePlusKey();
+}
+
+// 点圆键由系统直接展开，胶囊一显示就同步状态，拍摄键与系统形变同时开始。
+void DKGlassTabBarPlatterDidShow(UIView *platter) {
+    if (!gCollapsed || platter != gPlatter) return;
+    gCollapsed = NO;
+    DKGlassApplyItemImages();
+    DKGlassAnimatePlusKey();
+}
+
+UIView *DKGlassTabBarCollapsePlatter(void) {
+    return gCollapsePlatter;
+}
+
+CGRect DKGlassTabBarCollapseFrame(void) {
+    return gCollapseFrame;
+}
+
+UIView *DKGlassTabBarCollapsedHitView(void) {
+    return gCollapsed ? gCollapsePlatter : nil;
 }
 
 #pragma mark - Hook
@@ -1285,6 +1539,12 @@ void DKGlassTabBarRefresh(void) {
         return DKSettingsWithInfo(item,
             @"悬浮底栏、清屏按钮与长按倍速提示共用此材质；清屏按钮按原生分组悬浮，长视频的后退、暂停与前进共用胶囊。"
             @"模糊玻璃使用系统 Regular；清透玻璃显示更多背后视频细节。");
+    });
+
+    DKSettingsRegister(DKKeyGlassTabBarCollapseHideDot, ^AWESettingItemModel *{
+        AWESettingItemModel *item = DKMakeSwitch(DKKeyGlassTabBarCollapseHideDot, @"收缩后不显示未读红点",
+            @"开启后，底栏收缩成圆形按钮时不显示未读红点。底栏展开后，角标照常显示。");
+        return DKSettingsOnChange(item, ^{ DKGlassSyncBadges(); });
     });
 
     if (DKGlassOSAvailable()) {
