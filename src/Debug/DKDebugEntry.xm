@@ -8,6 +8,7 @@
 #import "DKDebugInspector.h"
 #import "DKDebugCapture.h"
 #import "DKAudioProbe.h"
+#import "DY778Core.h"
 #import "DKKeys.h"
 #import "DKSettings.h"
 #import "DKUtils.h"
@@ -87,8 +88,14 @@ static AWESettingItemModel *DKMakeDebugSwitch(void) {
         UIWindow *window = DKDebugTargetWindow() ?: self;
         NSString *tree = DKDescribeViewTreeText(window);
         if (tree.length > 0) {
-            [UIPasteboard generalPasteboard].string = tree;
-            DKDebugShowToast([NSString stringWithFormat:@"视图树已复制（%lu 字）", (unsigned long)tree.length]);
+            // 末尾附 DY778 hook 安装报告，方便定位 41.2.0 上哪些 hook 没装上。
+            NSMutableString *report = [NSMutableString stringWithString:tree];
+            NSDictionary *hooks = DY778HookReport();
+            [report appendString:@"\n=== DY778 hook report ===\n"];
+            for (NSString *key in [hooks.allKeys sortedArrayUsingSelector:@selector(compare:)])
+                [report appendFormat:@"%@ = %@\n", key, [hooks[key] boolValue] ? @"OK" : @"FAIL"];
+            [UIPasteboard generalPasteboard].string = report;
+            DKDebugShowToast([NSString stringWithFormat:@"视图树已复制（%lu 字）", (unsigned long)report.length]);
         }
     }
 }

@@ -1588,6 +1588,9 @@ static UIView *DY778LuckyInfoBlock(UILabel *label, NSString *symbol, UIColor *co
     UIViewController *parent = self.quietParent;
     UIView *container = self.quietContainer; id fragment = self.quietFragment, panel = self.quietPanel;
     BOOL ownsRequest = self.quietToken.length && [self.quietToken isEqual:objc_getAssociatedObject(fragment,&DY778LuckyQuietRequestKey)];
+    // 静默请求结束时必须清掉 fragment 上的残留 token，否则后续手动点
+    // 官方福袋会被路由当成静默请求吞掉，面板永远打不开。
+    if (ownsRequest) objc_setAssociatedObject(fragment,&DY778LuckyQuietRequestKey,nil,OBJC_ASSOCIATION_COPY_NONATOMIC);
     self.quietPanel = nil;
     self.quietController = nil; self.quietParent = nil; self.quietContainer = nil; self.quietFragment = nil;
     self.quietCreating = NO; self.quietToken = nil;
@@ -2374,8 +2377,18 @@ static void DY778LuckyRoute(id fragment, SEL cmd, id argument, IMP original) {
         }); return;
     }
     DY778LuckyCoordinator *c = [DY778LuckyCoordinator shared];
-    if (DY778LuckyRoutePolicy(YES, fragment == c.fragment && [token isEqual:c.quietToken],
-        [c quietRequestValid], c.quietController != nil) != DY778LuckyRouteQuiet) return;
+    DY778LuckyRouteAction action = DY778LuckyRoutePolicy(YES, fragment == c.fragment && [token isEqual:c.quietToken],
+        [c quietRequestValid], c.quietController != nil);
+    if (action != DY778LuckyRouteQuiet) {
+        // 不是本场进行中的静默请求（token 残留/不匹配/请求已结束）：清掉
+        // 残留 token 并放行官方打开，绝不能把用户的手动点击吞掉。只有
+        // token 仍是本场有效静默请求时才拦截（防面板可见闪烁）。
+        if (!(fragment == c.fragment && [token isEqual:c.quietToken] && [c quietRequestValid])) {
+            objc_setAssociatedObject(fragment,&DY778LuckyQuietRequestKey,nil,OBJC_ASSOCIATION_COPY_NONATOMIC);
+            ((void (*)(id,SEL,id))original)(fragment,cmd,argument);
+        }
+        return;
+    }
     BOOL creating = c.quietCreating; NSString *previous = DY778LuckyRouteToken;
     c.quietCreating = YES; DY778LuckyRouteToken = token;
     @try { ((void (*)(id,SEL,id))original)(fragment,cmd,argument); }
@@ -2430,7 +2443,12 @@ static void DY778LotteryPanel(id fragment, SEL cmd, id panel) {
     NSString *token = objc_getAssociatedObject(fragment,&DY778LuckyQuietRequestKey);
     if (NSThread.isMainThread && token.length && panel) {
         DY778LuckyCoordinator *c = [DY778LuckyCoordinator shared];
-        if (fragment != c.fragment || ![token isEqual:c.quietToken] || ![c quietRequestValid]) return;
+        if (fragment != c.fragment || ![token isEqual:c.quietToken] || ![c quietRequestValid]) {
+            // 残留 token（静默请求已结束/不匹配）：清掉并放行官方
+            // setHybridLotteryPanel，不能吞掉——吞掉会让官方福袋面板
+            // 永远打不开（手动点福袋无反应）。
+            objc_setAssociatedObject(fragment,&DY778LuckyQuietRequestKey,nil,OBJC_ASSOCIATION_COPY_NONATOMIC);
+        }
     }
     ((void (*)(id,SEL,id))DY778OrigLotteryPanel)(fragment,cmd,panel);
     if (!NSThread.isMainThread || !panel) return;
