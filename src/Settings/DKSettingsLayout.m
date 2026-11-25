@@ -723,6 +723,7 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
             DKRow(DKKeyProgressAlwaysVisible, @"ic_playertime_outlined_20"),
             DKRow(DKKeyProgressPlayedOnly, @"ic_playerarrow_outlined"),
             DKRow(DKKeyProgressTimeStyle, @"ic_clock_outlined_20"),
+            DKRow(DKKeyBlockFeedNowPlaying, @"ic_playbackquaver_outlined"),
             // 优先小批（1 键）：自动播放。
             DKRow(@"DKXSEnableAutoPlay", @"ic_playerarrow_outlined"),
             // 第 5b 批（3 键）：后台播放、投屏 VPN、上下控制倍速。
@@ -955,6 +956,7 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
     DKSettingsPage *tools = DKPage(@"插件工具", @"ic_gearsimplify_outlined_20", @[
         DKSection(@"快捷入口", @[
             DKRow(DKKeyProfileSettingsEntry, @"ic_gearsimplify_outlined_20"),
+            DKRow(DKKeyProfileSettingsEntryPosition, @"ic_location_outlined_20"),
             DKRow(DKKeyProfileSettingsEntryName, @"ic_text_outlined_20"),
         ]),
         DKSection(@"调试", @[
@@ -1085,6 +1087,7 @@ NSArray<NSString *> *DKSettingsLayoutRequires(NSString *key) {
             DKKeyChatTopStreakPosition:  @[ DKKeyChatTopCenter ],
             DKKeyChatTopOnlinePosition:  @[ DKKeyChatTopCenter ],
             DKKeyMinimumLikes:           @[ DKKeyFilterLowLikes ],
+            DKKeyProfileSettingsEntryPosition: @[ DKKeyProfileSettingsEntry ],
             DKKeyProfileSettingsEntryName: @[ DKKeyProfileSettingsEntry ],
             DKKeyDanmakuColorMode: @[ DKKeyDanmakuColorEnabled ],
             DKKeyDanmakuFixedColor: @[ DKKeyDanmakuColorEnabled ],
@@ -1168,7 +1171,6 @@ NSArray<DKSettingsBlocker *> *DKSettingsLayoutBlockers(NSString *key) {
             DKKeyTabTitleMall: DKTitleBlockers([DKKeyBottomBarHidePrefix stringByAppendingString:@"homepage_mall"]),
             DKKeyTabTitleNotification: DKTitleBlockers([DKKeyBottomBarHidePrefix stringByAppendingString:@"homepage_notification"]),
             DKKeyTabTitleProfile: DKTitleBlockers([DKKeyBottomBarHidePrefix stringByAppendingString:@"homepage_profile"]),
-            DKKeyProfileSettingsEntry: @[ DKBlockOn(DKKeyProfileRemoveServiceArea, @"主页功能区已在「个人主页精简」中移除") ],
             DKKeyChatTopOnlinePosition: @[ DKBlockOn(DKKeyChatRemoveOnline, @"在线状态已在「消息页精简」中移除") ],
             DKKeyChatGroupZoneNoAutoExpand: @[ DKBlockOn(DKKeyChatRemoveMenu, @"群功能栏已在「移除菜单按钮」中移除") ],
             DKKeyDanmakuFixedColor: @[ DKBlockNotEqual(DKKeyDanmakuColorMode, 0, @"当前颜色模式不是「固定颜色」") ],

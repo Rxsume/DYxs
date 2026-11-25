@@ -35,7 +35,7 @@ NSString *DKProfileCleanNameAreaStatus(void);
 void DKProfileCleanTabsRefresh(void);
 NSString *DKProfileCleanTabsStatus(void);
 
-/// 功能区末尾的 DYxs 设置入口（DKProfileSettingsEntry.xm，设置项在「插件工具」）。可在任意线程调用。
+/// 个人主页 DYxs 设置入口（设置项在「插件工具」）。刷新可在任意线程调用。
 void DKProfileSettingsEntryRefresh(void);
 NSString *DKProfileSettingsEntryStatus(void);
 

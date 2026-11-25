@@ -504,6 +504,21 @@
 
 #pragma mark - 播放体验功能组用到的类
 
+@interface AWEFeedBackgroundPlayManager : NSObject
+- (void)updateNowPlayingInfoPlayback;
+- (void)refreshNowPlayingInfo;
+- (void)refreshNowPlayingInfoIsForce:(BOOL)force;
+- (void)setNowPlayingInfo:(id)info;
+- (void)clearNowPlayingInfo;
+@end
+
+@interface AWEAwemeBackgroundPlayModule : NSObject
+- (void)refreshNowPlayingInfoIfNeeded;
+- (void)updateNowPlayingInfoAfterSetModel;
+- (void)updateNowPlayingInfoPlayback;
+- (BOOL)updateNowPlayingInfoWhenResiginActive;
+@end
+
 // 关联视频与同体系中长视频详情的原生双击入口。
 @interface AWERelatedVideoVideoPlayerViewController : UIViewController
 - (void)handleDoubleTap:(id)gesture;
