@@ -1010,10 +1010,10 @@ static UIView *DY778LuckyInfoBlock(UILabel *label, NSString *symbol, UIColor *co
     [DY778Preferences() setObject:self.history forKey:@"lucky.handled"];
 }
 - (BOOL)participationConfirmedForCurrentLottery {
+    if (self.joinActionSent) return YES;
     NSInteger state = DY778StoreParticipationState(DY778Read(self.fragment, @"store"), self.lotteryID);
     if (state == 1) return YES;
     if (state == 0) return NO;
-    if (self.joinActionSent) return YES;
     NSString *stage = self.history[[self key] ?: @""][@"stage"];
     return [stage isEqual:@"submitted"] || [stage isEqual:@"joined"];
 }
@@ -2888,6 +2888,33 @@ static void DY778LuckyDiagAppendMethods(NSMutableString *out, Class cls) {
     [out appendFormat:@"methods(%@): %@\n", NSStringFromClass(cls),
         names.count ? [names componentsJoinedByString:@","] : @"(none)"];
 }
+static void DY778DumpView(UIView *view, NSInteger depth, NSMutableString *out, NSInteger *budget) {
+    if (!view || *budget <= 0 || depth > 14) return;
+    (*budget)--;
+    CGRect frame = view.frame;
+    if (!CGRectIsEmpty(frame)) {
+        NSMutableString *indent = [NSMutableString string];
+        for (NSInteger i = 0; i < depth; i++) [indent appendString:@"  "];
+        [out appendFormat:@"%@%@ (%.0f,%.0f %.0fx%.0f)%@%@\n", indent, NSStringFromClass([view class]),
+            frame.origin.x, frame.origin.y, frame.size.width, frame.size.height,
+            view.hidden ? @" hidden" : @"", view.alpha < 0.99 ? [NSString stringWithFormat:@" a=%.2f", view.alpha] : @""];
+    }
+    for (UIView *sub in view.subviews) DY778DumpView(sub, depth + 1, out, budget);
+}
+static NSString *DY778ViewTreeText(void) {
+    NSMutableString *out = [NSMutableString stringWithString:@"=== view tree ===\n"];
+    NSInteger budget = 900;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if (window.hidden) continue;
+            DY778DumpView(window, 0, out, &budget);
+            if (budget <= 0) { [out appendString:@"...(truncated)\n"]; break; }
+        }
+        if (budget <= 0) break;
+    }
+    return out;
+}
 NSString *DY778LuckyDiagnosticsText(void) {
     __block NSString *result;
     void (^build)(void) = ^{
@@ -3037,6 +3064,7 @@ NSString *DY778LuckyDiagnosticsText(void) {
             DY778LuckyDiagAppendNames(out, probed, NO);
             DY778LuckyDiagAppendNames(out, probed, YES);
         }
+        [out appendString:DY778ViewTreeText()];
         result = out;
     };
     if (NSThread.isMainThread) build();
