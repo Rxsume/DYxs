@@ -143,6 +143,26 @@ static id DY778DiagShortcutItem;
 // 41.2.0：setCurrentLottery:/p_receiveLotteryModel: 不再被调用，
 // currentLottery 恒为 nil（0.6.9.44 诊断 v2 实锤）；福袋数据改放在
 // lotteryConfigsNew/lotteryConfig/currentConfig 配置字典里，逐个扫描兜底。
+// 返回 1=store 已记录参与本场，0=store 可读但本场不在参与记录里（多半是上一场的残留状态），-1=读不到/无法判断。
+static NSInteger DY778StoreParticipationState(id store, NSString *lotteryID) {
+    if (!store || !lotteryID.length) return -1;
+    id value = DY778Read(store, @"participatedLotterys");
+    if (!value) return -1;
+    if ([value isKindOfClass:NSDictionary.class]) {
+        if (![(NSDictionary *)value count]) return -1;
+        return [(NSDictionary *)value objectForKey:lotteryID] ? 1 : 0;
+    }
+    if ([value isKindOfClass:NSArray.class] || [value isKindOfClass:NSSet.class]) {
+        NSArray *items = [value isKindOfClass:NSSet.class] ? [(NSSet *)value allObjects] : (NSArray *)value;
+        if (!items.count) return -1;
+        for (id item in items) {
+            if ([item isKindOfClass:NSString.class] && [item isEqual:lotteryID]) return 1;
+            if ([DY778AnyLotteryID(item) isEqual:lotteryID]) return 1;
+        }
+        return 0;
+    }
+    return -1;
+}
 static id DY778StoreLottery(id store) {
     id lottery = DY778Read(store, @"currentLottery");
     if (DY778AnyLotteryID(lottery).length) return lottery;
@@ -989,6 +1009,14 @@ static UIView *DY778LuckyInfoBlock(UILabel *label, NSString *symbol, UIColor *co
     self.history[key] = entry; [self pruneHistory];
     [DY778Preferences() setObject:self.history forKey:@"lucky.handled"];
 }
+- (BOOL)participationConfirmedForCurrentLottery {
+    NSInteger state = DY778StoreParticipationState(DY778Read(self.fragment, @"store"), self.lotteryID);
+    if (state == 1) return YES;
+    if (state == 0) return NO;
+    if (self.joinActionSent) return YES;
+    NSString *stage = self.history[[self key] ?: @""][@"stage"];
+    return [stage isEqual:@"submitted"] || [stage isEqual:@"joined"];
+}
 - (BOOL)attempted {
     NSString *stage = self.history[[self key] ?: @""][@"stage"];
     return [stage isEqual:@"joined"] || (self.attemptedSession == self.session && [self.attemptedKey isEqual:[self key]]);
@@ -1520,6 +1548,7 @@ static UIView *DY778LuckyInfoBlock(UILabel *label, NSString *symbol, UIColor *co
     if (!identifier.length || (lotteryRoom.length && ![self.roomID isEqual:lotteryRoom])) return;
     if ([self.lotteryID isEqual:identifier]) { [self readConditions:lottery]; [self participationChanged:fragment]; [self emit]; [self considerAutoJoin]; [self showDiscoveryPrompt]; return; }
     [self cancelPending]; self.lotteryID = identifier;
+    self.joinActionSent = NO; self.lastJSStatus = nil; self.confirmationRefreshes = 0;
     self.phase = DY778LuckyAvailable;
     NSTimeInterval remain = [self remainingForLottery:lottery]; self.deadline = remain > 0 ? CACurrentMediaTime() + remain : 0;
     [self readConditions:lottery];
@@ -1556,13 +1585,15 @@ static UIView *DY778LuckyInfoBlock(UILabel *label, NSString *symbol, UIColor *co
 }
 - (void)lotteryEnded:(id)fragment {
     if (fragment != self.fragment) return;
+    id current = DY778StoreLottery(DY778Read(self.fragment, @"store"));
+    if ([DY778AnyLotteryID(current) isEqual:self.lotteryID] && [self remainingForLottery:current] > 0) return;
     [self cancelPending]; self.phase = DY778LuckyEnded; self.status = @"本场已结束";
     self.detail = @"开奖已结束，结果请查看官方福袋页面。下一场开始后会继续留意。"; self.deadline = 0;
     [self announce:@"ended" message:@"本场福袋已结束 · 请查看官方开奖结果"]; [self emit];
 }
 - (void)participationChanged:(id)fragment {
     if (!DY778Bool(@"lucky.enabled") || fragment != self.fragment || !self.lotteryID.length || self.phase == DY778LuckyEnded) return;
-    if (DY778LiveCallBool(fragment, @"userHasParticipatedCurrentVote")) {
+    if (DY778LiveCallBool(fragment, @"userHasParticipatedCurrentVote") && [self participationConfirmedForCurrentLottery]) {
         BOOL wasJoined = self.phase == DY778LuckyJoined;
         id owned = self.openedPanelByAssistant && !self.quietToken.length ? self.openedPanel : nil;
         [self cancelPending]; self.phase = DY778LuckyJoined; self.status = @"已参与福袋";
@@ -1846,7 +1877,7 @@ static UIView *DY778LuckyInfoBlock(UILabel *label, NSString *symbol, UIColor *co
     if (!DY778Bool(@"lucky.enabled") || self.paused || ![self contextValid] || !self.lotteryID.length) {
         DY778LuckyToast(@"当前福袋已变化，请回到直播间查看。"); return;
     }
-    if (DY778LiveCallBool(self.fragment, @"userHasParticipatedCurrentVote")) {
+    if (DY778LiveCallBool(self.fragment, @"userHasParticipatedCurrentVote") && [self participationConfirmedForCurrentLottery]) {
         [self participationChanged:self.fragment]; [self openOfficial]; return;
     }
     self.explicitPhraseKey = [self key]; self.explicitPhraseSession = self.session;
