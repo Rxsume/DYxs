@@ -465,7 +465,11 @@ static void DY778LikeInstall(NSString *name, NSString *selector, const char *res
 // normalizedPosition 变体：读真实编码选跳板。只校验参数个数、末参类别
 // （结构/对象/double/整数）与返回类别（void/对象类）；arg0/arg1/arg2 的
 // ABI 与旧变体一致（0.6.9.49 enc 转储已证），不再逐项卡。失败阶段记入
-// DY778LikeNormFail 供导出定位。
+// DY778LikeNormFail 供导出定位（四个变体全记，不互相覆盖）。
+static void DY778LikeNoteNormFail(NSString *text) {
+    DY778LikeNormFail = DY778LikeNormFail.length
+        ? [DY778LikeNormFail stringByAppendingFormat:@" | %@", text] : text;
+}
 static void DY778LikeInstallNorm(NSString *name, NSString *selector, BOOL isCount, NSUInteger idx) {
     IMP *slot = isCount ? &DY778LikeOriginalCountNorm[idx] : &DY778LikeOriginalClickNorm[idx];
     BOOL installed = NO;
@@ -473,13 +477,13 @@ static void DY778LikeInstallNorm(NSString *name, NSString *selector, BOOL isCoun
         Class cls = NSClassFromString(name); SEL sel = NSSelectorFromString(selector);
         Method method = cls ? class_getInstanceMethod(cls, sel) : NULL;
         if (!method) {
-            DY778LikeNormFail = [NSString stringWithFormat:@"%@.%@ noMethod", name, selector];
+            DY778LikeNoteNormFail([NSString stringWithFormat:@"%@.%@ noMethod", name, selector]);
         } else {
             NSMethodSignature *sig = [NSMethodSignature signatureWithObjCTypes:method_getTypeEncoding(method)];
             NSUInteger expected = isCount ? 7 : 6;
             if (!sig || sig.numberOfArguments != expected) {
-                DY778LikeNormFail = [NSString stringWithFormat:@"%@.%@ argCount=%lu enc=%s", name, selector,
-                    (unsigned long)(sig ? sig.numberOfArguments : 0), method_getTypeEncoding(method)];
+                DY778LikeNoteNormFail([NSString stringWithFormat:@"%@.%@ argCount=%lu enc=%s", name, selector,
+                    (unsigned long)(sig ? sig.numberOfArguments : 0), method_getTypeEncoding(method)]);
             } else {
                 const char *ret = DY778LikeType(sig.methodReturnType);
                 const char *last = DY778LikeType([sig getArgumentTypeAtIndex:expected - 1]);
@@ -491,11 +495,11 @@ static void DY778LikeInstallNorm(NSString *name, NSString *selector, BOOL isCoun
                 if (ret[0] == 'v') retKind = 0;
                 else if (ret[0] == '@' || ret[0] == 'B' || ret[0] == 'c') retKind = 1;
                 if (lastKind < 0 || retKind < 0) {
-                    DY778LikeNormFail = [NSString stringWithFormat:@"%@.%@ last=%s ret=%s enc=%s", name, selector, last, ret, method_getTypeEncoding(method)];
+                    DY778LikeNoteNormFail([NSString stringWithFormat:@"%@.%@ last=%s ret=%s enc=%s", name, selector, last, ret, method_getTypeEncoding(method)]);
                 } else {
                     IMP trampoline = DY778LikeNormTrampoline(isCount, lastKind, retKind, idx);
                     if (trampoline) installed = DY778Hook(cls, sel, trampoline, slot);
-                    if (!installed) DY778LikeNormFail = [NSString stringWithFormat:@"%@.%@ hook lastKind=%d retKind=%d", name, selector, lastKind, retKind];
+                    if (!installed) DY778LikeNoteNormFail([NSString stringWithFormat:@"%@.%@ hook lastKind=%d retKind=%d", name, selector, lastKind, retKind]);
                 }
             }
         }

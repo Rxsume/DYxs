@@ -858,7 +858,11 @@ static void DY778LANativeObserve(void) {}
         CGRect bounds = window.bounds;
         CGFloat x = [position containsString:@"left"] ? margin : bounds.size.width - side - margin;
         CGFloat y = [position hasPrefix:@"top"] ? 120 : bounds.size.height - bottom - side;
-        self->_button.frame = CGRectMake(x, y, side, side);
+        CGRect targetFrame = CGRectMake(x, y, side, side);
+        // 已就位时跳过窗口操作：本函数会被布局回调高频调用，反复置顶会引发额外布局。
+        if (self->_button.superview == window && CGRectEqualToRect(self->_button.frame, targetFrame) &&
+            window.subviews.lastObject == self->_button) return;
+        self->_button.frame = targetFrame;
         if (self->_button.superview != window) [window addSubview:self->_button];
         [window bringSubviewToFront:self->_button];
     });
@@ -1139,8 +1143,15 @@ static void DY778LANativeObserve(void) {}
 @end
 
 // ---------- Hook 替换函数（规格 §2：24 个） ----------
+static NSTimeInterval DY778LANoteLastTime;
 static void DY778LANoteObject(id object) {
     if (!DY778LiveAnalysisEnabled() || !object) return;
+    // 本函数挂在 LynxView layoutSubviews 等每帧回调上；房间发现不需要每帧跑，
+    // 降频到每秒数次，避免布局期反复做 KVC 遍历和窗口操作占满主线程（下滑多间直播间后卡死）。
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    NSTimeInterval interval = DY778LAContext.shared.roomID.length ? 0.5 : 0.1;
+    if (now - DY778LANoteLastTime < interval) return;
+    DY778LANoteLastTime = now;
     NSString *roomID = DY778LAContextRoomID(object);
     if (roomID.length) [DY778LAContext.shared noteRoomID:roomID];
     if (!DY778LAContext.shared.roomID.length && [object isKindOfClass:UIView.class])
