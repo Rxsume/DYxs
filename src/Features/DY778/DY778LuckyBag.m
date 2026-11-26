@@ -118,6 +118,37 @@ static BOOL DY778LiveBindCommentRoom(id object, NSString *roomID) {
 static NSString *DY778LotteryID(id lottery) {
     return DY778LiveID(DY778Read(lottery, @"lotteryIdStr")) ?: DY778LiveID(DY778Read(lottery, @"lotteryId"));
 }
+// 41.2.0 兜底：配置字典里的 ID 键名可能与模型不同，多认两个写法。
+static NSString *DY778AnyLotteryID(id value) {
+    NSString *identifier = DY778LotteryID(value);
+    if (identifier.length) return identifier;
+    return DY778LiveID(DY778Read(value, @"lotteryID")) ?: DY778LiveID(DY778Read(value, @"lottery_id"));
+}
+static id DY778LotteryCandidateFromValue(id value) {
+    if (!value || value == NSNull.null) return nil;
+    if (DY778AnyLotteryID(value).length) return value;
+    if ([value isKindOfClass:NSDictionary.class]) {
+        for (id nested in ((NSDictionary *)value).allValues) {
+            if (DY778AnyLotteryID(nested).length) return nested;
+            if ([nested isKindOfClass:NSDictionary.class])
+                for (id deep in ((NSDictionary *)nested).allValues)
+                    if (DY778AnyLotteryID(deep).length) return deep;
+        }
+    }
+    return nil;
+}
+// 41.2.0：setCurrentLottery:/p_receiveLotteryModel: 不再被调用，
+// currentLottery 恒为 nil（0.6.9.44 诊断 v2 实锤）；福袋数据改放在
+// lotteryConfigsNew/lotteryConfig/currentConfig 配置字典里，逐个扫描兜底。
+static id DY778StoreLottery(id store) {
+    id lottery = DY778Read(store, @"currentLottery");
+    if (DY778AnyLotteryID(lottery).length) return lottery;
+    for (NSString *key in @[@"lotteryConfigsNew", @"lotteryConfig", @"currentConfig"]) {
+        id candidate = DY778LotteryCandidateFromValue(DY778Read(store, key));
+        if (candidate) return candidate;
+    }
+    return lottery;
+}
 static NSString *DY778LuckyConditionCaption(NSString *text) {
     text = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     if ([text hasPrefix:@"参与条件"]) text = [[text substringFromIndex:4] stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"：: \n"]];
@@ -198,8 +229,8 @@ static double DY778LiveServerSeconds(id lottery) {
     return DY778LuckyServerRemaining([DY778Read(lottery, @"drawTime") doubleValue], [DY778Read(lottery, @"currentTime") doubleValue]);
 }
 static void DY778CaptureNativeClock(id floating, double raw) {
-    id store = DY778Read(floating, @"store"); id lottery = DY778Read(store, @"currentLottery");
-    NSString *identifier = DY778LotteryID(lottery); if (!identifier.length) return;
+    id store = DY778Read(floating, @"store"); id lottery = DY778StoreLottery(store);
+    NSString *identifier = DY778AnyLotteryID(lottery); if (!identifier.length) return;
     double display = DY778LiveFloatingSeconds(floating);
     double reference = display >= 0 ? display : DY778LiveServerSeconds(lottery);
     BOOL hasStoreClock = DY778LiveCanCall(store, @"getCurrentLotteryRemainTime", "qQ", "");
@@ -1195,9 +1226,9 @@ static UIView *DY778LuckyInfoBlock(UILabel *label, NSString *symbol, UIColor *co
         ![self.roomID isEqual:DY778FragmentRoomID(self.fragment)] ||
         ![(self.accountID ?: @"") isEqual:(DY778CurrentAccountID() ?: @"")]) return NO;
     if (self.lotteryID.length) {
-        id lottery = DY778Read(DY778Read(self.fragment, @"store"), @"currentLottery");
+        id lottery = DY778StoreLottery(DY778Read(self.fragment, @"store"));
         NSString *lotteryRoom = DY778LiveRoomID(lottery);
-        if (![self.lotteryID isEqual:DY778LotteryID(lottery)] || (lotteryRoom.length && ![self.roomID isEqual:lotteryRoom])) return NO;
+        if (![self.lotteryID isEqual:DY778AnyLotteryID(lottery)] || (lotteryRoom.length && ![self.roomID isEqual:lotteryRoom])) return NO;
     }
     return YES;
 }
@@ -1305,7 +1336,7 @@ static UIView *DY778LuckyInfoBlock(UILabel *label, NSString *symbol, UIColor *co
 - (NSTimeInterval)remainingForLottery:(id)lottery {
     id store = DY778Read(self.fragment, @"store");
     NSDictionary *sample = objc_getAssociatedObject(store, &DY778LuckyClockSampleKey);
-    if ([sample[@"lottery"] isEqual:DY778LotteryID(lottery)] && CACurrentMediaTime() - [sample[@"at"] doubleValue] < 3)
+    if ([sample[@"lottery"] isEqual:DY778AnyLotteryID(lottery)] && CACurrentMediaTime() - [sample[@"at"] doubleValue] < 3)
         return DY778LuckyClockRemaining([sample[@"seconds"] doubleValue], [sample[@"at"] doubleValue], CACurrentMediaTime());
     double display = DY778LiveFloatingSeconds(DY778Read(self.fragment, @"lotteryFloatingView"));
     if (display >= 0) return display;
@@ -1440,22 +1471,22 @@ static UIView *DY778LuckyInfoBlock(UILabel *label, NSString *symbol, UIColor *co
             c.fanEligibilityKnown = !error && matched && [DY778Read(data,@"hasUserCondition") boolValue] &&
                 [member isKindOfClass:NSNumber.class] && [active isKindOfClass:NSNumber.class] && [level isKindOfClass:NSNumber.class];
             c.userCondition = c.fanEligibilityKnown ? @{@"isFansclubMember":member,@"fansclubStatusActive":active,@"fansLevel":level} : nil;
-            [c readConditions:DY778Read(DY778Read(c.fragment,@"store"),@"currentLottery")];
+            [c readConditions:DY778StoreLottery(DY778Read(c.fragment,@"store"))];
             [c emit]; [c considerAutoJoin];
         });
     };
     @try { ((void (*)(id,SEL,id,id,long long,id))objc_msgSend)(api,NSSelectorFromString(selector),lotteryID,room,0,complete); }
     @catch (__unused NSException *exception) { self.eligibilityPending = NO; }
-    [self readConditions:DY778Read(DY778Read(self.fragment,@"store"),@"currentLottery")];
+    [self readConditions:DY778StoreLottery(DY778Read(self.fragment,@"store"))];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,8*NSEC_PER_SEC),dispatch_get_main_queue(),^{
         DY778LuckyCoordinator *c = weakSelf;
         if (!c || serial != c.eligibilityGeneration || !c.eligibilityPending) return;
         c.eligibilityPending = NO; c.eligibilityGeneration++; c.eligibilityCheckedAt = CACurrentMediaTime();
-        [c readConditions:DY778Read(DY778Read(c.fragment,@"store"),@"currentLottery")]; [c emit]; [c considerAutoJoin];
+        [c readConditions:DY778StoreLottery(DY778Read(c.fragment,@"store"))]; [c emit]; [c considerAutoJoin];
     });
 }
 - (BOOL)eligibilityAllowsJoin {
-    [self readConditions:DY778Read(DY778Read(self.fragment,@"store"),@"currentLottery")];
+    [self readConditions:DY778StoreLottery(DY778Read(self.fragment,@"store"))];
     if (!self.accountID.length) {
         self.needsManualConditions = YES; self.restriction = @"登录抖音后再参与本场福袋。"; return NO;
     }
@@ -1467,8 +1498,8 @@ static UIView *DY778LuckyInfoBlock(UILabel *label, NSString *symbol, UIColor *co
     if (!fragment || ![self.roomID isEqual:DY778FragmentRoomID(fragment)] ||
         ![(objc_getAssociatedObject(fragment, &DY778LuckyComponentAccountKey) ?: @"__unbound__") isEqual:self.accountID]) return;
     self.fragment = fragment;
-    id lottery = DY778Read(DY778Read(fragment, @"store"), @"currentLottery");
-    NSString *identifier = DY778LotteryID(lottery);
+    id lottery = DY778StoreLottery(DY778Read(fragment, @"store"));
+    NSString *identifier = DY778AnyLotteryID(lottery);
     NSString *lotteryRoom = DY778LiveRoomID(lottery);
     if (!identifier.length || (lotteryRoom.length && ![self.roomID isEqual:lotteryRoom])) return;
     if ([self.lotteryID isEqual:identifier]) { [self readConditions:lottery]; [self participationChanged:fragment]; [self emit]; [self considerAutoJoin]; [self showDiscoveryPrompt]; return; }
@@ -1694,7 +1725,7 @@ static UIView *DY778LuckyInfoBlock(UILabel *label, NSString *symbol, UIColor *co
         [self.timer invalidate]; self.timer = nil; [self.card removeFromSuperview]; self.card = nil;
         self.phase = DY778LuckyIdle; self.status = @"福袋助手未开启"; self.detail = @"可在 DY778 设置中开启福袋助手。";
     } else {
-        id lottery = DY778Read(DY778Read(self.fragment, @"store"), @"currentLottery");
+        id lottery = DY778StoreLottery(DY778Read(self.fragment, @"store"));
         [self readConditions:lottery];
         if (self.phase == DY778LuckyScheduled || self.phase == DY778LuckyOpening || self.phase == DY778LuckySubmitted) {
             self.phase = DY778LuckyManual; self.status = @"设置已更新"; self.detail = @"待执行操作已取消，请确认本场状态后继续。";
@@ -1730,7 +1761,7 @@ static UIView *DY778LuckyInfoBlock(UILabel *label, NSString *symbol, UIColor *co
     if (!self.host) { [self discoverVisibleRoom]; if (!self.host) { [self leaveHost:nil]; return; } }
     if (self.host && DY778LiveHostRoomID(self.host).length && ![self.roomID isEqual:DY778LiveHostRoomID(self.host)]) { [self enterHost:self.host]; return; }
     if (self.host && ![self.accountID isEqual:(DY778CurrentAccountID() ?: @"")]) { [self enterHost:self.host]; return; }
-    if (self.fragment && ![self.lotteryID isEqual:DY778LotteryID(DY778Read(DY778Read(self.fragment, @"store"), @"currentLottery"))])
+    if (self.fragment && ![self.lotteryID isEqual:DY778AnyLotteryID(DY778StoreLottery(DY778Read(self.fragment, @"store")))])
         [self lotteryChanged:self.fragment];
     if (![self contextValid]) {
         if (self.phase == DY778LuckyScheduled || self.phase == DY778LuckyOpening || self.phase == DY778LuckySubmitted) {
@@ -1743,7 +1774,7 @@ static UIView *DY778LuckyInfoBlock(UILabel *label, NSString *symbol, UIColor *co
     if (self.deadline > 0 && CACurrentMediaTime() >= self.deadline && self.phase != DY778LuckyEnded) [self lotteryEnded:self.fragment];
     else [self participationChanged:self.fragment];
     if (self.phase == DY778LuckyAvailable) {
-        [self readConditions:DY778Read(DY778Read(self.fragment,@"store"),@"currentLottery")]; [self considerAutoJoin];
+        [self readConditions:DY778StoreLottery(DY778Read(self.fragment,@"store"))]; [self considerAutoJoin];
     }
     [self emit]; [self showDiscoveryPrompt];
 }
@@ -2287,7 +2318,8 @@ static IMP DY778OrigLotterySetRoom, DY778OrigCommentSetRoom;
 static IMP DY778OrigStoreSetLottery, DY778OrigStoreSetReaction, DY778OrigStoreReceive;
 // 诊断计数（摇一摇导出）：定位 41.2.0 上福袋模型交付路径。
 static NSUInteger DY778DiagSetLottery, DY778DiagReceiveLottery;
-static NSString *DY778DiagLastLotteryClass, *DY778DiagLastLotteryID, *DY778DiagLastLotteryRoom;
+static NSUInteger DY778DiagSetReaction, DY778DiagLotteryStart, DY778DiagLotteryEnd, DY778DiagItemClick, DY778DiagFloatingClick, DY778DiagOpenPage, DY778DiagAnnieTransition;
+static NSString *DY778DiagLastLotteryClass, *DY778DiagLastLotteryID, *DY778DiagLastLotteryRoom, *DY778DiagLastSchema;
 static IMP DY778OrigFloatingWindow, DY778OrigFloatingTime, DY778OrigWrapperSet, DY778OrigContainerShow, DY778OrigShortcutAppear;
 static void DY778LotterySetRoom(id self, SEL cmd, id room, id context, id track) {
     ((void (*)(id, SEL, id, id, id))DY778OrigLotterySetRoom)(self, cmd, room, context, track);
@@ -2315,6 +2347,7 @@ static void DY778StoreSetLottery(id self, SEL cmd, id lottery) {
     ((void (*)(id, SEL, id))DY778OrigStoreSetLottery)(self, cmd, lottery); DY778LiveMain(^{ DY778ObserveLotteryStore(self); });
 }
 static void DY778StoreSetReaction(id self, SEL cmd, id reaction) {
+    DY778DiagSetReaction++;
     ((void (*)(id, SEL, id))DY778OrigStoreSetReaction)(self, cmd, reaction); DY778LiveMain(^{ DY778ObserveLotteryStore(self); });
 }
 static void DY778StoreReceive(id self, SEL cmd, id lottery) {
@@ -2362,16 +2395,20 @@ static void DY778LuckyUserAction(id fragment) {
     if (fragment != c.fragment || !c.openingAuthorized) [c userOpenedLottery:fragment];
 }
 static void DY778LotteryOpen(id fragment, SEL cmd) {
+    DY778DiagOpenPage++;
     DY778LuckyUserAction(fragment);
     ((void (*)(id,SEL))DY778OrigLotteryOpen)(fragment,cmd);
 }
 static void DY778LotteryItemClick(id fragment, SEL cmd) {
+    DY778DiagItemClick++;
     DY778LuckyUserAction(fragment); ((void (*)(id,SEL))DY778OrigLotteryItemClick)(fragment,cmd);
 }
 static void DY778LotteryItemDidClick(id fragment, SEL cmd) {
+    DY778DiagItemClick++;
     DY778LuckyUserAction(fragment); ((void (*)(id,SEL))DY778OrigLotteryItemDidClick)(fragment,cmd);
 }
 static void DY778LotteryFloatingClick(id fragment, SEL cmd, id sender) {
+    DY778DiagFloatingClick++;
     DY778LuckyUserAction(fragment); ((void (*)(id,SEL,id))DY778OrigLotteryFloatingClick)(fragment,cmd,sender);
 }
 static void DY778LotteryAuthorization(id fragment, SEL cmd, id params) {
@@ -2438,6 +2475,12 @@ static void DY778LotteryPortrait(id router, SEL cmd, void (^completion)(BOOL)) {
     ((void (*)(id,SEL,id))DY778OrigLotteryPortrait)(router,cmd,scoped);
 }
 static void DY778AnnieTransition(id router, SEL cmd, id schema, id controller, id fromVC, id context, id completion, id __autoreleasing *error) {
+    DY778DiagAnnieTransition++;
+    @try {
+        NSString *text = [NSString stringWithFormat:@"%@:%@", schema ? NSStringFromClass([schema class]) : @"(nil)", schema ?: @""];
+        if (text.length > 120) text = [text substringToIndex:120];
+        DY778DiagLastSchema = [text copy];
+    } @catch (__unused NSException *exception) {}
     if (!NSThread.isMainThread || !DY778LuckyRouteToken.length) {
         ((void (*)(id,SEL,id,id,id,id,id,id __autoreleasing *))DY778OrigAnnieTransition)(router,cmd,schema,controller,fromVC,context,completion,error);
         return;
@@ -2518,10 +2561,12 @@ static void DY778CommentUnmount(id self, SEL cmd) {
     ((void (*)(id, SEL))DY778OrigCommentUnmount)(self, cmd);
 }
 static void DY778LotteryStart(id self, SEL cmd) {
+    DY778DiagLotteryStart++;
     ((void (*)(id, SEL))DY778OrigLotteryStart)(self, cmd);
     DY778QueueLiveObservation(self, NO, NO);
 }
 static void DY778LotteryEnd(id self, SEL cmd, long long result) {
+    DY778DiagLotteryEnd++;
     ((void (*)(id, SEL, long long))DY778OrigLotteryEnd)(self, cmd, result);
     DY778LiveMain(^{ [[DY778LuckyCoordinator shared] lotteryEnded:self]; });
 }
@@ -2676,6 +2721,60 @@ static void DY778LuckyDiagAppendNames(NSMutableString *out, id object, BOOL ivar
         }
     }
 }
+// 诊断 v3：转储配置字典的键与值类型（只记结构，不记完整内容）。
+static void DY778LuckyDiagAppendDict(NSMutableString *out, NSString *name, id value) {
+    if (!value) { [out appendFormat:@"%@=(nil)\n", name]; return; }
+    if (![value isKindOfClass:NSDictionary.class]) {
+        [out appendFormat:@"%@=%@ (not dict)\n", name, NSStringFromClass([value class])]; return;
+    }
+    NSDictionary *dict = value;
+    [out appendFormat:@"%@=%@ count=%lu\n", name, NSStringFromClass([value class]), (unsigned long)dict.count];
+    NSUInteger shown = 0;
+    for (id key in dict) {
+        if (shown++ >= 40) { [out appendString:@"  ...\n"]; break; }
+        id item = dict[key];
+        NSString *keyText = [NSString stringWithFormat:@"%@", key];
+        if (keyText.length > 60) keyText = [keyText substringToIndex:60];
+        if ([item isKindOfClass:NSDictionary.class]) {
+            NSMutableArray *sub = [NSMutableArray array];
+            for (id subKey in (NSDictionary *)item) {
+                if (sub.count >= 20) break;
+                [sub addObject:[NSString stringWithFormat:@"%@", subKey]];
+            }
+            [out appendFormat:@"  %@ -> %@{%@}\n", keyText, NSStringFromClass([item class]), [sub componentsJoinedByString:@","]];
+        } else if ([item isKindOfClass:NSString.class] || [item isKindOfClass:NSNumber.class]) {
+            NSString *text = [NSString stringWithFormat:@"%@", item];
+            if (text.length > 60) text = [text substringToIndex:60];
+            [out appendFormat:@"  %@ = %@\n", keyText, text];
+        } else {
+            [out appendFormat:@"  %@ -> %@\n", keyText, item ? NSStringFromClass([item class]) : @"(nil)"];
+        }
+    }
+}
+// 诊断 v3：列出类上与 lottery/config/receive/model 相关的方法名，
+// 用来确认 41.2.0 上福袋数据到底走哪个入口。
+static void DY778LuckyDiagAppendMethods(NSMutableString *out, Class cls) {
+    if (!cls) { [out appendString:@"methods=(no class)\n"]; return; }
+    NSMutableSet *seen = [NSMutableSet set];
+    NSMutableArray *names = [NSMutableArray array];
+    NSArray *words = @[@"lottery", @"config", @"receive", @"model"];
+    for (Class c = cls; c && c != NSObject.class && names.count < 120; c = class_getSuperclass(c)) {
+        unsigned int count = 0;
+        Method *list = class_copyMethodList(c, &count);
+        for (unsigned int i = 0; i < count && names.count < 120; i++) {
+            NSString *name = NSStringFromSelector(method_getName(list[i]));
+            if ([seen containsObject:name]) continue;
+            NSString *lower = name.lowercaseString;
+            BOOL hit = NO;
+            for (NSString *word in words) if ([lower containsString:word]) { hit = YES; break; }
+            if (!hit) continue;
+            [seen addObject:name]; [names addObject:name];
+        }
+        free(list);
+    }
+    [out appendFormat:@"methods(%@): %@\n", NSStringFromClass(cls),
+        names.count ? [names componentsJoinedByString:@","] : @"(none)"];
+}
 NSString *DY778LuckyDiagnosticsText(void) {
     __block NSString *result;
     void (^build)(void) = ^{
@@ -2697,6 +2796,10 @@ NSString *DY778LuckyDiagnosticsText(void) {
             lottery ? NSStringFromClass([lottery class]) : @"(nil)"];
         [out appendFormat:@"lotteryID(read)=%@ lotteryRoomID(read)=%@\n",
             DY778LotteryID(lottery) ?: @"(nil)", DY778LiveRoomID(lottery) ?: @"(nil)"];
+        id storeLottery = DY778StoreLottery(store);
+        [out appendFormat:@"storeLottery=%@ id(any)=%@ room=%@\n",
+            storeLottery ? NSStringFromClass([storeLottery class]) : @"(nil)",
+            DY778AnyLotteryID(storeLottery) ?: @"(nil)", DY778LiveRoomID(storeLottery) ?: @"(nil)"];
         [out appendFormat:@"quietToken=%@ quietController=%@ fragmentToken=%@\n",
             c.quietToken.length ? @"present" : @"absent",
             c.quietController ? @"present" : @"absent",
@@ -2710,6 +2813,11 @@ NSString *DY778LuckyDiagnosticsText(void) {
             (unsigned long)DY778DiagSetLottery, (unsigned long)DY778DiagReceiveLottery,
             DY778DiagLastLotteryClass ?: @"(none)", DY778DiagLastLotteryID ?: @"(nil)",
             DY778DiagLastLotteryRoom ?: @"(nil)"];
+        [out appendFormat:@"setReaction=%lu lotteryStart=%lu lotteryEnd=%lu itemClick=%lu floatingClick=%lu openPage=%lu annieTransition=%lu lastSchema=%@\n",
+            (unsigned long)DY778DiagSetReaction, (unsigned long)DY778DiagLotteryStart,
+            (unsigned long)DY778DiagLotteryEnd, (unsigned long)DY778DiagItemClick,
+            (unsigned long)DY778DiagFloatingClick, (unsigned long)DY778DiagOpenPage,
+            (unsigned long)DY778DiagAnnieTransition, DY778DiagLastSchema ?: @"(none)"];
         id probed = nil;
         SEL getSel = NSSelectorFromString(@"getCurrentLottery");
         if (fragment && [fragment respondsToSelector:getSel])
@@ -2721,7 +2829,12 @@ NSString *DY778LuckyDiagnosticsText(void) {
             [out appendString:@"-- store --\n"];
             DY778LuckyDiagAppendNames(out, store, NO);
             DY778LuckyDiagAppendNames(out, store, YES);
+            DY778LuckyDiagAppendDict(out, @"lotteryConfigsNew", DY778Read(store, @"lotteryConfigsNew"));
+            DY778LuckyDiagAppendDict(out, @"lotteryConfig", DY778Read(store, @"lotteryConfig"));
+            DY778LuckyDiagAppendDict(out, @"currentConfig", DY778Read(store, @"currentConfig"));
+            DY778LuckyDiagAppendMethods(out, [store class]);
         }
+        if (fragment) DY778LuckyDiagAppendMethods(out, [fragment class]);
         if (lottery) {
             [out appendString:@"-- lottery --\n"];
             DY778LuckyDiagAppendNames(out, lottery, NO);
