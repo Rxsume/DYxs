@@ -105,6 +105,7 @@ static BOOL DY778LikeVisible(UIView *view) {
 @property(nonatomic, strong) id fragment;
 @property(nonatomic) CGPoint point;
 @property(nonatomic) BOOL counting;
+@property(nonatomic) BOOL sawCounting;
 @property(nonatomic) BOOL generated;
 @property(nonatomic) BOOL accepted;
 @property(nonatomic) double nativeGap;
@@ -253,15 +254,23 @@ static void DY778LikeGesture(id service, SEL cmd, id argument) {
     if (stopping) [coordinator stop:@"已停止自动点赞"];
     DY778LikeCapture *capture = [DY778LikeCapture new], *previous = DY778LikeCurrentCapture;
     DY778LikeCurrentCapture = capture;
-    @try { ((void (*)(id, SEL, id))DY778LikeOriginalGesture)(service, cmd, argument); }
-    @finally { DY778LikeCurrentCapture = previous; }
-    if (!stopping) [coordinator start:capture gesture:gesture];
+    BOOL deferred = NO;
+    @try { ((void (*)(id, SEL, id))DY778LikeOriginalGesture)(service, cmd, argument); deferred = YES; }
+    @finally { if (!deferred) DY778LikeCurrentCapture = previous; }
+    // 41.2.0 的反应信号（dispatchLikeMessage:）在 diggClicked 返回后才
+    // 异步到达，同步窗口内等不到（导出 accepted 恒 0）。保留 capture
+    // 0.3 秒等信号，超时再恢复并启动；期间被新 capture 取代则放弃。
+    if (deferred) dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (DY778LikeCurrentCapture != capture) return;
+        DY778LikeCurrentCapture = previous;
+        if (!stopping && !coordinator.run) [coordinator start:capture gesture:gesture];
+    });
 }
 static void DY778LikeCountCall(id store, SEL cmd, BOOL start, CGPoint point, double gap, BOOL count, IMP original, BOOL shortForm) {
     DY778LikeDiagCount++; DY778LikeDiagStoreClass = NSStringFromClass([store class]);
     DY778LikeCapture *capture = NSThread.isMainThread ? DY778LikeCurrentCapture : nil;
     BOOL previousCounting = capture.counting;
-    if (capture) { capture.store = store; capture.point = point; capture.counting = count; capture.nativeGap = gap; }
+    if (capture) { capture.store = store; capture.point = point; capture.counting = count; capture.nativeGap = gap; if (count) capture.sawCounting = YES; }
     @try {
         if (shortForm) ((void (*)(id, SEL, BOOL, CGPoint, double))original)(store, cmd, start, point, gap);
         else ((void (*)(id, SEL, BOOL, CGPoint, double, BOOL))original)(store, cmd, start, point, gap, count);
@@ -277,7 +286,7 @@ static BOOL DY778LikeCaptureBegin(id store, CGPoint point, double gap, BOOL coun
     DY778LikeDiagCount++; DY778LikeDiagStoreClass = NSStringFromClass([store class]);
     DY778LikeCapture *capture = NSThread.isMainThread ? DY778LikeCurrentCapture : nil;
     BOOL previousCounting = capture.counting;
-    if (capture) { capture.store = store; capture.point = point; capture.counting = count; capture.nativeGap = gap; }
+    if (capture) { capture.store = store; capture.point = point; capture.counting = count; capture.nativeGap = gap; if (count) capture.sawCounting = YES; }
     if (outCapture) *outCapture = capture;
     return previousCounting;
 }
@@ -327,7 +336,7 @@ static IMP DY778LikeNormTrampoline(BOOL isCount, int lastKind, int retKind, NSUI
 }
 static void DY778LikeAcceptReaction(id fragment) {
     DY778LikeCapture *capture = NSThread.isMainThread ? DY778LikeCurrentCapture : nil;
-    if (capture.counting && !capture.accepted) {
+    if ((capture.counting || capture.sawCounting) && !capture.accepted) {
         capture.fragment = fragment;
         if (!capture.generated) { capture.accepted = YES; DY778LikeDiagAccepted++; }
         else {
@@ -467,6 +476,7 @@ static void DY778LikeInstall(NSString *name, NSString *selector, const char *res
 // ABI 与旧变体一致（0.6.9.49 enc 转储已证），不再逐项卡。失败阶段记入
 // DY778LikeNormFail 供导出定位（四个变体全记，不互相覆盖）。
 static void DY778LikeNoteNormFail(NSString *text) {
+    if (DY778LikeNormFail.length && [DY778LikeNormFail containsString:text]) return;
     DY778LikeNormFail = DY778LikeNormFail.length
         ? [DY778LikeNormFail stringByAppendingFormat:@" | %@", text] : text;
 }
