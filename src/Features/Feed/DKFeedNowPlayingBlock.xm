@@ -45,6 +45,14 @@ static void DKClearFeedNowPlaying(void) {
 %end
 %end
 
+// huami DYYY 3.0.2 (9f35660)：信息流管理器还有一条 setNowPlayingInfo: 直写入口，
+// 开关开着时一并拦下；单独成组，方法不存在时不安装、不影响上面两组。
+%group DKFeedNowPlayingSetter
+%hook AWEFeedBackgroundPlayManager
+- (void)setNowPlayingInfo:(id)info { if (!DKTrackFeedManagerAndCheckBlock(self)) %orig; }
+%end
+%end
+
 %group DKFeedNowPlayingModule
 %hook AWEAwemeBackgroundPlayModule
 - (void)refreshNowPlayingInfoIfNeeded { if (!DKFeedNowPlayingBlocked()) %orig; }
@@ -66,6 +74,8 @@ static void DKClearFeedNowPlaying(void) {
     if (class_getInstanceMethod(manager, @selector(updateNowPlayingInfoPlayback))
         && class_getInstanceMethod(manager, @selector(refreshNowPlayingInfo))
         && class_getInstanceMethod(manager, @selector(refreshNowPlayingInfoIsForce:))) %init(DKFeedNowPlayingManager);
+
+    if (class_getInstanceMethod(manager, @selector(setNowPlayingInfo:))) %init(DKFeedNowPlayingSetter);
 
     Class module = NSClassFromString(@"AWEAwemeBackgroundPlayModule");
     Method resign = class_getInstanceMethod(module, @selector(updateNowPlayingInfoWhenResiginActive));

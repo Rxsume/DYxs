@@ -64,6 +64,8 @@
 @end
 @interface DKCommentBlurLabel : UIView
 @end
+@interface DKCommentBlurFooter : UIView
+@end
 
 // 依赖的抖音类名集中在此，抖音改名时只改这里。
 static NSString *const kDKInnerControllerClass =
@@ -1055,12 +1057,65 @@ static void DKTrackEmoticonBar(UIView *bar) API_AVAILABLE(ios(26.0)) {
 
 %hook DKCommentBlurLabel
 
+// huami DYYY 3.0.2 (9f35660)：旧修法直接把底色设 clear，但标签层是 opaque 的，
+// 不透明层配透明底色会渲染成黑块（评论区标签黑底之因）。改为：底色有 alpha 才清，
+// 同时关掉 view 与 layer 的 opaque 并重绘；setBackgroundColor: 先原样设再清掉，
+// setOpaque: 在毛玻璃开着时强制 NO，避免后续赋值把黑块带回来。
+// %init 别名安装的 hook 里 self 是 __unsafe_unretained id const，先转 UIView* 再读属性
+// （同 DKXSBatch5eMisc 里 (UILabel *)self 的做法）。
 - (void)layoutSubviews {
     %orig;
     if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DKXSEnableCommentBlur"]) {
-        // %init 别名安装的 hook 里 self 是 __unsafe_unretained id const，不能直接读属性，
-        // 先转 UIView* 再清底色（同 DKXSBatch5eMisc 里 (UILabel *)self 的做法）。
-        ((UIView *)self).backgroundColor = [UIColor clearColor];
+        UIView *v = (UIView *)self;
+        UIColor *bg = v.backgroundColor;
+        if (bg && CGColorGetAlpha(bg.CGColor) > 0.01) v.backgroundColor = [UIColor clearColor];
+        if (v.opaque || v.layer.opaque) {
+            v.opaque = NO;
+            v.layer.opaque = NO;
+            [v setNeedsDisplay];
+        }
+    }
+}
+
+- (void)setBackgroundColor:(UIColor *)color {
+    %orig(color);
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DKXSEnableCommentBlur"]
+        && color && CGColorGetAlpha(color.CGColor) > 0.01) {
+        %orig([UIColor clearColor]);
+        ((UIView *)self).opaque = NO;
+    }
+}
+
+- (void)setOpaque:(BOOL)opaque {
+    %orig([[NSUserDefaults standardUserDefaults] boolForKey:@"DKXSEnableCommentBlur"] ? NO : opaque);
+}
+
+%end
+
+%end
+
+// huami DYYY 3.0.2 (9f35660)：「展开X条回复」footer 按钮的 UIButtonLabel 带
+// (0.09) 黑底，毛玻璃下清掉按钮标题与不透明子视图的底色。
+%group DKCommentBlurFooterHook
+
+%hook DKCommentBlurFooter
+
+- (void)layoutSubviews {
+    %orig;
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DKXSEnableCommentBlur"]) {
+        for (UIView *sub in ((UIView *)self).subviews) {
+            if ([sub isKindOfClass:[UIButton class]]) {
+                UILabel *tl = ((UIButton *)sub).titleLabel;
+                tl.backgroundColor = [UIColor clearColor];
+                tl.layer.backgroundColor = [UIColor clearColor].CGColor;
+            }
+            CGColorRef lbg = sub.layer.backgroundColor;
+            if ((sub.backgroundColor && CGColorGetAlpha(sub.backgroundColor.CGColor) >= 0.99)
+                || (lbg && CGColorGetAlpha(lbg) >= 0.99)) {
+                sub.backgroundColor = [UIColor clearColor];
+                sub.layer.backgroundColor = [UIColor clearColor].CGColor;
+            }
+        }
     }
 }
 
@@ -1180,5 +1235,9 @@ static void DKTrackEmoticonBar(UIView *bar) API_AVAILABLE(ios(26.0)) {
     Class commentLabelClass = NSClassFromString(@"AWECommentSwiftBizUI.CommentInteractionBaseLabel");
     if (commentLabelClass) {
         %init(DKCommentBlurLabelHook, DKCommentBlurLabel = commentLabelClass);
+    }
+    Class commentFooterClass = NSClassFromString(@"AWECommentPanelListSwiftImpl.CommentBaseFooterView");
+    if (commentFooterClass) {
+        %init(DKCommentBlurFooterHook, DKCommentBlurFooter = commentFooterClass);
     }
 }
