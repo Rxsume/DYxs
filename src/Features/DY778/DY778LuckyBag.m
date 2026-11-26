@@ -1645,7 +1645,13 @@ static UIView *DY778LuckyInfoBlock(UILabel *label, NSString *symbol, UIColor *co
         // 标记，否则 fragment 以为面板还开着，后续手动点福袋无反应。
         // 用户正看着官方可见面板时不碰。
         id currentPanel = DY778Read(fragment,@"hybridLotteryPanel");
-        BOOL panelVisible = currentPanel && DY778LuckyPanelView(currentPanel).window != nil;
+        // 静默面板也在窗口层级里（挂在 host.view 最底层、不可见），只看
+        // window 会误判成用户可见面板而不复位，fragment 就一直以为面板
+        // 开着，用户手动点福袋无反应。当前面板是我们自己的静默面板时
+        // 必须复位。
+        id currentController = currentPanel ? (DY778LiveObject(currentPanel,@"viewControllerOfContainer") ?: DY778LiveObject(currentPanel,@"bdxBase")) : nil;
+        BOOL isQuietPanel = currentPanel && (currentPanel == panel || (controller && currentController == controller));
+        BOOL panelVisible = currentPanel && !isQuietPanel && DY778LuckyPanelView(currentPanel).window != nil;
         if (!panelVisible) {
             if (!currentPanel || currentPanel == panel) DY778Write(fragment,@"hybridLotteryPanel",nil);
             DY778Write(fragment,@"lotteryPannelViewShowing",@NO);
@@ -1671,6 +1677,13 @@ static UIView *DY778LuckyInfoBlock(UILabel *label, NSString *symbol, UIColor *co
         self.detail = @"本场已交给官方页面处理，助手不再重复提交。"; [self emit];
     }
     objc_setAssociatedObject(fragment,&DY778LuckyQuietRequestKey,nil,OBJC_ASSOCIATION_COPY_NONATOMIC);
+    // 手动打开前清掉残留的「面板已显示」状态：静默面板拆除后官方标记
+    // 可能没复位，面板不在窗口里却标记为显示中会让这次点击无反应。
+    id stuckPanel = DY778Read(fragment,@"hybridLotteryPanel");
+    if (stuckPanel && DY778LuckyPanelView(stuckPanel).window == nil) {
+        DY778Write(fragment,@"hybridLotteryPanel",nil);
+        DY778Write(fragment,@"lotteryPannelViewShowing",@NO);
+    }
 }
 - (void)recordProbe:(NSString *)status {
     if (!status.length || [status isEqual:self.lastProbeStatus]) return;
