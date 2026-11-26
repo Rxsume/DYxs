@@ -2901,17 +2901,73 @@ static void DY778DumpView(UIView *view, NSInteger depth, NSMutableString *out, N
     }
     for (UIView *sub in view.subviews) DY778DumpView(sub, depth + 1, out, budget);
 }
+static id DY778SafeKVC(id object, NSString *key) {
+    if (!object) return nil;
+    @try { return [object valueForKey:key]; } @catch (__unused NSException *exception) { return nil; }
+}
+static void DY778DumpLynxUI(id ui, NSInteger depth, NSMutableString *out, NSInteger *budget) {
+    if (!ui || *budget <= 0 || depth > 24) return;
+    (*budget)--;
+    NSMutableString *indent = [NSMutableString string];
+    for (NSInteger i = 0; i < depth; i++) [indent appendString:@"  "];
+    NSString *name = nil;
+    for (NSString *key in @[@"name", @"tagName", @"tag"]) {
+        id value = DY778SafeKVC(ui, key);
+        if ([value isKindOfClass:NSString.class] && [(NSString *)value length]) { name = value; break; }
+    }
+    NSString *text = nil;
+    for (NSString *key in @[@"text", @"content", @"value"]) {
+        id value = DY778SafeKVC(ui, key);
+        if ([value isKindOfClass:NSString.class] && [(NSString *)value length]) { text = value; break; }
+        if ([value isKindOfClass:NSAttributedString.class] && [(NSAttributedString *)value length]) { text = [(NSAttributedString *)value string]; break; }
+    }
+    NSString *frameText = @"";
+    id frameValue = DY778SafeKVC(ui, @"frame");
+    if ([frameValue isKindOfClass:NSValue.class]) {
+        CGRect rect = [(NSValue *)frameValue CGRectValue];
+        if (!CGRectIsEmpty(rect)) frameText = [NSString stringWithFormat:@" (%.0f,%.0f %.0fx%.0f)", rect.origin.x, rect.origin.y, rect.size.width, rect.size.height];
+    }
+    [out appendFormat:@"%@%@%@%@%@\n", indent, NSStringFromClass([ui class]),
+        name ? [NSString stringWithFormat:@" name=%@", name] : @"", frameText,
+        text ? [NSString stringWithFormat:@" text=%@", text] : @""];
+    id children = DY778SafeKVC(ui, @"children");
+    if ([children isKindOfClass:NSArray.class]) {
+        for (id child in (NSArray *)children) DY778DumpLynxUI(child, depth + 1, out, budget);
+    }
+}
+static void DY778CollectLynxViews(UIView *view, NSMutableArray<UIView *> *found) {
+    if (!view) return;
+    NSString *className = NSStringFromClass([view class]);
+    if ([className containsString:@"LynxView"] && ![className isEqualToString:@"UILynxView"]) {
+        [found addObject:view];
+        return;
+    }
+    for (UIView *sub in view.subviews) DY778CollectLynxViews(sub, found);
+}
 static NSString *DY778ViewTreeText(void) {
     NSMutableString *out = [NSMutableString stringWithString:@"=== view tree ===\n"];
     NSInteger budget = 900;
+    NSMutableArray<UIView *> *lynxViews = [NSMutableArray array];
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:UIWindowScene.class]) continue;
         for (UIWindow *window in ((UIWindowScene *)scene).windows) {
             if (window.hidden) continue;
             DY778DumpView(window, 0, out, &budget);
+            DY778CollectLynxViews(window, lynxViews);
             if (budget <= 0) { [out appendString:@"...(truncated)\n"]; break; }
         }
         if (budget <= 0) break;
+    }
+    [out appendString:@"=== lynx ui tree ===\n"];
+    NSInteger lynxBudget = 1500;
+    for (UIView *lynxView in lynxViews) {
+        id owner = DY778SafeKVC(lynxView, @"uiOwner");
+        id root = DY778SafeKVC(owner, @"rootUI");
+        if (!root) root = DY778SafeKVC(lynxView, @"rootUI");
+        [out appendFormat:@"-- %@ owner=%@ root=%@ --\n", NSStringFromClass([lynxView class]),
+            owner ? NSStringFromClass([owner class]) : @"(nil)", root ? NSStringFromClass([root class]) : @"(nil)"];
+        if (root) DY778DumpLynxUI(root, 0, out, &lynxBudget);
+        if (lynxBudget <= 0) { [out appendString:@"...(lynx truncated)\n"]; break; }
     }
     return out;
 }
