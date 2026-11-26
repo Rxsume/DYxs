@@ -76,9 +76,24 @@
 @property(nonatomic, assign) NSTimeInterval bottomBarAppliedAt;
 @property(nonatomic, assign) NSUInteger imageSearchSubviewCount;
 @property(nonatomic, assign) BOOL imageSearchDone;
+@property(nonatomic, assign) NSTimeInterval lastGeometryWriteAt;
+@property(nonatomic, assign) CGRect lastWrittenFrame;
+@property(nonatomic, assign) CGAffineTransform lastWrittenTransform;
 @end
 @implementation DKXSFullscreenPlayerState
 @end
+
+// 0.6.9.61：布局期几何写入防追赶。抖音的布局若每帧把 frame 重置回原生值、我们又每帧写回目标值，
+// 两边互相触发 layout 形成死循环拖死主线程（watchdog 栈落在 layoutSublayers 内）。
+// 刚写过（100ms 内）且当前值已被改回（与上次写入不一致）时跳过本次写入，等布局自然收敛。
+static BOOL DKGeometryWriteThrottled(DKXSFullscreenPlayerState *state, CGRect current) {
+    return CACurrentMediaTime() - state.lastGeometryWriteAt < 0.1
+        && !CGRectEqualToRect(current, state.lastWrittenFrame);
+}
+static void DKGeometryWriteRecord(DKXSFullscreenPlayerState *state, CGRect written) {
+    state.lastGeometryWriteAt = CACurrentMediaTime();
+    state.lastWrittenFrame = written;
+}
 
 @implementation DKXSFullscreenCoordinator
 + (NSString *)buildIdentifier { return @"fullscreen-creator-native-20261024.2"; }
@@ -455,8 +470,10 @@
         state.closedInteractionSize = CGSizeZero;
     }
     state.lastAppliedFrame = target;
-    if (fabs(current.size.height - target.size.height) > 0.25 || fabs(current.origin.y - target.origin.y) > 0.25) {
+    if ((fabs(current.size.height - target.size.height) > 0.25 || fabs(current.origin.y - target.origin.y) > 0.25)
+        && !DKGeometryWriteThrottled(state, current)) {
         view.frame = target;
+        DKGeometryWriteRecord(state, target);
     }
     NSString *signature = [NSString stringWithFormat:@"%@/%d/%d", NSStringFromCGRect(target),
                            DKXSGetBool(@"DKXSEnableFullScreen"), DKXSGetBool(@"DKXSEnableCommentBlur")];
@@ -759,10 +776,12 @@
     CGRect target = [self targetForPlayer:player native:state.nativeFrame state:state];
     state.adjusted = !CGRectEqualToRect(target, state.nativeFrame);
     CGRect current = player.frame;
-    if (fabs(current.origin.x - target.origin.x) + fabs(current.origin.y - target.origin.y) + fabs(current.size.width - target.size.width) + fabs(current.size.height - target.size.height) > 0.25) {
+    if (fabs(current.origin.x - target.origin.x) + fabs(current.origin.y - target.origin.y) + fabs(current.size.width - target.size.width) + fabs(current.size.height - target.size.height) > 0.25
+        && !DKGeometryWriteThrottled(state, current)) {
         state.applying = YES;
         player.frame = target;
         state.applying = NO;
+        DKGeometryWriteRecord(state, target);
     }
 }
 + (UIView *)renderView:(UIView *)player {
@@ -807,10 +826,11 @@
         state.normalWindow = view.window;
         state.fullscreenHostFrame = target;
         // 承载区全程全高；评论避让只改内部播放器，不补背景或等待消失回调。
-        if (!CGRectEqualToRect(current, target)) {
+        if (!CGRectEqualToRect(current, target) && !DKGeometryWriteThrottled(state, current)) {
             state.applying = YES;
             host.frame = target;
             state.applying = NO;
+            DKGeometryWriteRecord(state, target);
         }
     }
 }
@@ -908,10 +928,14 @@
         }
     }
     CGAffineTransform target = [self targetForImageView:view native:state.nativeImageTransform state:state];
-    if (!CGAffineTransformEqualToTransform(view.transform, target)) {
+    BOOL transformThrottled = CACurrentMediaTime() - state.lastGeometryWriteAt < 0.1
+        && !CGAffineTransformEqualToTransform(view.transform, state.lastWrittenTransform);
+    if (!CGAffineTransformEqualToTransform(view.transform, target) && !transformThrottled) {
         state.applying = YES;
         view.transform = target;
         state.applying = NO;
+        state.lastGeometryWriteAt = CACurrentMediaTime();
+        state.lastWrittenTransform = target;
     }
     state.imageAdjusted = !CGAffineTransformEqualToTransform(target, state.nativeImageTransform);
 }

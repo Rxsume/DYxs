@@ -18,6 +18,18 @@ static const NSUInteger kDKFeedAncestorLimit = 8;
 // 撑高前的表高。挂在表上，既是还原依据，也是 HUD 的钉位目标。
 static char kDKFeedOriginalHeightKey;
 static char kDKPadFeedBottomReserveKey;
+// 0.6.9.61：布局期几何写入防追赶（与协调器同款）。刚写过且已被改回时跳过，等布局收敛。
+static char kDKFeedWriteStateKey;
+static BOOL DKFeedWriteThrottled(UIView *view, CGRect current) {
+    NSArray *last = objc_getAssociatedObject(view, &kDKFeedWriteStateKey);
+    if (!last) return NO;
+    return CACurrentMediaTime() - [last[0] doubleValue] < 0.1
+        && !CGRectEqualToRect(current, [last[1] CGRectValue]);
+}
+static void DKFeedWriteRecord(UIView *view, CGRect written) {
+    objc_setAssociatedObject(view, &kDKFeedWriteStateKey,
+        @[@(CACurrentMediaTime()), [NSValue valueWithCGRect:written]], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
 // 所有撑高过的表（弱引用），供关闭开关时立即还原。多页并存时可能不止一张。
 static NSHashTable<UITableView *> *gStretchedTables = nil;
 
@@ -197,8 +209,10 @@ static void DKSyncFeedTableLayout(UITableView *table, DKFeedTableLayoutStats *st
 
     CGRect adjusted = DKVideoFeedTableAdjustFrame(table, table.frame);
     if (CGRectIsNull(adjusted)) return;
+    if (DKFeedWriteThrottled(table, table.frame)) return;
 
     table.frame = adjusted;
+    DKFeedWriteRecord(table, adjusted);
     gHitTableLayout++;
     stats->adjustments++;
 }
@@ -283,8 +297,11 @@ CGRect DKFeedHUDAdjustFrame(UIView *view, CGRect frame) {
         && heightFits) {
         return;
     }
+    if (DKFeedWriteThrottled(view, frame)) return;
 
-    view.frame = CGRectMake(CGRectGetMinX(frame), 0.0, CGRectGetWidth(frame), original);
+    CGRect pinnedFrame = CGRectMake(CGRectGetMinX(frame), 0.0, CGRectGetWidth(frame), original);
+    view.frame = pinnedFrame;
+    DKFeedWriteRecord(view, pinnedFrame);
     gHitFallback++;
 }
 
