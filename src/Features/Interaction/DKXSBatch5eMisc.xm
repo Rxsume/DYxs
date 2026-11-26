@@ -50,14 +50,29 @@ static BOOL DKXSMisc5eGetBool(NSString *key) {
 
 // 上游清屏分支的容错版：VC 上若有 hideButton 且其 isElementsHidden 为 YES，
 // 且开了 DKXSHideStatusBarOnClear，也隐藏状态栏；取不到 hideButton 时不生效。
+// 0.6.9.57：抖音 40.1.0 上部分 VC 没有 hideButton，KVC 每帧抛异常（unwind 全缓存扫描），
+// 布局期反复抛导致主线程假死被 watchdog 杀。按类缓存：抛过一次的类不再试。
+static NSMutableSet<NSString *> *DKXSNoHideButtonClasses(void) {
+    static NSMutableSet<NSString *> *classes;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ classes = [NSMutableSet set]; });
+    return classes;
+}
 static BOOL DKXSStatusBarHiddenByClear(id vc) {
     if (!DKXSMisc5eGetBool(@"DKXSHideStatusBarOnClear")) return NO;
+    NSString *className = NSStringFromClass([vc class]);
+    if ([DKXSNoHideButtonClasses() containsObject:className]) return NO;
     id hideButton = nil;
     @try {
         hideButton = [vc valueForKey:@"hideButton"];
     } @catch (__unused NSException *exception) {
+        [DKXSNoHideButtonClasses() addObject:className];
+        return NO;
     }
-    if (!hideButton || ![hideButton respondsToSelector:@selector(isElementsHidden)]) return NO;
+    if (!hideButton || ![hideButton respondsToSelector:@selector(isElementsHidden)]) {
+        [DKXSNoHideButtonClasses() addObject:className];
+        return NO;
+    }
     @try {
         return [(id<DKXSIsElementsHidden>)hideButton isElementsHidden];
     } @catch (__unused NSException *exception) {
@@ -304,42 +319,42 @@ static void DKXSCollectFollowAuthorInfo(id model, NSString **nicknameOut, NSStri
 %hook AWEFeedRootViewController
 - (BOOL)prefersStatusBarHidden {
     if (DKXSMisc5eGetBool(@"DKXSHideStatusbar") || DKXSStatusBarHiddenByClear(self)) return YES;
-    return %orig;
+    @try { return %orig; } @catch (__unused NSException *exception) { return NO; }
 }
 %end
 
 %hook IESLiveAudienceViewController
 - (BOOL)prefersStatusBarHidden {
     if (DKXSMisc5eGetBool(@"DKXSHideStatusbar") || DKXSStatusBarHiddenByClear(self)) return YES;
-    return %orig;
+    @try { return %orig; } @catch (__unused NSException *exception) { return NO; }
 }
 %end
 
 %hook AWEAwemeDetailTableViewController
 - (BOOL)prefersStatusBarHidden {
     if (DKXSMisc5eGetBool(@"DKXSHideStatusbar") || DKXSStatusBarHiddenByClear(self)) return YES;
-    return %orig;
+    @try { return %orig; } @catch (__unused NSException *exception) { return NO; }
 }
 %end
 
 %hook AWEAwemeHotSpotTableViewController
 - (BOOL)prefersStatusBarHidden {
     if (DKXSMisc5eGetBool(@"DKXSHideStatusbar") || DKXSStatusBarHiddenByClear(self)) return YES;
-    return %orig;
+    @try { return %orig; } @catch (__unused NSException *exception) { return NO; }
 }
 %end
 
 %hook AWEFullPageFeedContainerViewController
 - (BOOL)prefersStatusBarHidden {
     if (DKXSMisc5eGetBool(@"DKXSHideStatusbar") || DKXSStatusBarHiddenByClear(self)) return YES;
-    return %orig;
+    @try { return %orig; } @catch (__unused NSException *exception) { return NO; }
 }
 %end
 
 %hook AFDPureModePageContainerViewController
 - (BOOL)prefersStatusBarHidden {
     if (DKXSMisc5eGetBool(@"DKXSHideStatusbar") || DKXSStatusBarHiddenByClear(self)) return YES;
-    return %orig;
+    @try { return %orig; } @catch (__unused NSException *exception) { return NO; }
 }
 %end
 
