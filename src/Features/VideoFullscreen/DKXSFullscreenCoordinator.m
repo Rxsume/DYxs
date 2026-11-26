@@ -72,6 +72,10 @@
 @property(nonatomic, weak) UIView *transparentBottomBar;
 @property(nonatomic, assign) BOOL applyingBottomBackground;
 @property(nonatomic, assign) BOOL updatingBottomBar;
+@property(nonatomic, copy) NSString *bottomBarSignature;
+@property(nonatomic, assign) NSTimeInterval bottomBarAppliedAt;
+@property(nonatomic, assign) NSUInteger imageSearchSubviewCount;
+@property(nonatomic, assign) BOOL imageSearchDone;
 @end
 @implementation DKXSFullscreenPlayerState
 @end
@@ -193,6 +197,15 @@
 + (void)layoutBottomBar:(UIView *)bar controller:(UIViewController *)controller enabled:(BOOL)enabled {
     DKXSFullscreenPlayerState *state = [self state:bar];
     if (state.updatingBottomBar) return;
+    // 0.6.9.60：本方法挂在 tabBar 的 layoutSubviews 上，逐帧 BFS+写属性会与抖音自身的
+    // 底栏布局互相追赶拖死主线程（watchdog 栈落在 addObjectsFromArray）。尺寸、子视图数、
+    // enabled 都没变时直接跳过；2 秒后允许重跑一次兜底抖音静默重置背景的情况。
+    NSString *signature = [NSString stringWithFormat:@"%@/%lu/%d", NSStringFromCGSize(bar.bounds.size),
+                           (unsigned long)bar.subviews.count, enabled];
+    NSTimeInterval now = CACurrentMediaTime();
+    if ([signature isEqualToString:state.bottomBarSignature] && now - state.bottomBarAppliedAt < 2.0) return;
+    state.bottomBarSignature = signature;
+    state.bottomBarAppliedAt = now;
     state.updatingBottomBar = YES;
     @try {
         enabled = enabled && !CGRectIsEmpty(bar.bounds);
@@ -819,7 +832,11 @@
 }
 + (CGRect)contentRectForImageView:(UIView *)view state:(DKXSFullscreenPlayerState *)state {
     UIImageView *image = state.imageContent;
-    if (!image || ![image isDescendantOfView:view]) {
+    // 0.6.9.60：找不到图片时负缓存——子视图数没变就不再重复 BFS（本方法在布局期被反复调用）。
+    if ((!image || ![image isDescendantOfView:view])
+        && !(state.imageSearchDone && state.imageSearchSubviewCount == view.subviews.count)) {
+        state.imageSearchDone = YES;
+        state.imageSearchSubviewCount = view.subviews.count;
         NSMutableArray<UIView *> *queue = [view.subviews mutableCopy];
         for (NSUInteger i = 0; i < queue.count && i < 64; i++) {
             UIView *candidate = queue[i];
