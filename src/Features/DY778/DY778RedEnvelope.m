@@ -1418,8 +1418,28 @@ static id DY778REQuietPopupOpen(id self, SEL _cmd, id config, id context, id com
     } @catch (__unused NSException *exception) { }
     return result;
 }
+static NSUInteger DY778BDXSeen, DY778AnnieSeen;
+static NSString *DY778BDXLastURL, *DY778BDXLastLotteryURL, *DY778AnnieLastSchema, *DY778AnnieLastLotterySchema;
+NSUInteger DY778BDXCreateCount(void) { return DY778BDXSeen; }
+NSString *DY778LastBDXURL(void) { return DY778BDXLastURL; }
+NSString *DY778LastLotteryBDXURL(void) { return DY778BDXLastLotteryURL; }
+NSUInteger DY778AnnieSchemaCount(void) { return DY778AnnieSeen; }
+NSString *DY778LastAnnieSchema(void) { return DY778AnnieLastSchema; }
+NSString *DY778LastLotteryAnnieSchema(void) { return DY778AnnieLastLotterySchema; }
+static void DY778RecordRouteText(id value, NSUInteger *counter, NSString * __strong *last, NSString * __strong *lastLottery) {
+    @try {
+        (*counter)++;
+        NSString *text = [value isKindOfClass:NSString.class] ? value : [value description];
+        if (text.length) {
+            *last = text;
+            if ([text rangeOfString:@"lottery" options:NSCaseInsensitiveSearch].location != NSNotFound)
+                *lastLottery = text;
+        }
+    } @catch (__unused NSException *exception) { }
+}
 static id DY778REQuietPopupCreate(id self, SEL _cmd, id config, id context, id url, id completion) {
     id result = nil;
+    DY778RecordRouteText(url, &DY778BDXSeen, &DY778BDXLastURL, &DY778BDXLastLotteryURL);
     if (DY778REOriginalQuietPopupCreate) result = ((id (*)(id, SEL, id, id, id, id))DY778REOriginalQuietPopupCreate)(self, _cmd, config, context, url, completion);
     @try {
         if (DY778RedEnvelopeEnabled() && (DY778REObjectLooksLikeBox(config) || DY778REObjectLooksLikeBox(url))) {
@@ -1449,6 +1469,7 @@ static void DY778REQuietPopupDismiss(id self, SEL _cmd, BOOL animated, id comple
     if (DY778REOriginalQuietPopupDismiss) ((void (*)(id, SEL, BOOL, id))DY778REOriginalQuietPopupDismiss)(self, _cmd, animated, completion);
 }
 static void DY778REQuietRouterTransition(id self, SEL _cmd, id schema, id controller, id fromVC, id context, id completion, NSError **error) {
+    DY778RecordRouteText(schema, &DY778AnnieSeen, &DY778AnnieLastSchema, &DY778AnnieLastLotterySchema);
     if (DY778REOriginalQuietRouterTransition) ((void (*)(id, SEL, id, id, id, id, id, NSError **))DY778REOriginalQuietRouterTransition)(self, _cmd, schema, controller, fromVC, context, completion, error);
     @try {
         if (DY778RedEnvelopeEnabled() && DY778REStringLooksLikeBox(DY778REText(schema))) {
