@@ -14,10 +14,11 @@
 //  只证明了原版「尝试领取」的代码路径，没有任何证据证明在抖音 40.8.0
 //  上仍能成功领取；静默领取的原生调用未静态还原，DYxs 侧 quiet 模式
 //  只做观测与记录、不拦截官方领取视图（见 DY778RedEnvelope.m 头注）。
-//  1.0-8 模块 4（2026-11-23，按 1.0-8 deb 拆包规格重写）：备份恢复 +
+//  1.0-8 模块 4（2026-11-23，按 1.0-8 deb 拆包规格重写）：
 //  抽奖提醒 + 评论展开 + 清理关注 + 直播外观编辑（见 DY778Misc.m、
-//  DY778Backup.m、DY778DrawReminder.m、DY778CommentExpand.m、
-//  DY778ListClear.m、DY778LiveAppearance.m）。
+//  DY778DrawReminder.m、DY778CommentExpand.m、DY778ListClear.m、
+//  DY778LiveAppearance.m）。备份恢复已于 0.6.9.45 去重删除（与 DYxs
+//  本体 src/Settings/Backup/ 重复，保留本体那套）。
 //  清理关注是破坏性操作：取关是否走服务端接口、是否立即生效、是否
 //  可逆，一律未证实，DYxs 侧取关提交不执行（见 DY778ListClear.h）；
 //  评论展开的“展开” UI 动作未静态还原，DYxs 侧只做 hook 与扫描记录。
