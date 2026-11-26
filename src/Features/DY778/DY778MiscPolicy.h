@@ -24,48 +24,8 @@
 //    即取关提交不执行，只做列表读取/选择/保护/排除与收据记录。
 //  - 评论展开的“展开”具体 UI 动作未静态还原，不得按猜测实现；
 //    DYxs 侧只做 hook 与扫描记录，展开动作留空。
-//  - 备份恢复是合并不是覆盖，且会一并打包 Recall/编辑历史/Radar 的
-//    数据库；恢复的影响面超出本模块，见 DY778Backup.m 头注。
-
-// ---------- 备份恢复（规格 §3） ----------
-static const char *DY778BackupManifestVersion = "1.0-8";
-static const char *DY778BackupManifestSchema = "com.dy778.backup";
-static const char *DY778BackupDirectoryName = "DY778Backup";
-static const char *DY778BackupFilePrefix = "DY778_backup_";
-static const char *DY778BackupPreferencesFile = "preferences.plist";
-static const char *DY778BackupJokerFile = "joker.plist";
-static const char *DY778BackupManifestFile = "manifest.json";
-// 备份目录取 Documents 还是 Caches 未证实（规格 §3.2）；DYxs 侧取
-// Documents（用户可见、便于用文件 App/DocumentPicker 导出）。
-// 偏好键黑名单（规格 §3.3，小写包含匹配；命中任一者不进备份）。
-static const char *DY778BackupBlockedSubstrings[] = {
-    "cookie", "ttwid", "token", "credential", "quota", "permit",
-    "pendingoperation", "joker", "authorization", "ns"
-};
-enum { DY778BackupBlockedSubstringCount = 10 };
-// 黑名单另有前缀 "j."（规格 §3.3）。
-static const char *DY778BackupBlockedPrefix = "j.";
-// Joker 键表（规格 §3.3，7 个）。
-static const char *DY778BackupJokerKeys[] = {
-    "enabled", "profileButton", "pullRestore", "restartRestore",
-    "haptics", "animations", "mutualCounts"
-};
-enum { DY778BackupJokerKeyCount = 7 };
-// 条目白名单（规格 §3.3，路径级；account-*.json 按前缀匹配）。
-static const char *DY778BackupAllowedEntries[] = {
-    "preferences.plist", "joker.plist", "manifest.json",
-    "stores/DY778/Recall/messages.sqlite",
-    "stores/DY778/EditHistory/history.sqlite",
-    "stores/DY778/Recall/Media/"
-};
-enum { DY778BackupAllowedEntryCount = 6 };
-static const char *DY778BackupRadarAccountPrefix = "stores/DY778Radar/account-";
-// 备份操作 phase（规格 §3.4，实锤取值）。
-static const char *DY778BackupPhaseReady = "ready";
-static const char *DY778BackupPhaseCommitted = "committed";
-// 备份操作 action（规格 §3.4，实锤取值）。
-static const char *DY778BackupActionClear = "clear";
-static const char *DY778BackupActionRestore = "restore";
+//  - 备份恢复已于 0.6.9.45 去重删除（与 DYxs 本体 src/Settings/Backup/
+//    重复，保留本体那套）；本文件不再含备份策略常量。
 
 // ---------- 抽奖提醒（规格 §4） ----------
 // 秒数字符串格式未证实（规格 §4.2，可能是 "90" 或 "90s"）；

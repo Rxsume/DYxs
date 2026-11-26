@@ -42,7 +42,6 @@
 #import "DY778LiveAnalysis.h"
 #import "DY778RedEnvelope.h"
 #import "DY778SuperLucky.h"
-#import "DY778Backup.h"
 #import "DY778DrawReminder.h"
 #import "DY778CommentExpand.h"
 #import "DY778ListClear.h"
@@ -548,8 +547,8 @@ static void DY778SyncRemainingSettings(void) {
         }));
     });
 
-    // ---------- DY778 1.0-8 模块 4：备份恢复 + 抽奖提醒 + 评论展开 +
-    // 清理关注 + 直播外观编辑 ----------
+    // ---------- DY778 1.0-8 模块 4：抽奖提醒 + 评论展开 +
+    // 清理关注 + 直播外观编辑（备份恢复已于 0.6.9.45 去重删除） ----------
     DKSettingsRegister(@"DKXSMiscCommentsEnabled", ^AWESettingItemModel *{
         return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSMiscCommentsEnabled", @"启用评论展开", @""),
             @"开启后，在评论列表里扫描长评论并记录展开候选。展开的具体 UI 动作未静态还原，当前版本只做 hook 与扫描记录，不改评论显示。默认关闭。"),
@@ -564,24 +563,6 @@ static void DY778SyncRemainingSettings(void) {
         return DKSettingsWithoutBackup(DKMakeAction(@"DKXSMiscListClearSettings", @"清理关注设置", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
             (void)item;
             DY778PresentController(presenter, DY778ListClearSettingsController());
-        }));
-    });
-    DKSettingsRegister(@"DKXSMiscBackupExport", ^AWESettingItemModel *{
-        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSMiscBackupExport", @"导出备份", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
-            (void)item;
-            DY778BackupExport(presenter);
-        }));
-    });
-    DKSettingsRegister(@"DKXSMiscBackupImport", ^AWESettingItemModel *{
-        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSMiscBackupImport", @"导入备份", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
-            (void)item;
-            DY778BackupImport(presenter);
-        }));
-    });
-    DKSettingsRegister(@"DKXSMiscBackupClear", ^AWESettingItemModel *{
-        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSMiscBackupClear", @"清除备份", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
-            (void)item; (void)presenter;
-            DY778Confirm(presenter, @"清除备份", @"将删除已保存的备份文件，此操作不可恢复。", @"清除", YES, ^{ DY778BackupClear(); });
         }));
     });
     DKSettingsRegister(@"DKXSMiscLiveAppearanceEditor", ^AWESettingItemModel *{
@@ -611,10 +592,10 @@ static void DY778SyncRemainingSettings(void) {
         }));
     });
     DKSettingsRegister(@"DKXSMiscInfo", ^AWESettingItemModel *{
-        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSMiscInfo", @"关于备份杂项", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSMiscInfo", @"关于杂项", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
             (void)item;
-            DY778ShowNotice(presenter, @"备份杂项",
-                @"备份恢复是合并不是覆盖，恢复会一并影响 Recall/编辑历史/Radar 的数据；凭证类键永不备份。清理关注是破坏性操作：取关是否可逆未证实，当前版本不会发出任何取关请求。评论展开只做扫描记录，不改评论显示。");
+            DY778ShowNotice(presenter, @"杂项",
+                @"清理关注是破坏性操作：取关是否可逆未证实，当前版本不会发出任何取关请求。评论展开只做扫描记录，不改评论显示。");
         }));
     });
 
