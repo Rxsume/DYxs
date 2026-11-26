@@ -575,6 +575,7 @@ typedef NS_ENUM(NSUInteger, DY778LuckyPhase) {
 @property(nonatomic, weak) UIWindowScene *requestScene;
 @property(nonatomic) NSUInteger probeIndex;
 @property(nonatomic, copy) NSString *lastProbeStatus;
+@property(nonatomic, copy) NSString *lastJSStatus;
 @property(nonatomic, copy) NSString *activeWebToken;
 @property(nonatomic, strong) NSTimer *timer;
 @property(nonatomic, strong) DY778LuckyCard *card;
@@ -2133,6 +2134,7 @@ static UIView *DY778LuckyInfoBlock(UILabel *label, NSString *symbol, UIColor *co
         c.evaluating = NO; c.evaluatingWebView = nil;
         if (![c requestValid] || c.paused || !DY778Bool(@"lucky.enabled")) { [c cancelPending]; return; }
         NSString *status = DY778LiveString(result);
+        c.lastJSStatus = error ? [NSString stringWithFormat:@"error:%ld", (long)error.code] : (status ?: @"(nil)");
         if (error) {
             [c recordProbe:[NSString stringWithFormat:@"网页执行返回错误 %ld，正在重试",(long)error.code]];
         } else if ([@[@"clicked",@"submitted",@"already",@"waiting",@"manual"] containsObject:status]) {
@@ -2863,6 +2865,10 @@ NSString *DY778LuckyDiagnosticsText(void) {
         [out appendFormat:@"enabled=%d mode=%@ phase=%lu status=%@\n",
             DY778Bool(@"lucky.enabled"), DY778String(@"lucky.mode") ?: @"(nil)",
             (unsigned long)c.phase, c.status ?: @"(nil)"];
+        [out appendFormat:@"probe=%@ js=%@ joinSent=%d phraseLen=%lu phraseSubmitted=%d webCandidates=%lu activeWeb=%d\n",
+            c.lastProbeStatus ?: @"(nil)", c.lastJSStatus ?: @"(nil)", c.joinActionSent,
+            (unsigned long)c.phrase.length, [c.history[[c key] ?: @""][@"phrase"] boolValue],
+            (unsigned long)c.webCandidates.count, c.activeWebView != nil];
         [out appendFormat:@"lotteryID=%@ roomID=%@ accountID(len)=%lu\n",
             c.lotteryID ?: @"(nil)", c.roomID ?: @"(nil)", (unsigned long)c.accountID.length];
         id fragment = c.fragment;
