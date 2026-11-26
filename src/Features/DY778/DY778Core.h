@@ -47,3 +47,8 @@ FOUNDATION_EXPORT void DY778ConfirmDelayed(UIViewController *source, NSString *t
 FOUNDATION_EXPORT void DY778InstallCoreHooks(void);
 FOUNDATION_EXPORT void DY778InstallSettingsHook(void);
 FOUNDATION_EXPORT UIViewController *DY778SettingsController(void);
+// 混合路由观测（DY778RedEnvelope 的 openHybridWithScheme 钩子记录）：
+// 福袋入口在 41.2.0 走 Lynx，点开时经此路由打开的 scheme 是发现线索。
+FOUNDATION_EXPORT NSUInteger DY778HybridSchemeCount(void);
+FOUNDATION_EXPORT NSString *DY778LastHybridScheme(void);
+FOUNDATION_EXPORT NSString *DY778LastLotteryScheme(void);

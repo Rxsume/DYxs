@@ -1165,8 +1165,22 @@ static id DY778REFetchAllRedEnvelopes(id self, SEL _cmd, id roomID) {
     } @catch (__unused NSException *exception) { }
     return signal;
 }
+static NSUInteger DY778HybridSchemeSeen;
+static NSString *DY778HybridSchemeLast, *DY778LotterySchemeLast;
+NSUInteger DY778HybridSchemeCount(void) { return DY778HybridSchemeSeen; }
+NSString *DY778LastHybridScheme(void) { return DY778HybridSchemeLast; }
+NSString *DY778LastLotteryScheme(void) { return DY778LotterySchemeLast; }
 static id DY778REOpenHybridWithScheme(id self, SEL _cmd, id scheme, id params, id props, id completion) {
     id result = nil;
+    @try {
+        DY778HybridSchemeSeen++;
+        NSString *text = [scheme isKindOfClass:NSString.class] ? scheme : [scheme description];
+        if (text.length) {
+            DY778HybridSchemeLast = text;
+            if ([text rangeOfString:@"lottery" options:NSCaseInsensitiveSearch].location != NSNotFound)
+                DY778LotterySchemeLast = text;
+        }
+    } @catch (__unused NSException *exception) { }
     if (DY778REOriginalOpenHybridWithScheme) result = ((id (*)(id, SEL, id, id, id, id))DY778REOriginalOpenHybridWithScheme)(self, _cmd, scheme, params, props, completion);
     @try {
         if (DY778RedEnvelopeEnabled() && DY778REObjectLooksLikeBox(scheme)) {

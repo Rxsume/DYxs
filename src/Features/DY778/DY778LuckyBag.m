@@ -138,6 +138,8 @@ static id DY778LotteryCandidateFromValue(id value) {
     return nil;
 }
 static char DY778SyncLotteryKey;
+// 诊断：最近一次出现的短触 item（福袋入口数据可能挂在它身上）。
+static id DY778DiagShortcutItem;
 // 41.2.0：setCurrentLottery:/p_receiveLotteryModel: 不再被调用，
 // currentLottery 恒为 nil（0.6.9.44 诊断 v2 实锤）；福袋数据改放在
 // lotteryConfigsNew/lotteryConfig/currentConfig 配置字典里，逐个扫描兜底。
@@ -2411,6 +2413,7 @@ static void DY778StoreReceive(id self, SEL cmd, id lottery) {
     ((void (*)(id, SEL, id))DY778OrigStoreReceive)(self, cmd, lottery); DY778LiveMain(^{ DY778ObserveLotteryStore(self); });
 }
 static void DY778ShortcutAppear(id self, SEL cmd) {
+    DY778DiagShortcutItem = self;
     ((void (*)(id, SEL))DY778OrigShortcutAppear)(self, cmd);
     DY778LiveMain(^{ [[DY778LuckyCoordinator shared] discoverVisibleRoom]; });
 }
@@ -2884,6 +2887,9 @@ NSString *DY778LuckyDiagnosticsText(void) {
             (unsigned long)DY778DiagStoreMessage, (unsigned long)DY778DiagClickIconEvent,
             (unsigned long)DY778DiagEnableLottery, (unsigned long)DY778DiagPrepareStart,
             DY778DiagLastSyncClass ?: @"(none)", DY778DiagLastSyncKeys ?: @"(none)"];
+        [out appendFormat:@"hybridScheme=%lu lastHybridScheme=%@\nlastLotteryScheme=%@\n",
+            (unsigned long)DY778HybridSchemeCount(),
+            DY778LastHybridScheme() ?: @"(none)", DY778LastLotteryScheme() ?: @"(none)"];
         id probed = nil;
         SEL getSel = NSSelectorFromString(@"getCurrentLottery");
         if (fragment && [fragment respondsToSelector:getSel])
@@ -2934,7 +2940,34 @@ NSString *DY778LuckyDiagnosticsText(void) {
                 [out appendFormat:@"lotteryClasses: %@\n",
                     lotteryClasses.count ? [lotteryClasses componentsJoinedByString:@","] : @"(none)"];
             } @catch (__unused NSException *exception) {}
+            @try {
+                id config = DY778Read(store, @"lotteryConfig");
+                if ([config isKindOfClass:NSDictionary.class]) {
+                    for (NSString *key in @[@"live_lottery_audience_home", @"live_life_lottery_audience_candidate_page",
+                                            @"live_lottery_audience_result", @"live_life_lottery_audience_result"]) {
+                        id value = ((NSDictionary *)config)[key];
+                        if (value) [out appendFormat:@"schema.%@=%@\n", key, value];
+                    }
+                }
+            } @catch (__unused NSException *exception) {}
         }
+        @try {
+            if (DY778DiagShortcutItem) {
+                [out appendFormat:@"-- shortcutItem %@ --\n", NSStringFromClass([DY778DiagShortcutItem class])];
+                DY778LuckyDiagAppendNames(out, DY778DiagShortcutItem, NO);
+                DY778LuckyDiagAppendNames(out, DY778DiagShortcutItem, YES);
+            } else [out appendString:@"-- shortcutItem (none) --\n"];
+        } @catch (__unused NSException *exception) {}
+        @try {
+            Class fragmentClass = NSClassFromString(@"IESLiveLotteryFragment");
+            if (fragmentClass) {
+                for (NSString *selName in @[@"p_enableLottery", @"openLotteryPage", @"lotteryItemClick",
+                                            @"p_createLotteryFloatingViewIfNeed", @"getCurrentLottery", @"prepareStartLotteryMode"]) {
+                    Method method = class_getInstanceMethod(fragmentClass, NSSelectorFromString(selName));
+                    [out appendFormat:@"enc(IESLiveLotteryFragment.%@)=%s\n", selName, method ? method_getTypeEncoding(method) : "(none)"];
+                }
+            }
+        } @catch (__unused NSException *exception) {}
         if (fragment) DY778LuckyDiagAppendMethods(out, [fragment class]);
         if (lottery) {
             [out appendString:@"-- lottery --\n"];
