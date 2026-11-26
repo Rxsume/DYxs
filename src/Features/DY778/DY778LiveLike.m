@@ -10,7 +10,8 @@ static char DY778LikeReceiptKey;
 // 诊断计数（摇一摇导出）：定位 41.2.0 上双击链哪一环没触发。
 static NSUInteger DY778LikeDiagGesture, DY778LikeDiagCount, DY778LikeDiagReaction, DY778LikeDiagAccepted;
 static NSUInteger DY778LikeDiagDoubleTap, DY778LikeDiagPost, DY778LikeDiagAllPost;
-static NSString *DY778LikeDiagStoreClass, *DY778LikeDiagFail, *DY778LikeDiagLastPath;
+static NSUInteger DY778LikeDiagLikeMsg, DY778LikeDiagShowDigg;
+static NSString *DY778LikeDiagStoreClass, *DY778LikeDiagFail, *DY778LikeDiagLastPath, *DY778LikeNormFail;
 static NSMutableArray *DY778LikeDiagPaths;
 static SEL DY778LikeCountSelector(void) { return NSSelectorFromString(@"diggClicked:touchPoint:gapTime:isCountDigg:"); }
 static const char *DY778LikeType(const char *type) {
@@ -225,6 +226,7 @@ static DY778LikeCapture *DY778LikeCurrentCapture;
 
 static IMP DY778LikeOriginalGesture, DY778LikeOriginalPost;
 static IMP DY778LikeOriginalCount[2], DY778LikeOriginalClick[2], DY778LikeOriginalReaction[2];
+static IMP DY778LikeOriginalLikeMsg[2], DY778LikeOriginalShowDigg[2];
 static IMP DY778LikeOriginalCountNorm[2], DY778LikeOriginalClickNorm[2];
 static IMP DY778LikeOriginalUnmount[2], DY778LikeOriginalDisappear[2];
 static IMP DY778LikeOriginalSetRoom[2];
@@ -323,8 +325,7 @@ static IMP DY778LikeNormTrampoline(BOOL isCount, int lastKind, int retKind, NSUI
     if (idx > 1 || lastKind < 0 || lastKind > 3 || retKind < 0 || retKind > 1) return NULL;
     return isCount ? countTable[idx][lastKind][retKind] : clickTable[idx][lastKind][retKind];
 }
-static void DY778LikeReactionCall(id fragment, SEL cmd, CGPoint point, IMP original) {
-    DY778LikeDiagReaction++;
+static void DY778LikeAcceptReaction(id fragment) {
     DY778LikeCapture *capture = NSThread.isMainThread ? DY778LikeCurrentCapture : nil;
     if (capture.counting && !capture.accepted) {
         capture.fragment = fragment;
@@ -335,7 +336,23 @@ static void DY778LikeReactionCall(id fragment, SEL cmd, CGPoint point, IMP origi
                 capture.accepted = DY778LiveLikeAccept(&run->progress, CACurrentMediaTime());
         }
     }
+}
+static void DY778LikeReactionCall(id fragment, SEL cmd, CGPoint point, IMP original) {
+    DY778LikeDiagReaction++;
+    DY778LikeAcceptReaction(fragment);
     ((void (*)(id, SEL, CGPoint))original)(fragment, cmd, point);
+}
+// 41.2.0 双击后 dispatchOwnDiggMessageWithTouchPoint: 不再触发（0.6.9.49
+// 导出 reaction=0），改以 dispatchLikeMessage: / 爱心动画入口作反应信号。
+static void DY778LikeLikeMsgCall(id fragment, SEL cmd, id message, IMP original) {
+    DY778LikeDiagLikeMsg++;
+    DY778LikeAcceptReaction(fragment);
+    ((void (*)(id, SEL, id))original)(fragment, cmd, message);
+}
+static void DY778LikeShowDiggCall(id fragment, SEL cmd, CGPoint point, BOOL combo, IMP original) {
+    DY778LikeDiagShowDigg++;
+    DY778LikeAcceptReaction(fragment);
+    ((void (*)(id, SEL, CGPoint, BOOL))original)(fragment, cmd, point, combo);
 }
 static void DY778LikeFragmentLeaving(id fragment) {
     if (!NSThread.isMainThread) return;
@@ -351,6 +368,8 @@ static void DY778LikeFragmentSetRoom(id fragment, id room) {
 static void DY778LikeCount##N(id s, SEL c, BOOL b, CGPoint p, double d, BOOL count) { DY778LikeCountCall(s,c,b,p,d,count,DY778LikeOriginalCount[N],NO); } \
 static void DY778LikeClick##N(id s, SEL c, BOOL b, CGPoint p, double d) { DY778LikeCountCall(s,c,b,p,d,YES,DY778LikeOriginalClick[N],YES); } \
 static void DY778LikeReaction##N(id s, SEL c, CGPoint p) { DY778LikeReactionCall(s,c,p,DY778LikeOriginalReaction[N]); } \
+static void DY778LikeLikeMsg##N(id s, SEL c, id m) { DY778LikeLikeMsgCall(s,c,m,DY778LikeOriginalLikeMsg[N]); } \
+static void DY778LikeShowDigg##N(id s, SEL c, CGPoint p, BOOL combo) { DY778LikeShowDiggCall(s,c,p,combo,DY778LikeOriginalShowDigg[N]); } \
 static void DY778LikeUnmount##N(id s, SEL c) { DY778LikeFragmentLeaving(s); ((void (*)(id,SEL))DY778LikeOriginalUnmount[N])(s,c); } \
 static void DY778LikeDisappear##N(id s, SEL c) { DY778LikeFragmentLeaving(s); ((void (*)(id,SEL))DY778LikeOriginalDisappear[N])(s,c); } \
 static void DY778LikeSetRoom##N(id s, SEL c, id r, id context, id track) { DY778LikeFragmentSetRoom(s,r); ((void (*)(id,SEL,id,id,id))DY778LikeOriginalSetRoom[N])(s,c,r,context,track); }
@@ -443,40 +462,40 @@ static void DY778LikeInstall(NSString *name, NSString *selector, const char *res
     BOOL installed = DY778LikeSignature(cls, sel, result, arguments) && DY778Hook(cls, sel, replacement, original);
     DY778RecordHook([NSString stringWithFormat:@"直播点赞 / %@.%@", name, selector], installed);
 }
-// normalizedPosition 变体：读真实编码选跳板。arg0 接受 BOOL/整数类
-// （同走 x 寄存器），arg1 须为 =dd 结构，arg2 须为 double；
-// 末参按结构/对象/double/整数分类，返回按 void/对象类分类。
+// normalizedPosition 变体：读真实编码选跳板。只校验参数个数、末参类别
+// （结构/对象/double/整数）与返回类别（void/对象类）；arg0/arg1/arg2 的
+// ABI 与旧变体一致（0.6.9.49 enc 转储已证），不再逐项卡。失败阶段记入
+// DY778LikeNormFail 供导出定位。
 static void DY778LikeInstallNorm(NSString *name, NSString *selector, BOOL isCount, NSUInteger idx) {
     IMP *slot = isCount ? &DY778LikeOriginalCountNorm[idx] : &DY778LikeOriginalClickNorm[idx];
     BOOL installed = NO;
     if (!*slot) {
         Class cls = NSClassFromString(name); SEL sel = NSSelectorFromString(selector);
         Method method = cls ? class_getInstanceMethod(cls, sel) : NULL;
-        if (method) {
+        if (!method) {
+            DY778LikeNormFail = [NSString stringWithFormat:@"%@.%@ noMethod", name, selector];
+        } else {
             NSMethodSignature *sig = [NSMethodSignature signatureWithObjCTypes:method_getTypeEncoding(method)];
             NSUInteger expected = isCount ? 7 : 6;
-            if (sig.numberOfArguments == expected) {
+            if (!sig || sig.numberOfArguments != expected) {
+                DY778LikeNormFail = [NSString stringWithFormat:@"%@.%@ argCount=%lu enc=%s", name, selector,
+                    (unsigned long)(sig ? sig.numberOfArguments : 0), method_getTypeEncoding(method)];
+            } else {
                 const char *ret = DY778LikeType(sig.methodReturnType);
-                const char *a0 = DY778LikeType([sig getArgumentTypeAtIndex:2]);
-                const char *a1 = DY778LikeType([sig getArgumentTypeAtIndex:3]);
-                const char *a2 = DY778LikeType([sig getArgumentTypeAtIndex:4]);
                 const char *last = DY778LikeType([sig getArgumentTypeAtIndex:expected - 1]);
-                BOOL intLike0 = !strcmp(a0, "B") || !strcmp(a0, "c") || !strcmp(a0, "q") || !strcmp(a0, "Q") || !strcmp(a0, "i") || !strcmp(a0, "I");
-                BOOL countOk = YES;
-                if (isCount) {
-                    const char *a3 = DY778LikeType([sig getArgumentTypeAtIndex:5]);
-                    countOk = !strcmp(a3, "B") || !strcmp(a3, "c") || !strcmp(a3, "q") || !strcmp(a3, "Q") || !strcmp(a3, "i") || !strcmp(a3, "I");
-                }
                 int lastKind = -1, retKind = -1;
-                if (last[0] == '{' && strstr(last, "=dd}")) lastKind = 0;
+                if (last[0] == '{') lastKind = 0;
                 else if (last[0] == '@') lastKind = 1;
-                else if (!strcmp(last, "d")) lastKind = 2;
-                else if (!strcmp(last, "q") || !strcmp(last, "Q") || !strcmp(last, "i") || !strcmp(last, "I")) lastKind = 3;
-                if (!strcmp(ret, "v")) retKind = 0;
-                else if (!strcmp(ret, "@") || !strcmp(ret, "B") || !strcmp(ret, "c")) retKind = 1;
-                if (intLike0 && a1[0] == '{' && strstr(a1, "=dd}") && !strcmp(a2, "d") && countOk && lastKind >= 0 && retKind >= 0) {
+                else if (last[0] == 'd') lastKind = 2;
+                else if (strchr("qQiI", last[0])) lastKind = 3;
+                if (ret[0] == 'v') retKind = 0;
+                else if (ret[0] == '@' || ret[0] == 'B' || ret[0] == 'c') retKind = 1;
+                if (lastKind < 0 || retKind < 0) {
+                    DY778LikeNormFail = [NSString stringWithFormat:@"%@.%@ last=%s ret=%s enc=%s", name, selector, last, ret, method_getTypeEncoding(method)];
+                } else {
                     IMP trampoline = DY778LikeNormTrampoline(isCount, lastKind, retKind, idx);
                     if (trampoline) installed = DY778Hook(cls, sel, trampoline, slot);
+                    if (!installed) DY778LikeNormFail = [NSString stringWithFormat:@"%@.%@ hook lastKind=%d retKind=%d", name, selector, lastKind, retKind];
                 }
             }
         }
@@ -492,6 +511,7 @@ void DY778InstallLiveLikeHooks(void) {
     IMP counts[] = {(IMP)DY778LikeCount0, (IMP)DY778LikeCount1}, clicks[] = {(IMP)DY778LikeClick0, (IMP)DY778LikeClick1};
 
     IMP reactions[] = {(IMP)DY778LikeReaction0, (IMP)DY778LikeReaction1};
+    IMP likeMsgs[] = {(IMP)DY778LikeLikeMsg0, (IMP)DY778LikeLikeMsg1}, showDiggs[] = {(IMP)DY778LikeShowDigg0, (IMP)DY778LikeShowDigg1};
     IMP unmounts[] = {(IMP)DY778LikeUnmount0, (IMP)DY778LikeUnmount1}, disappears[] = {(IMP)DY778LikeDisappear0, (IMP)DY778LikeDisappear1};
     IMP setRooms[] = {(IMP)DY778LikeSetRoom0, (IMP)DY778LikeSetRoom1};
     for (NSUInteger i = 0; i < sizeof(counts) / sizeof(counts[0]); i++) {
@@ -500,6 +520,8 @@ void DY778InstallLiveLikeHooks(void) {
         DY778LikeInstallNorm(stores[i], @"diggClicked:touchPoint:gapTime:isCountDigg:normalizedPosition:", YES, i);
         DY778LikeInstallNorm(stores[i], @"diggClicked:touchPoint:gapTime:normalizedPosition:", NO, i);
         DY778LikeInstall(fragments[i], @"dispatchOwnDiggMessageWithTouchPoint:", "v", @[@"CGPoint"], reactions[i], &DY778LikeOriginalReaction[i]);
+        DY778LikeInstall(fragments[i], @"dispatchLikeMessage:", "v", @[@"@"], likeMsgs[i], &DY778LikeOriginalLikeMsg[i]);
+        DY778LikeInstall(fragments[i], @"showDiggTouchViewFromStartPoint:comboDigg:", "v", @[@"CGPoint", @"B"], showDiggs[i], &DY778LikeOriginalShowDigg[i]);
         DY778LikeInstall(fragments[i], @"componentUnmount", "v", @[], unmounts[i], &DY778LikeOriginalUnmount[i]);
         DY778LikeInstall(fragments[i], @"componentDidDisappear", "v", @[], disappears[i], &DY778LikeOriginalDisappear[i]);
         DY778LikeInstall(fragments[i], @"setRoom:componentContext:trackContext:", "v", @[@"@", @"@", @"@"], setRooms[i], &DY778LikeOriginalSetRoom[i]);
@@ -508,8 +530,10 @@ void DY778InstallLiveLikeHooks(void) {
     DY778LikeInstall(@"IESLiveAudienceViewController", @"roomWillResignActive:", "v", @[@"@"], (IMP)DY778LikeAudienceResign, &DY778LikeOriginalAudienceResign);
     DY778LikeInstall(@"IESLiveAudienceViewController", @"onStartLeaveRoomAnimation", "v", @[], (IMP)DY778LikeAudienceLeave, &DY778LikeOriginalAudienceLeave);
     DY778LikeReady = DY778LikeOriginalGesture && DY778LikeOriginalPost &&
-        ((((DY778LikeOriginalCount[0] && DY778LikeOriginalClick[0]) || (DY778LikeOriginalCountNorm[0] && DY778LikeOriginalClickNorm[0])) && DY778LikeOriginalReaction[0]) ||
-         (((DY778LikeOriginalCount[1] && DY778LikeOriginalClick[1]) || (DY778LikeOriginalCountNorm[1] && DY778LikeOriginalClickNorm[1])) && DY778LikeOriginalReaction[1]));
+        ((((DY778LikeOriginalCount[0] && DY778LikeOriginalClick[0]) || (DY778LikeOriginalCountNorm[0] && DY778LikeOriginalClickNorm[0])) &&
+          (DY778LikeOriginalReaction[0] || DY778LikeOriginalLikeMsg[0] || DY778LikeOriginalShowDigg[0])) ||
+         (((DY778LikeOriginalCount[1] && DY778LikeOriginalClick[1]) || (DY778LikeOriginalCountNorm[1] && DY778LikeOriginalClickNorm[1])) &&
+          (DY778LikeOriginalReaction[1] || DY778LikeOriginalLikeMsg[1] || DY778LikeOriginalShowDigg[1])));
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
@@ -556,6 +580,9 @@ NSString *DY778LikeDiagnosticsText(void) {
     [out appendFormat:@"allPost=%lu lastPaths=%@\n",
         (unsigned long)DY778LikeDiagAllPost,
         DY778LikeDiagPaths.count ? [DY778LikeDiagPaths componentsJoinedByString:@"|"] : @"(none)"];
+    [out appendFormat:@"likeMsg=%lu showDigg=%lu normFail=%@\n",
+        (unsigned long)DY778LikeDiagLikeMsg, (unsigned long)DY778LikeDiagShowDigg,
+        DY778LikeNormFail ?: @"(none)"];
     @try {
         unsigned int classCount = 0;
         Class *classes = objc_copyClassList(&classCount);

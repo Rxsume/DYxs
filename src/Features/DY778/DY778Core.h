@@ -52,3 +52,11 @@ FOUNDATION_EXPORT UIViewController *DY778SettingsController(void);
 FOUNDATION_EXPORT NSUInteger DY778HybridSchemeCount(void);
 FOUNDATION_EXPORT NSString *DY778LastHybridScheme(void);
 FOUNDATION_EXPORT NSString *DY778LastLotteryScheme(void);
+// BDX 弹窗与 Annie 路由观测（DY778RedEnvelope 的 quiet 钩子记录）：
+// 福袋入口点击若不走 hybrid 路由，可能走这两条。
+FOUNDATION_EXPORT NSUInteger DY778BDXCreateCount(void);
+FOUNDATION_EXPORT NSString *DY778LastBDXURL(void);
+FOUNDATION_EXPORT NSString *DY778LastLotteryBDXURL(void);
+FOUNDATION_EXPORT NSUInteger DY778AnnieSchemaCount(void);
+FOUNDATION_EXPORT NSString *DY778LastAnnieSchema(void);
+FOUNDATION_EXPORT NSString *DY778LastLotteryAnnieSchema(void);

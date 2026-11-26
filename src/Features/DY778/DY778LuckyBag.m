@@ -2399,9 +2399,9 @@ static void DY778ClickIconEvent(id self, SEL cmd) {
     DY778DiagClickIconEvent++;
     ((void (*)(id, SEL))DY778OrigClickIconEvent)(self, cmd);
 }
-static void DY778EnableLottery(id self, SEL cmd) {
+static BOOL DY778EnableLottery(id self, SEL cmd) {
     DY778DiagEnableLottery++;
-    ((void (*)(id, SEL))DY778OrigEnableLottery)(self, cmd);
+    return ((BOOL (*)(id, SEL))DY778OrigEnableLottery)(self, cmd);
 }
 static void DY778PrepareStart(id self, SEL cmd) {
     DY778DiagPrepareStart++;
@@ -2653,12 +2653,15 @@ static void DY778AudienceActive(id self, SEL cmd, id room) {
     ((void (*)(id, SEL, id))DY778OrigAudienceActive)(self, cmd, room);
     DY778LiveMain(^{ [[DY778LuckyCoordinator shared] enterHost:self]; });
 }
-static void DY778LiveInstall(NSString *className, NSString *selector, const char *arguments, IMP replacement, IMP *original) {
+static void DY778LiveInstallRet(NSString *className, NSString *selector, const char *result, const char *arguments, IMP replacement, IMP *original) {
     if (*original) return;
     Class cls = NSClassFromString(className); SEL sel = NSSelectorFromString(selector);
-    BOOL valid = DY778LiveSignature(cls, sel, "v", arguments);
+    BOOL valid = DY778LiveSignature(cls, sel, result, arguments);
     BOOL installed = valid && DY778Hook(cls, sel, replacement, original);
     DY778RecordHook([NSString stringWithFormat:@"福袋 / %@.%@", className, selector], installed);
+}
+static void DY778LiveInstall(NSString *className, NSString *selector, const char *arguments, IMP replacement, IMP *original) {
+    DY778LiveInstallRet(className, selector, "v", arguments, replacement, original);
 }
 void DY778InstallLuckyBagHooks(void) {
     DY778LiveMain(^{
@@ -2705,7 +2708,7 @@ void DY778InstallLuckyBagHooks(void) {
         DY778LiveInstall(@"IESLiveLotteryStore", @"loadEnterRoomLottery", "", (IMP)DY778StoreLoadEnter, &DY778OrigStoreLoadEnter);
         DY778LiveInstall(@"IESLiveLotteryStore", @"messageReceived:", "@", (IMP)DY778StoreMessage, &DY778OrigStoreMessage);
         DY778LiveInstall(@"IESLiveLotteryFragment", @"tr_clickLotteryIconEvent", "", (IMP)DY778ClickIconEvent, &DY778OrigClickIconEvent);
-        DY778LiveInstall(@"IESLiveLotteryFragment", @"p_enableLottery", "", (IMP)DY778EnableLottery, &DY778OrigEnableLottery);
+        DY778LiveInstallRet(@"IESLiveLotteryFragment", @"p_enableLottery", "B", "", (IMP)DY778EnableLottery, &DY778OrigEnableLottery);
         DY778LiveInstall(@"IESLiveLotteryFragment", @"prepareStartLotteryMode", "", (IMP)DY778PrepareStart, &DY778OrigPrepareStart);
         DY778LiveInstall(@"IESLiveShortTouchItem", @"didAppear", "", (IMP)DY778ShortcutAppear, &DY778OrigShortcutAppear);
         DY778LiveInstall(@"IESLiveLotteryFloatingView", @"didMoveToWindow", "", (IMP)DY778FloatingWindow, &DY778OrigFloatingWindow);
@@ -2890,6 +2893,11 @@ NSString *DY778LuckyDiagnosticsText(void) {
         [out appendFormat:@"hybridScheme=%lu lastHybridScheme=%@\nlastLotteryScheme=%@\n",
             (unsigned long)DY778HybridSchemeCount(),
             DY778LastHybridScheme() ?: @"(none)", DY778LastLotteryScheme() ?: @"(none)"];
+        [out appendFormat:@"bdxCreate=%lu lastBDXURL=%@\nlastLotteryBDXURL=%@\nannieSchema=%lu lastAnnieSchema=%@\nlastLotteryAnnieSchema=%@\n",
+            (unsigned long)DY778BDXCreateCount(), DY778LastBDXURL() ?: @"(none)",
+            DY778LastLotteryBDXURL() ?: @"(none)",
+            (unsigned long)DY778AnnieSchemaCount(), DY778LastAnnieSchema() ?: @"(none)",
+            DY778LastLotteryAnnieSchema() ?: @"(none)"];
         id probed = nil;
         SEL getSel = NSSelectorFromString(@"getCurrentLottery");
         if (fragment && [fragment respondsToSelector:getSel])
