@@ -2285,6 +2285,9 @@ static void DY778CommentStoreRoom(id self, SEL cmd, id room) {
 static IMP DY778OrigLotteryBind, DY778OrigCommentBind, DY778OrigLotteryGet, DY778OrigLotterySetStore;
 static IMP DY778OrigLotterySetRoom, DY778OrigCommentSetRoom;
 static IMP DY778OrigStoreSetLottery, DY778OrigStoreSetReaction, DY778OrigStoreReceive;
+// 诊断计数（摇一摇导出）：定位 41.2.0 上福袋模型交付路径。
+static NSUInteger DY778DiagSetLottery, DY778DiagReceiveLottery;
+static NSString *DY778DiagLastLotteryClass, *DY778DiagLastLotteryID, *DY778DiagLastLotteryRoom;
 static IMP DY778OrigFloatingWindow, DY778OrigFloatingTime, DY778OrigWrapperSet, DY778OrigContainerShow, DY778OrigShortcutAppear;
 static void DY778LotterySetRoom(id self, SEL cmd, id room, id context, id track) {
     ((void (*)(id, SEL, id, id, id))DY778OrigLotterySetRoom)(self, cmd, room, context, track);
@@ -2307,12 +2310,16 @@ static void DY778LotterySetStore(id self, SEL cmd, id store) {
     ((void (*)(id, SEL, id))DY778OrigLotterySetStore)(self, cmd, store); DY778QueueLiveObservation(self, NO, NO);
 }
 static void DY778StoreSetLottery(id self, SEL cmd, id lottery) {
+    DY778DiagSetLottery++;
+    if (lottery) { DY778DiagLastLotteryClass = NSStringFromClass([lottery class]); DY778DiagLastLotteryID = [DY778LotteryID(lottery) copy]; DY778DiagLastLotteryRoom = [DY778LiveRoomID(lottery) copy]; }
     ((void (*)(id, SEL, id))DY778OrigStoreSetLottery)(self, cmd, lottery); DY778LiveMain(^{ DY778ObserveLotteryStore(self); });
 }
 static void DY778StoreSetReaction(id self, SEL cmd, id reaction) {
     ((void (*)(id, SEL, id))DY778OrigStoreSetReaction)(self, cmd, reaction); DY778LiveMain(^{ DY778ObserveLotteryStore(self); });
 }
 static void DY778StoreReceive(id self, SEL cmd, id lottery) {
+    DY778DiagReceiveLottery++;
+    if (lottery) { DY778DiagLastLotteryClass = NSStringFromClass([lottery class]); DY778DiagLastLotteryID = [DY778LotteryID(lottery) copy]; DY778DiagLastLotteryRoom = [DY778LiveRoomID(lottery) copy]; }
     ((void (*)(id, SEL, id))DY778OrigStoreReceive)(self, cmd, lottery); DY778LiveMain(^{ DY778ObserveLotteryStore(self); });
 }
 static void DY778ShortcutAppear(id self, SEL cmd) {
@@ -2635,7 +2642,14 @@ static void DY778LuckyDiagAppendNames(NSMutableString *out, id object, BOOL ivar
             Ivar *list = class_copyIvarList(cls, &count);
             for (unsigned int i = 0; i < count && names.count < 150; i++) {
                 const char *name = ivar_getName(list[i]);
-                if (name) [names addObject:[NSString stringWithUTF8String:name]];
+                if (!name) continue;
+                NSString *entry = [NSString stringWithUTF8String:name];
+                const char *type = ivar_getTypeEncoding(list[i]);
+                if (type && type[0] == '@') {
+                    id value = object_getIvar(object, list[i]);
+                    if (value) entry = [entry stringByAppendingFormat:@"<%@>", NSStringFromClass([value class])];
+                }
+                [names addObject:entry];
             }
             free(list);
         } else {
@@ -2692,9 +2706,31 @@ NSString *DY778LuckyDiagnosticsText(void) {
             DY778Read(fragment, @"lotteryPannelViewShowing") ?: @"(nil)",
             c.host ? @"present" : @"absent",
             c.host.view.window ? @"present" : @"absent"];
+        [out appendFormat:@"setCurrentLottery=%lu p_receiveLotteryModel=%lu lastLotteryClass=%@ lastLotteryID=%@ lastLotteryRoom=%@\n",
+            (unsigned long)DY778DiagSetLottery, (unsigned long)DY778DiagReceiveLottery,
+            DY778DiagLastLotteryClass ?: @"(none)", DY778DiagLastLotteryID ?: @"(nil)",
+            DY778DiagLastLotteryRoom ?: @"(nil)"];
+        id probed = nil;
+        SEL getSel = NSSelectorFromString(@"getCurrentLottery");
+        if (fragment && [fragment respondsToSelector:getSel])
+            probed = ((id (*)(id, SEL))objc_msgSend)(fragment, getSel);
+        [out appendFormat:@"fragment.getCurrentLottery=%@ id=%@ room=%@\n",
+            probed ? NSStringFromClass([probed class]) : @"(nil)",
+            DY778LotteryID(probed) ?: @"(nil)", DY778LiveRoomID(probed) ?: @"(nil)"];
+        if (store) {
+            [out appendString:@"-- store --\n"];
+            DY778LuckyDiagAppendNames(out, store, NO);
+            DY778LuckyDiagAppendNames(out, store, YES);
+        }
         if (lottery) {
+            [out appendString:@"-- lottery --\n"];
             DY778LuckyDiagAppendNames(out, lottery, NO);
             DY778LuckyDiagAppendNames(out, lottery, YES);
+        }
+        if (probed && probed != lottery) {
+            [out appendString:@"-- probed lottery --\n"];
+            DY778LuckyDiagAppendNames(out, probed, NO);
+            DY778LuckyDiagAppendNames(out, probed, YES);
         }
         result = out;
     };

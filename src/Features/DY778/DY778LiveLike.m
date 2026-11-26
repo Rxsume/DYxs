@@ -7,6 +7,9 @@
 // 回调不算一次提交，且直播间总数还包含其他观众。
 static NSString *const DY778LikeChannel = @"liveLike";
 static char DY778LikeReceiptKey;
+// 诊断计数（摇一摇导出）：定位 41.2.0 上双击链哪一环没触发。
+static NSUInteger DY778LikeDiagGesture, DY778LikeDiagCount, DY778LikeDiagReaction, DY778LikeDiagAccepted;
+static NSString *DY778LikeDiagStoreClass, *DY778LikeDiagFail;
 static SEL DY778LikeCountSelector(void) { return NSSelectorFromString(@"diggClicked:touchPoint:gapTime:isCountDigg:"); }
 static const char *DY778LikeType(const char *type) {
     while (type && *type && strchr("rnNoORV", *type)) type++;
@@ -147,6 +150,9 @@ static DY778LikeCapture *DY778LikeCurrentCapture;
 - (void)start:(DY778LikeCapture *)capture gesture:(UITapGestureRecognizer *)gesture {
     if (self.run) return;
     if (!capture.accepted || !capture.store || !capture.fragment) {
+        DY778LikeDiagFail = [NSString stringWithFormat:@"accepted=%d store=%@ fragment=%@ counting=%d",
+            capture.accepted, capture.store ? NSStringFromClass([capture.store class]) : @"nil",
+            capture.fragment ? NSStringFromClass([capture.fragment class]) : @"nil", capture.counting];
         DY778ShowToast(DY778LikeChannel, @"本次未能开始自动点赞，请稍后重试", NO, NO); return;
     }
     UIViewController *host = DY778LikeHost(gesture.view);
@@ -223,6 +229,7 @@ static IMP DY778LikeOriginalAudienceDisappear, DY778LikeOriginalAudienceResign, 
 static BOOL DY778LikeReady;
 
 static void DY778LikeGesture(id service, SEL cmd, id argument) {
+    DY778LikeDiagGesture++;
     if (!NSThread.isMainThread || !DY778Bool(@"liveLike.enabled") || DY778LikeCurrentCapture ||
         ![argument isKindOfClass:UITapGestureRecognizer.class]) {
         ((void (*)(id, SEL, id))DY778LikeOriginalGesture)(service, cmd, argument); return;
@@ -245,6 +252,7 @@ static void DY778LikeGesture(id service, SEL cmd, id argument) {
     if (!stopping) [coordinator start:capture gesture:gesture];
 }
 static void DY778LikeCountCall(id store, SEL cmd, BOOL start, CGPoint point, double gap, BOOL count, IMP original, BOOL shortForm) {
+    DY778LikeDiagCount++; DY778LikeDiagStoreClass = NSStringFromClass([store class]);
     DY778LikeCapture *capture = NSThread.isMainThread ? DY778LikeCurrentCapture : nil;
     BOOL previousCounting = capture.counting;
     if (capture) { capture.store = store; capture.point = point; capture.counting = count; capture.nativeGap = gap; }
@@ -254,10 +262,11 @@ static void DY778LikeCountCall(id store, SEL cmd, BOOL start, CGPoint point, dou
     } @finally { capture.counting = previousCounting; }
 }
 static void DY778LikeReactionCall(id fragment, SEL cmd, CGPoint point, IMP original) {
+    DY778LikeDiagReaction++;
     DY778LikeCapture *capture = NSThread.isMainThread ? DY778LikeCurrentCapture : nil;
     if (capture.counting && !capture.accepted) {
         capture.fragment = fragment;
-        if (!capture.generated) capture.accepted = YES;
+        if (!capture.generated) { capture.accepted = YES; DY778LikeDiagAccepted++; }
         else {
             DY778LikeRun *run = DY778LikeCoordinator.shared.run;
             if (run && run.store == capture.store && run.fragment == fragment)
@@ -394,4 +403,10 @@ void DY778InstallLiveLikeHooks(void) {
             if (!key.length || [key hasPrefix:@"liveLike."]) [DY778LikeCoordinator.shared stop:nil];
         }];
     });
+}
+NSString *DY778LikeDiagnosticsText(void) {
+    return [NSString stringWithFormat:@"=== DY778 like diagnostics ===\nready=%d gesture=%lu count=%lu reaction=%lu accepted=%lu storeClass=%@\nlastFail=%@\n",
+        DY778LikeReady, (unsigned long)DY778LikeDiagGesture, (unsigned long)DY778LikeDiagCount,
+        (unsigned long)DY778LikeDiagReaction, (unsigned long)DY778LikeDiagAccepted,
+        DY778LikeDiagStoreClass ?: @"(none)", DY778LikeDiagFail ?: @"(none)"];
 }
