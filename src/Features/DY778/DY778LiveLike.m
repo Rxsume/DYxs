@@ -9,7 +9,8 @@ static NSString *const DY778LikeChannel = @"liveLike";
 static char DY778LikeReceiptKey;
 // 诊断计数（摇一摇导出）：定位 41.2.0 上双击链哪一环没触发。
 static NSUInteger DY778LikeDiagGesture, DY778LikeDiagCount, DY778LikeDiagReaction, DY778LikeDiagAccepted;
-static NSString *DY778LikeDiagStoreClass, *DY778LikeDiagFail;
+static NSUInteger DY778LikeDiagDoubleTap, DY778LikeDiagPost;
+static NSString *DY778LikeDiagStoreClass, *DY778LikeDiagFail, *DY778LikeDiagLastPath;
 static SEL DY778LikeCountSelector(void) { return NSSelectorFromString(@"diggClicked:touchPoint:gapTime:isCountDigg:"); }
 static const char *DY778LikeType(const char *type) {
     while (type && *type && strchr("rnNoORV", *type)) type++;
@@ -242,6 +243,7 @@ static void DY778LikeGesture(id service, SEL cmd, id argument) {
         ((void (*)(id, SEL, id))DY778LikeOriginalGesture)(service, cmd, argument);
         DY778ShowToast(DY778LikeChannel, @"当前版本暂不支持直播自动点赞", NO, NO); return;
     }
+    DY778LikeDiagDoubleTap++;
     DY778LikeCoordinator *coordinator = DY778LikeCoordinator.shared;
     BOOL stopping = coordinator.run != nil;
     if (stopping) [coordinator stop:@"已停止自动点赞"];
@@ -316,6 +318,12 @@ static void DY778LikeOnMain(dispatch_block_t block) {
     if (NSThread.isMainThread) block(); else dispatch_async(dispatch_get_main_queue(), block);
 }
 static id DY778LikePost(id api, SEL cmd, id request) {
+    @try {
+        NSString *diagPath = DY778Read(request, @"path");
+        if ([diagPath isKindOfClass:NSString.class] && ([diagPath isEqual:@"/room/like/"] || [diagPath isEqual:@"/room/digg/"])) {
+            DY778LikeDiagPost++; DY778LikeDiagLastPath = [diagPath copy];
+        }
+    } @catch (__unused NSException *exception) {}
     DY778LikeRun *run = DY778LikeCoordinator.shared.run;
     if (!run) return ((id (*)(id, SEL, id))DY778LikeOriginalPost)(api, cmd, request);
     NSString *path = DY778Read(request, @"path");
@@ -404,9 +412,52 @@ void DY778InstallLiveLikeHooks(void) {
         }];
     });
 }
+// 诊断 v2：41.2.0 上双击后 diggClicked 不再触发，列出点赞相关类与方法名找新入口。
+static void DY778LikeDiagAppendMethods(NSMutableString *out, NSString *className) {
+    Class cls = NSClassFromString(className);
+    if (!cls) { [out appendFormat:@"methods(%@)=(no class)\n", className]; return; }
+    NSMutableSet *seen = [NSMutableSet set];
+    NSMutableArray *names = [NSMutableArray array];
+    NSArray *words = @[@"digg", @"like", @"tap", @"click", @"gesture"];
+    for (Class c = cls; c && c != NSObject.class && names.count < 80; c = class_getSuperclass(c)) {
+        unsigned int count = 0;
+        Method *list = class_copyMethodList(c, &count);
+        for (unsigned int i = 0; i < count && names.count < 80; i++) {
+            NSString *name = NSStringFromSelector(method_getName(list[i]));
+            if ([seen containsObject:name]) continue;
+            NSString *lower = name.lowercaseString;
+            BOOL hit = NO;
+            for (NSString *word in words) if ([lower containsString:word]) { hit = YES; break; }
+            if (!hit) continue;
+            [seen addObject:name]; [names addObject:name];
+        }
+        free(list);
+    }
+    [out appendFormat:@"methods(%@): %@\n", className,
+        names.count ? [names componentsJoinedByString:@","] : @"(none)"];
+}
 NSString *DY778LikeDiagnosticsText(void) {
-    return [NSString stringWithFormat:@"=== DY778 like diagnostics ===\nready=%d gesture=%lu count=%lu reaction=%lu accepted=%lu storeClass=%@\nlastFail=%@\n",
+    NSMutableString *out = [NSMutableString stringWithFormat:@"=== DY778 like diagnostics ===\nready=%d gesture=%lu count=%lu reaction=%lu accepted=%lu storeClass=%@\nlastFail=%@\n",
         DY778LikeReady, (unsigned long)DY778LikeDiagGesture, (unsigned long)DY778LikeDiagCount,
         (unsigned long)DY778LikeDiagReaction, (unsigned long)DY778LikeDiagAccepted,
         DY778LikeDiagStoreClass ?: @"(none)", DY778LikeDiagFail ?: @"(none)"];
+    [out appendFormat:@"doubleTap=%lu diggPost=%lu lastPath=%@\n",
+        (unsigned long)DY778LikeDiagDoubleTap, (unsigned long)DY778LikeDiagPost,
+        DY778LikeDiagLastPath ?: @"(none)"];
+    @try {
+        unsigned int classCount = 0;
+        Class *classes = objc_copyClassList(&classCount);
+        NSMutableArray *diggClasses = [NSMutableArray array];
+        for (unsigned int i = 0; i < classCount && diggClasses.count < 40; i++) {
+            NSString *name = NSStringFromClass(classes[i]);
+            if ([name containsString:@"Digg"]) [diggClasses addObject:name];
+        }
+        free(classes);
+        [out appendFormat:@"diggClasses: %@\n",
+            diggClasses.count ? [diggClasses componentsJoinedByString:@","] : @"(none)"];
+    } @catch (__unused NSException *exception) {}
+    for (NSString *name in @[@"HTSLiveDiggStore", @"_TtC25IESLiveCommunitySwiftImpl16HTSLiveDiggStore",
+                              @"HTSLiveDiggFragment", @"HTSLiveDiggSwiftFragment", @"IESLiveRoomAllGestureService"])
+        DY778LikeDiagAppendMethods(out, name);
+    return out;
 }
