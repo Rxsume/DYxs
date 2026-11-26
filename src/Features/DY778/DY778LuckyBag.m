@@ -1594,8 +1594,16 @@ static UIView *DY778LuckyInfoBlock(UILabel *label, NSString *symbol, UIColor *co
     self.quietPanel = nil;
     self.quietController = nil; self.quietParent = nil; self.quietContainer = nil; self.quietFragment = nil;
     self.quietCreating = NO; self.quietToken = nil;
-    if (ownsRequest && (!DY778Read(fragment,@"hybridLotteryPanel") || DY778Read(fragment,@"hybridLotteryPanel") == panel)) {
-        DY778Write(fragment,@"hybridLotteryPanel",nil); DY778Write(fragment,@"lotteryPannelViewShowing",@NO);
+    if (ownsRequest) {
+        // 面板不可见（我们的隐藏面板或残留面板）时复位官方的 showing
+        // 标记，否则 fragment 以为面板还开着，后续手动点福袋无反应。
+        // 用户正看着官方可见面板时不碰。
+        id currentPanel = DY778Read(fragment,@"hybridLotteryPanel");
+        BOOL panelVisible = currentPanel && DY778LuckyPanelView(currentPanel).window != nil;
+        if (!panelVisible) {
+            if (!currentPanel || currentPanel == panel) DY778Write(fragment,@"hybridLotteryPanel",nil);
+            DY778Write(fragment,@"lotteryPannelViewShowing",@NO);
+        }
     }
     if (parent && controller.parentViewController == parent) {
         [controller beginAppearanceTransition:NO animated:NO];
@@ -2374,6 +2382,9 @@ static void DY778LuckyRoute(id fragment, SEL cmd, id argument, IMP original) {
     if (!NSThread.isMainThread) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if ([token isEqual:objc_getAssociatedObject(fragment,&DY778LuckyQuietRequestKey)]) DY778LuckyRoute(fragment,cmd,argument,original);
+            // token 已被清（静默请求结束/用户手动打开）：放行官方打开，
+            // 不能把这次打开调用丢掉。
+            else ((void (*)(id,SEL,id))original)(fragment,cmd,argument);
         }); return;
     }
     DY778LuckyCoordinator *c = [DY778LuckyCoordinator shared];
@@ -2408,7 +2419,9 @@ static void DY778LotteryPortrait(id router, SEL cmd, void (^completion)(BOOL)) {
     void (^scoped)(BOOL) = ^(BOOL finished) {
         DY778LiveMain(^{
             DY778LuckyCoordinator *c = [DY778LuckyCoordinator shared];
-            if (DY778LuckyRoutePolicy(YES,[token isEqual:c.quietToken],[c quietRequestValid],c.quietController != nil) != DY778LuckyRouteQuiet) return;
+            // 静默请求已结束时也要把 completion 交还官方流程，丢掉会让
+            // 官方打开流程卡死、后续手动点福袋无反应。
+            if (DY778LuckyRoutePolicy(YES,[token isEqual:c.quietToken],[c quietRequestValid],c.quietController != nil) != DY778LuckyRouteQuiet) { completion(finished); return; }
             BOOL creating = c.quietCreating; NSString *previous = DY778LuckyRouteToken;
             c.quietCreating = YES; DY778LuckyRouteToken = token;
             @try { completion(finished); }
@@ -2613,6 +2626,81 @@ NSString *DY778LuckyStatusSummary(void) {
     if (NSThread.isMainThread) value = [DY778LuckyCoordinator shared].status;
     else dispatch_sync(dispatch_get_main_queue(), ^{ value = [DY778LuckyCoordinator shared].status; });
     return value ?: @"等待进入直播间";
+}
+static void DY778LuckyDiagAppendNames(NSMutableString *out, id object, BOOL ivars) {
+    NSMutableArray *names = [NSMutableArray array];
+    for (Class cls = [object class]; cls && cls != NSObject.class && names.count < 150; cls = class_getSuperclass(cls)) {
+        unsigned int count = 0;
+        if (ivars) {
+            Ivar *list = class_copyIvarList(cls, &count);
+            for (unsigned int i = 0; i < count && names.count < 150; i++) {
+                const char *name = ivar_getName(list[i]);
+                if (name) [names addObject:[NSString stringWithUTF8String:name]];
+            }
+            free(list);
+        } else {
+            objc_property_t *list = class_copyPropertyList(cls, &count);
+            for (unsigned int i = 0; i < count && names.count < 150; i++) {
+                const char *name = property_getName(list[i]);
+                if (name) [names addObject:[NSString stringWithUTF8String:name]];
+            }
+            free(list);
+        }
+    }
+    [out appendFormat:@"%@: %@\n", ivars ? @"ivars" : @"properties",
+        names.count ? [names componentsJoinedByString:@","] : @"(none)"];
+    if (!ivars) {
+        for (NSString *name in names) {
+            NSString *lower = name.lowercaseString;
+            if (![lower containsString:@"id"] && ![lower containsString:@"lottery"] && ![lower containsString:@"room"]) continue;
+            id value = DY778Read(object, name);
+            if ([value isKindOfClass:NSString.class] || [value isKindOfClass:NSNumber.class]) {
+                NSString *text = [NSString stringWithFormat:@"%@", value];
+                if (text.length > 60) text = [text substringToIndex:60];
+                [out appendFormat:@"  %@ = %@\n", name, text];
+            }
+        }
+    }
+}
+NSString *DY778LuckyDiagnosticsText(void) {
+    __block NSString *result;
+    void (^build)(void) = ^{
+        DY778LuckyCoordinator *c = [DY778LuckyCoordinator shared];
+        NSMutableString *out = [NSMutableString stringWithString:@"=== DY778 lucky diagnostics ===\n"];
+        [out appendFormat:@"enabled=%d mode=%@ phase=%lu status=%@\n",
+            DY778Bool(@"lucky.enabled"), DY778String(@"lucky.mode") ?: @"(nil)",
+            (unsigned long)c.phase, c.status ?: @"(nil)"];
+        [out appendFormat:@"lotteryID=%@ roomID=%@ accountID(len)=%lu\n",
+            c.lotteryID ?: @"(nil)", c.roomID ?: @"(nil)", (unsigned long)c.accountID.length];
+        id fragment = c.fragment;
+        [out appendFormat:@"fragment=%@ fragmentRoomID=%@\n",
+            fragment ? NSStringFromClass([fragment class]) : @"(nil)",
+            DY778FragmentRoomID(fragment) ?: @"(nil)"];
+        id store = DY778Read(fragment, @"store");
+        id lottery = DY778Read(store, @"currentLottery");
+        [out appendFormat:@"store=%@ lottery=%@\n",
+            store ? NSStringFromClass([store class]) : @"(nil)",
+            lottery ? NSStringFromClass([lottery class]) : @"(nil)"];
+        [out appendFormat:@"lotteryID(read)=%@ lotteryRoomID(read)=%@\n",
+            DY778LotteryID(lottery) ?: @"(nil)", DY778LiveRoomID(lottery) ?: @"(nil)"];
+        [out appendFormat:@"quietToken=%@ quietController=%@ fragmentToken=%@\n",
+            c.quietToken.length ? @"present" : @"absent",
+            c.quietController ? @"present" : @"absent",
+            objc_getAssociatedObject(fragment, &DY778LuckyQuietRequestKey) ? @"present" : @"absent"];
+        [out appendFormat:@"hybridLotteryPanel=%@ panelShowing=%@ host=%@ hostWindow=%@\n",
+            DY778Read(fragment, @"hybridLotteryPanel") ? @"present" : @"absent",
+            DY778Read(fragment, @"lotteryPannelViewShowing") ?: @"(nil)",
+            c.host ? @"present" : @"absent",
+            c.host.view.window ? @"present" : @"absent"];
+        if (lottery) {
+            DY778LuckyDiagAppendNames(out, lottery, NO);
+            DY778LuckyDiagAppendNames(out, lottery, YES);
+        }
+        result = out;
+    };
+    if (NSThread.isMainThread) build();
+    else dispatch_sync(dispatch_get_main_queue(), build);
+    return result ?: @"=== DY778 lucky diagnostics ===\n(unavailable)\n";
 }
 void DY778PresentLuckyPanel(UIViewController *source) {
     DY778LiveMain(^{ DY778LuckyCoordinator *c = [DY778LuckyCoordinator shared]; [c discoverVisibleRoom];
