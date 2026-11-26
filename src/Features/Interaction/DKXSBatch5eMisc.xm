@@ -44,8 +44,29 @@
 - (BOOL)isElementsHidden;
 @end
 
+// 0.6.9.58：boolForKey: 每帧走 CFPrefs 搜索链，布局期被状态栏查询反复调用会拖死主线程
+// （scene-update watchdog）。缓存读值，NSUserDefaults 变更通知时整体失效。
+static NSMutableDictionary<NSString *, NSNumber *> *DKXSMisc5eBoolCache(void) {
+    static NSMutableDictionary<NSString *, NSNumber *> *cache;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        cache = [NSMutableDictionary dictionary];
+        [[NSNotificationCenter defaultCenter] addObserverForName:NSUserDefaultsDidChangeNotification
+            object:nil queue:nil usingBlock:^(__unused NSNotification *note) {
+                @synchronized (cache) { [cache removeAllObjects]; }
+            }];
+    });
+    return cache;
+}
 static BOOL DKXSMisc5eGetBool(NSString *key) {
-    return [[NSUserDefaults standardUserDefaults] boolForKey:key];
+    NSMutableDictionary<NSString *, NSNumber *> *cache = DKXSMisc5eBoolCache();
+    @synchronized (cache) {
+        NSNumber *cached = cache[key];
+        if (cached) return cached.boolValue;
+    }
+    BOOL value = [[NSUserDefaults standardUserDefaults] boolForKey:key];
+    @synchronized (cache) { cache[key] = @(value); }
+    return value;
 }
 
 // 上游清屏分支的容错版：VC 上若有 hideButton 且其 isElementsHidden 为 YES，

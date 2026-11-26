@@ -470,7 +470,21 @@ static char kDKStatusBarCoverHiddenKey;
 // 随 cell 在滚动视图中的位置变化，滑到不覆盖窗口顶部安全区的位置就是 0，签名会整条失配。
 CGFloat DKHUDStatusBarCoverHeight(UIView *hudView) {
     UIWindow *window = hudView.window;
-    return window ? window.safeAreaInsets.top : hudView.safeAreaInsets.top;
+    if (!window) return hudView.safeAreaInsets.top;
+    // 0.6.9.58：safeAreaInsets 每次都会触发状态栏可见性查询，布局期逐帧调用会拖死主线程。
+    // 窗口安全区只随窗口/尺寸变化，按窗口+尺寸缓存并加 1 秒 TTL 兜底。
+    static __weak UIWindow *cachedWindow;
+    static CGSize cachedSize;
+    static CGFloat cachedTop;
+    static NSTimeInterval cachedAt;
+    CGSize size = window.bounds.size;
+    NSTimeInterval now = CACurrentMediaTime();
+    if (window == cachedWindow && CGSizeEqualToSize(size, cachedSize) && now - cachedAt < 1.0) return cachedTop;
+    cachedWindow = window;
+    cachedSize = size;
+    cachedAt = now;
+    cachedTop = window.safeAreaInsets.top;
+    return cachedTop;
 }
 
 static UIView *DKFindHUDStatusBarCover(UIView *hudView) {
