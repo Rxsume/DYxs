@@ -2938,11 +2938,19 @@ static void DY778DumpLynxUI(id ui, NSInteger depth, NSMutableString *out, NSInte
 static void DY778CollectLynxViews(UIView *view, NSMutableArray<UIView *> *found) {
     if (!view) return;
     NSString *className = NSStringFromClass([view class]);
-    if ([className containsString:@"LynxView"] && ![className isEqualToString:@"UILynxView"]) {
+    if ([className isEqualToString:@"LynxView"] || [className isEqualToString:@"BDXLynxView"]) {
         [found addObject:view];
-        return;
     }
     for (UIView *sub in view.subviews) DY778CollectLynxViews(sub, found);
+}
+static NSString *DY778PropertyNames(id object) {
+    if (!object) return @"(nil)";
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    unsigned int count = 0;
+    objc_property_t *properties = class_copyPropertyList([object class], &count);
+    for (unsigned int i = 0; i < count; i++) [names addObject:@(property_getName(properties[i]))];
+    if (properties) free(properties);
+    return [names componentsJoinedByString:@","];
 }
 static NSString *DY778ViewTreeText(void) {
     NSMutableString *out = [NSMutableString stringWithString:@"=== view tree ===\n"];
@@ -2964,9 +2972,21 @@ static NSString *DY778ViewTreeText(void) {
         id owner = DY778SafeKVC(lynxView, @"uiOwner");
         id root = DY778SafeKVC(owner, @"rootUI");
         if (!root) root = DY778SafeKVC(lynxView, @"rootUI");
+        if (!root) {
+            for (NSString *key in @[@"lynxView", @"innerLynxView", @"contentView"]) {
+                id inner = DY778SafeKVC(lynxView, key);
+                id innerOwner = DY778SafeKVC(inner, @"uiOwner");
+                root = DY778SafeKVC(innerOwner, @"rootUI");
+                if (root) { owner = innerOwner; break; }
+            }
+        }
         [out appendFormat:@"-- %@ owner=%@ root=%@ --\n", NSStringFromClass([lynxView class]),
             owner ? NSStringFromClass([owner class]) : @"(nil)", root ? NSStringFromClass([root class]) : @"(nil)"];
-        if (root) DY778DumpLynxUI(root, 0, out, &lynxBudget);
+        if (root) {
+            DY778DumpLynxUI(root, 0, out, &lynxBudget);
+        } else {
+            [out appendFormat:@"properties(%@): %@\n", NSStringFromClass([lynxView class]), DY778PropertyNames(lynxView)];
+        }
         if (lynxBudget <= 0) { [out appendString:@"...(lynx truncated)\n"]; break; }
     }
     return out;
