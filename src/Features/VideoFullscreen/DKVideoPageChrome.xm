@@ -510,9 +510,19 @@ static UIView *DKFindHUDStatusBarCover(UIView *hudView) {
 
 // 判据就是两个开关本身：这条遮罩只在评论展开时出现，而那一刻视频容器必被其中一个钉住，
 // 遮罩就成了纯粹的黑边。额外要求「找得到 Merge 且比例达标」会让横屏永远留着黑边。
+static char kDKStatusBarCoverSyncStateKey;
 void DKHUDStatusBarCoverSync(UIViewController *interaction) {
     UIView *hudView = interaction.viewIfLoaded;
     if (!hudView) return;
+    // 0.6.9.59：viewDidLayoutSubviews 逐帧触发，尺寸与子视图数都没变时直接跳过，
+    // 不再每帧扫子视图、取安全区（遮罩插入会改变子视图数，不会漏）。
+    CGSize size = hudView.bounds.size;
+    NSUInteger subviewCount = hudView.subviews.count;
+    NSArray *lastState = objc_getAssociatedObject(hudView, &kDKStatusBarCoverSyncStateKey);
+    if (lastState && CGSizeEqualToSize([lastState[0] CGSizeValue], size)
+        && [lastState[1] unsignedIntegerValue] == subviewCount) return;
+    objc_setAssociatedObject(hudView, &kDKStatusBarCoverSyncStateKey,
+        @[[NSValue valueWithCGSize:size], @(subviewCount)], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
     if (DKVideoFullscreenOn() || DKCommentFreezeOn()) {
         UIView *cover = DKFindHUDStatusBarCover(hudView);

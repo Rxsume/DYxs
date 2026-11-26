@@ -79,6 +79,13 @@ static NSMutableSet<NSString *> *DKXSNoHideButtonClasses(void) {
     dispatch_once(&once, ^{ classes = [NSMutableSet set]; });
     return classes;
 }
+// 0.6.9.59：%orig 本身在 40.1.0 上可能抛 KVC 异常，抛过一次的类不再调用 %orig，避免每帧 unwind。
+static NSMutableSet<NSString *> *DKXSOrigThrowClasses(void) {
+    static NSMutableSet<NSString *> *classes;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ classes = [NSMutableSet set]; });
+    return classes;
+}
 static BOOL DKXSStatusBarHiddenByClear(id vc) {
     if (!DKXSMisc5eGetBool(@"DKXSHideStatusBarOnClear")) return NO;
     NSString *className = NSStringFromClass([vc class]);
@@ -340,42 +347,66 @@ static void DKXSCollectFollowAuthorInfo(id model, NSString **nicknameOut, NSStri
 %hook AWEFeedRootViewController
 - (BOOL)prefersStatusBarHidden {
     if (DKXSMisc5eGetBool(@"DKXSHideStatusbar") || DKXSStatusBarHiddenByClear(self)) return YES;
-    @try { return %orig; } @catch (__unused NSException *exception) { return NO; }
+    if ([DKXSOrigThrowClasses() containsObject:NSStringFromClass(object_getClass(self))]) return NO;
+    @try { return %orig; } @catch (__unused NSException *exception) {
+        [DKXSOrigThrowClasses() addObject:NSStringFromClass(object_getClass(self))];
+        return NO;
+    }
 }
 %end
 
 %hook IESLiveAudienceViewController
 - (BOOL)prefersStatusBarHidden {
     if (DKXSMisc5eGetBool(@"DKXSHideStatusbar") || DKXSStatusBarHiddenByClear(self)) return YES;
-    @try { return %orig; } @catch (__unused NSException *exception) { return NO; }
+    if ([DKXSOrigThrowClasses() containsObject:NSStringFromClass(object_getClass(self))]) return NO;
+    @try { return %orig; } @catch (__unused NSException *exception) {
+        [DKXSOrigThrowClasses() addObject:NSStringFromClass(object_getClass(self))];
+        return NO;
+    }
 }
 %end
 
 %hook AWEAwemeDetailTableViewController
 - (BOOL)prefersStatusBarHidden {
     if (DKXSMisc5eGetBool(@"DKXSHideStatusbar") || DKXSStatusBarHiddenByClear(self)) return YES;
-    @try { return %orig; } @catch (__unused NSException *exception) { return NO; }
+    if ([DKXSOrigThrowClasses() containsObject:NSStringFromClass(object_getClass(self))]) return NO;
+    @try { return %orig; } @catch (__unused NSException *exception) {
+        [DKXSOrigThrowClasses() addObject:NSStringFromClass(object_getClass(self))];
+        return NO;
+    }
 }
 %end
 
 %hook AWEAwemeHotSpotTableViewController
 - (BOOL)prefersStatusBarHidden {
     if (DKXSMisc5eGetBool(@"DKXSHideStatusbar") || DKXSStatusBarHiddenByClear(self)) return YES;
-    @try { return %orig; } @catch (__unused NSException *exception) { return NO; }
+    if ([DKXSOrigThrowClasses() containsObject:NSStringFromClass(object_getClass(self))]) return NO;
+    @try { return %orig; } @catch (__unused NSException *exception) {
+        [DKXSOrigThrowClasses() addObject:NSStringFromClass(object_getClass(self))];
+        return NO;
+    }
 }
 %end
 
 %hook AWEFullPageFeedContainerViewController
 - (BOOL)prefersStatusBarHidden {
     if (DKXSMisc5eGetBool(@"DKXSHideStatusbar") || DKXSStatusBarHiddenByClear(self)) return YES;
-    @try { return %orig; } @catch (__unused NSException *exception) { return NO; }
+    if ([DKXSOrigThrowClasses() containsObject:NSStringFromClass(object_getClass(self))]) return NO;
+    @try { return %orig; } @catch (__unused NSException *exception) {
+        [DKXSOrigThrowClasses() addObject:NSStringFromClass(object_getClass(self))];
+        return NO;
+    }
 }
 %end
 
 %hook AFDPureModePageContainerViewController
 - (BOOL)prefersStatusBarHidden {
     if (DKXSMisc5eGetBool(@"DKXSHideStatusbar") || DKXSStatusBarHiddenByClear(self)) return YES;
-    @try { return %orig; } @catch (__unused NSException *exception) { return NO; }
+    if ([DKXSOrigThrowClasses() containsObject:NSStringFromClass(object_getClass(self))]) return NO;
+    @try { return %orig; } @catch (__unused NSException *exception) {
+        [DKXSOrigThrowClasses() addObject:NSStringFromClass(object_getClass(self))];
+        return NO;
+    }
 }
 %end
 

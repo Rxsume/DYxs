@@ -10,14 +10,41 @@
 
 #import <objc/runtime.h>
 
+// 0.6.9.59：DKPrefBool/DKPrefInteger 被布局期钩子逐帧调用，每次都走 CFPrefs 搜索链会拖死
+// 主线程（scene-update watchdog）。缓存原始值，NSUserDefaults 变更通知时整体失效。
+static NSMutableDictionary<NSString *, id> *DKPrefCache(void) {
+    static NSMutableDictionary<NSString *, id> *cache;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        cache = [NSMutableDictionary dictionary];
+        [[NSNotificationCenter defaultCenter] addObserverForName:NSUserDefaultsDidChangeNotification
+            object:nil queue:nil usingBlock:^(__unused NSNotification *note) {
+                @synchronized (cache) { [cache removeAllObjects]; }
+            }];
+    });
+    return cache;
+}
+static id DKPrefCachedObject(NSString *key) {
+    NSMutableDictionary<NSString *, id> *cache = DKPrefCache();
+    @synchronized (cache) {
+        id cached = cache[key];
+        if (cached) return cached == [NSNull null] ? nil : cached;
+    }
+    id value = [NSUserDefaults.standardUserDefaults objectForKey:key];
+    @synchronized (cache) { cache[key] = value ?: [NSNull null]; }
+    return value;
+}
+
 BOOL DKPrefBool(NSString *key) {
     if (DKGlassIsGatedKey(key) && !DKGlassOSAvailable()) return NO;
-    return [[NSUserDefaults standardUserDefaults] boolForKey:key];
+    id value = DKPrefCachedObject(key);
+    return [value respondsToSelector:@selector(boolValue)] ? [value boolValue] : NO;
 }
 
 NSInteger DKPrefInteger(NSString *key) {
     if (DKGlassIsGatedKey(key) && !DKGlassOSAvailable()) return 0;
-    return [[NSUserDefaults standardUserDefaults] integerForKey:key];
+    id value = DKPrefCachedObject(key);
+    return [value respondsToSelector:@selector(integerValue)] ? [value integerValue] : 0;
 }
 
 DKDisplayMode DKPrefDisplayMode(NSString *key) {
@@ -26,7 +53,7 @@ DKDisplayMode DKPrefDisplayMode(NSString *key) {
 }
 
 CGFloat DKPrefFraction(NSString *key, NSInteger defaultPercent) {
-    id raw = [NSUserDefaults.standardUserDefaults objectForKey:key];
+    id raw = DKPrefCachedObject(key);
     NSInteger percent = [raw respondsToSelector:@selector(integerValue)] ? [raw integerValue] : defaultPercent;
     return MIN(100, MAX(0, percent)) / 100.0;
 }
