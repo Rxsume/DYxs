@@ -1106,7 +1106,11 @@ BOOL DY778REConfirmParticipation(NSDictionary *payload, NSString *boxID) {
         CGRect bounds = window.bounds;
         CGFloat x = [position containsString:@"left"] ? margin : bounds.size.width - margin - size;
         CGFloat y = [position containsString:@"top"] ? margin + 44 : bounds.size.height - margin - size - 44;
-        self->_button.frame = CGRectMake(x, y, size, size);
+        CGRect targetFrame = CGRectMake(x, y, size, size);
+        // 已就位时跳过窗口操作：本函数会被布局回调高频调用，反复置顶会引发额外布局。
+        if (self->_button.superview == window && CGRectEqualToRect(self->_button.frame, targetFrame) &&
+            window.subviews.lastObject == self->_button) return;
+        self->_button.frame = targetFrame;
         if (self->_button.superview != window) [window addSubview:self->_button];
         [window bringSubviewToFront:self->_button];
     });
