@@ -11,6 +11,7 @@
 #import "DKAudioProbe.h"
 #import "DY778Core.h"
 #import "DY778LuckyBag.h"
+#import "DY778SuperLucky.h"
 #import "DY778LiveLike.h"
 #import "DKKeys.h"
 #import "DKSettings.h"
@@ -99,6 +100,7 @@ static AWESettingItemModel *DKMakeDebugSwitch(void) {
                 [report appendFormat:@"%@ = %@\n", key, [hooks[key] boolValue] ? @"OK" : @"FAIL"];
             [report appendString:DY778LuckyDiagnosticsText()];
             [report appendString:DY778LikeDiagnosticsText()];
+            [report appendString:DY778SLDiagnosticsText()];
             [report appendString:DKDCFeedProbeText()];
             [UIPasteboard generalPasteboard].string = report;
             DKDebugShowToast([NSString stringWithFormat:@"视图树已复制（%lu 字）", (unsigned long)report.length]);

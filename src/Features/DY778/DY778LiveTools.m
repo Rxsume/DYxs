@@ -1,6 +1,7 @@
 #import "DY778LiveTools.h"
 #import "DY778Core.h"
 #import "DY778LiveInfo.h"
+#import "DY778LiveGuest.h"
 #import "DY778LiveToolsPolicy.h"
 #import <QuartzCore/QuartzCore.h>
 
@@ -51,7 +52,8 @@ static void DY778ToolsInstall(NSString *className, NSString *selector, const cha
 static void DY778ToolsMain(dispatch_block_t block) {
     if (NSThread.isMainThread) block(); else dispatch_async(dispatch_get_main_queue(), block);
 }
-static BOOL DY778ToolsStealth(void) { return DY778Bool(@"liveTools.stealth"); }
+// 1.1-2 身份范围：房内用进房绑定身份，房外回退开关（见 DY778LiveGuest.h）。
+static BOOL DY778ToolsStealth(void) { return DY778LiveIdentityGuestActive(); }
 static BOOL DY778ToolsSchedulerOn(void) { return DY778Bool(@"liveTools.scheduler"); }
 static BOOL DY778ToolsRisk(void) { return DY778Bool(@"liveTools.risk"); }
 static double DY778ToolsInterval(void) { return DY778LiveToolsInterval(DY778Number(@"liveTools.interval")); }
@@ -173,9 +175,11 @@ static IMP DY778ToolsOriginalSendComment;
 
 void DY778LiveToolsRoomDidEnter(NSString *roomID) {
     if (!roomID.length) return;
+    DY778LiveIdentityRoomEntered(roomID);
     DY778ToolsMain(^{ [[DY778ToolsScheduler shared] enterRoom:roomID]; });
 }
 void DY778LiveToolsRoomDidExit(void) {
+    DY778LiveIdentityRoomExited();
     DY778ToolsMain(^{ [[DY778ToolsScheduler shared] exitRoom]; });
 }
 

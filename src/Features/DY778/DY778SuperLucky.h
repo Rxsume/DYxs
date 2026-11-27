@@ -18,6 +18,8 @@
 
 FOUNDATION_EXPORT void DY778InstallSuperLuckyHooks(void);
 FOUNDATION_EXPORT void DY778InstallSLGroupHooks(void);
+// 摇一摇导出诊断段（=== DY778 super lucky diagnostics ===）。
+FOUNDATION_EXPORT NSString *DY778SLDiagnosticsText(void);
 
 // 总开关（默认关，见 DY778SuperLuckyPolicy.h）。
 FOUNDATION_EXPORT BOOL DY778SuperLuckyEnabled(void);
@@ -58,15 +60,27 @@ FOUNDATION_EXPORT void DY778SLGroupTick(void);
 - (BOOL)expired;
 @end
 
-// ---------- 原生请求（规格 §4.4） ----------
-// 原版经 IESLiveCommonNetworkRequester 发 POST，其方法名未静态还原；
-// DYxs 侧用 NSURLSession POST 到规格 §5 的 lottery 端点
-// （https://lianmengapi.snssdk.com/live/lottery/%@/），附当前域的
-// Cookie，未证实服务端是否接受此路径。4 段 XOR 串（0x3cc2b0–0x3cc350）
-// 未解，不猜 URL 或签名字段。
+// ---------- 原生请求（规格 §4.4；1.1-2 逆向修正 2026-11-27） ----------
+// 1.1-2 实证：经 IESLiveCommonNetworkRequester + IESLiveJSNetworkJsonRequest
+// 发送（NSClassFromString 解析、逐键动态 setter set<Key>:、
+// request:numToString:callback:），URL 为
+// https://lianmengapi.snssdk.com/live/lottery/<command>/，command ∈
+// detail / execute_task / participate，method GET、version v1；请求 dict
+// {url, method, version, params, data}。DYxs 侧同款实现；类/方法缺失时
+// 回退 NSURLSession POST（旧路径，服务端是否接受未证实）。
+// 观看任务是否须真实停留未证实——DYxs 侧绝不伪造观看时长。
 @interface DY778SLNativeCall : NSObject
+@property(nonatomic, weak) id host;
+@property(nonatomic, copy) NSString *room;
+@property(nonatomic, copy) NSString *account;
+@property(nonatomic, copy) void (^response)(NSDictionary *response, NSError *error);
+@property(nonatomic, strong) NSArray *keeper;
+@property(nonatomic) BOOL finished;
+@property(nonatomic) BOOL started;
+- (void)command:(NSString *)command activity:(NSString *)activityID room:(NSString *)roomID params:(NSDictionary *)params completion:(void (^)(NSDictionary *response, NSError *error))completion;
 - (void)postActivity:(NSString *)activityID room:(NSString *)roomID task:(NSDictionary *)task completion:(void (^)(NSDictionary *response, NSError *error))completion;
 - (void)executeTask:(NSString *)taskID activity:(NSString *)activityID room:(NSString *)roomID completion:(void (^)(NSDictionary *response, NSError *error))completion;
+- (void)finish:(NSDictionary *)response error:(NSError *)error;
 @end
 
 // ---------- 状态机：DY778SLCoordinator（规格 §4.1，50 方法的精简复刻） ----------

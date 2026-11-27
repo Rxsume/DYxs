@@ -94,12 +94,188 @@ static void DY778FansInstallProfile(void) {
     });
     class_replaceMethod(container, sel, replacement, method_getTypeEncoding(method)); hitInstalled = YES;
 }
+static void DY778FansInstallProfileLevel(void);
+static void DY778FansLevelBind(UIView *cell);
+static NSHashTable *DY778FansLevelCells;
 void DY778InstallFansHooks(void) {
     DY778FansInstallProfile();
+    DY778FansInstallProfileLevel();
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         [NSNotificationCenter.defaultCenter addObserverForName:DY778PreferencesChangedNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
             for (id owner in DY778FansProfileOwners.allObjects) DY778FansUpdateProfile(owner);
+            for (UIView *cell in DY778FansLevelCells.allObjects) DY778FansLevelBind(cell);
         }];
     });
+}
+
+// ---------- 主页消费等级胶囊（1.1-2 DY778FansLevelLabel/ProfileLevelTarget 移植） ----------
+// 单独开关 fans.profileLevel（默认关）；星牌查询 fans.enabled 未开时不显示。
+// 胶囊挂在主页粉丝统计区「粉丝」标题旁；等级走 DY778FansService 查询，
+// 按 person 缓存，同一人只查一次。
+static char DY778FansLevelLabelKeyStorage;
+static const void *DY778FansLevelLabelKey = &DY778FansLevelLabelKeyStorage;
+static char DY778FansLevelPersonKeyStorage;
+static const void *DY778FansLevelPersonKey = &DY778FansLevelPersonKeyStorage;
+static NSHashTable *DY778FansLevelCells;
+static NSMutableDictionary<NSString *, NSNumber *> *DY778FansLevelCache;
+static NSMutableSet<NSString *> *DY778FansLevelInFlight;
+
+@interface DY778FansLevelLabel : UILabel
+- (void)configureLevel:(NSNumber *)level;
+- (void)configureLoading;
+@end
+
+@implementation DY778FansLevelLabel
+- (instancetype)initWithFrame:(CGRect)frame {
+    if ((self = [super initWithFrame:frame])) {
+        self.textAlignment = NSTextAlignmentCenter;
+        self.clipsToBounds = YES;
+        self.userInteractionEnabled = NO;
+    }
+    return self;
+}
+- (CGFloat)DY778Scale {
+    id value = [DY778Preferences() objectForKey:@"fans.levelScale"];
+    CGFloat scale = [value respondsToSelector:@selector(doubleValue)] ? [value doubleValue] : 1.0;
+    return MAX(0.6, MIN(1.6, scale > 0 ? scale : 1.0));
+}
+- (void)DY778ApplyStyle {
+    id fontValue = [DY778Preferences() objectForKey:@"fans.levelFontSize"];
+    CGFloat fontSize = [fontValue respondsToSelector:@selector(doubleValue)] ? [fontValue doubleValue] : 11;
+    if (fontSize <= 0) fontSize = 11;
+    self.font = [UIFont systemFontOfSize:fontSize * [self DY778Scale] weight:UIFontWeightSemibold];
+    NSString *colorName = [DY778Preferences() objectForKey:@"fans.levelColor"];
+    UIColor *background = [UIColor colorWithRed:0.98 green:0.75 blue:0.25 alpha:1]; // 金色
+    if ([colorName isEqualToString:@"blue"]) background = UIColor.systemBlueColor;
+    else if ([colorName isEqualToString:@"pink"]) background = UIColor.systemPinkColor;
+    else if ([colorName isEqualToString:@"gray"]) background = UIColor.systemGrayColor;
+    self.backgroundColor = background;
+    self.textColor = UIColor.whiteColor;
+}
+- (void)configureLevel:(NSNumber *)level {
+    [self DY778ApplyStyle];
+    self.text = level ? [NSString stringWithFormat:@"Lv.%@", level] : @"Lv.?";
+    [self setNeedsLayout];
+}
+- (void)configureLoading {
+    [self DY778ApplyStyle];
+    self.text = @"Lv.…";
+    [self setNeedsLayout];
+}
+- (CGSize)intrinsicContentSize {
+    CGSize size = [super intrinsicContentSize];
+    CGFloat scale = [self DY778Scale];
+    return CGSizeMake(size.width + 12 * scale, MAX(16 * scale, size.height + 4 * scale));
+}
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    self.layer.cornerRadius = self.bounds.size.height / 2;
+}
+@end
+
+static NSString *DY778FansLevelPersonKeyOf(NSDictionary *person) {
+    NSString *uid = person[@"uid"];
+    if ([uid isKindOfClass:NSString.class] && uid.length) return uid;
+    NSString *sec = person[@"secUID"];
+    return [sec isKindOfClass:NSString.class] ? sec : nil;
+}
+
+static NSDictionary *DY778FansLevelPersonForCell(UIView *cell) {
+    for (NSString *key in @[@"userModel", @"user", @"profileUser"]) {
+        NSDictionary *person = DY778FansPerson(DY778FansRead(cell, key));
+        if (person) return person;
+    }
+    id context = DY778FansRead(cell, @"context");
+    if (context) {
+        NSDictionary *person = DY778FansPerson(DY778FansCall(context, @"userModel", @[]));
+        if (person) return person;
+    }
+    for (UIResponder *responder = cell.nextResponder; responder; responder = responder.nextResponder) {
+        if (![responder isKindOfClass:UIViewController.class]) continue;
+        NSDictionary *person = DY778FansPerson(DY778FansCall(responder, @"userModel", @[]));
+        if (person) return person;
+    }
+    for (id owner in DY778FansProfileOwners.allObjects) {
+        NSDictionary *person = DY778FansPerson(DY778FansCall(owner, @"userModel", @[]));
+        if (person) return person;
+    }
+    return nil;
+}
+
+static UILabel *DY778FansFindTitleLabel(UIView *root, NSString *title) {
+    if ([root isKindOfClass:UILabel.class] && [((UILabel *)root).text isEqualToString:title]) return (UILabel *)root;
+    for (UIView *sub in root.subviews) {
+        UILabel *found = DY778FansFindTitleLabel(sub, title);
+        if (found) return found;
+    }
+    return nil;
+}
+
+static void DY778FansLevelBind(UIView *cell) {
+    if (![cell isKindOfClass:UIView.class]) return;
+    DY778FansLevelLabel *label = objc_getAssociatedObject(cell, DY778FansLevelLabelKey);
+    if (!DY778Bool(@"fans.enabled") || !DY778Bool(@"fans.profileLevel")) { label.hidden = YES; return; }
+    UILabel *fansTitle = DY778FansFindTitleLabel(cell, @"粉丝");
+    if (!fansTitle) { label.hidden = YES; return; }
+    if (!label) {
+        label = [DY778FansLevelLabel new];
+        [cell addSubview:label];
+        objc_setAssociatedObject(cell, DY778FansLevelLabelKey, label, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (!DY778FansLevelCells) DY778FansLevelCells = [NSHashTable weakObjectsHashTable];
+        [DY778FansLevelCells addObject:cell];
+    }
+    // 定位：粉丝标题右侧，垂直居中对齐标题。
+    CGRect titleFrame = [fansTitle convertRect:fansTitle.bounds toView:cell];
+    CGSize size = label.intrinsicContentSize;
+    label.frame = CGRectMake(CGRectGetMaxX(titleFrame) + 4,
+                             CGRectGetMidY(titleFrame) - size.height / 2,
+                             size.width, size.height);
+    label.hidden = NO;
+    [cell bringSubviewToFront:label];
+    NSDictionary *person = DY778FansLevelPersonForCell(cell);
+    NSString *key = person ? DY778FansLevelPersonKeyOf(person) : nil;
+    if (!key) { [label configureLoading]; return; }
+    NSString *bound = objc_getAssociatedObject(cell, DY778FansLevelPersonKey);
+    if ([bound isEqualToString:key]) return;
+    objc_setAssociatedObject(cell, DY778FansLevelPersonKey, key, OBJC_ASSOCIATION_COPY_NONATOMIC);
+    if (!DY778FansLevelCache) DY778FansLevelCache = [NSMutableDictionary dictionary];
+    NSNumber *cached = DY778FansLevelCache[key];
+    if (cached) { [label configureLevel:cached]; return; }
+    [label configureLoading];
+    if (!DY778FansLevelInFlight) DY778FansLevelInFlight = [NSMutableSet set];
+    if ([DY778FansLevelInFlight containsObject:key]) return;
+    [DY778FansLevelInFlight addObject:key];
+    DY778FansService *service = [DY778FansService new];
+    __weak UIView *weakCell = cell;
+    [service queryInput:@"" mode:DY778FansInputAutomatic target:person anchor:nil completion:^(DY778FansResult *result, NSError *error) {
+        [DY778FansLevelInFlight removeObject:key];
+        UIView *strongCell = weakCell;
+        if (!strongCell) return;
+        NSString *current = objc_getAssociatedObject(strongCell, DY778FansLevelPersonKey);
+        if (![current isEqualToString:key]) return;
+        DY778FansLevelLabel *boundLabel = objc_getAssociatedObject(strongCell, DY778FansLevelLabelKey);
+        if (result.level) {
+            DY778FansLevelCache[key] = result.level;
+            [boundLabel configureLevel:result.level];
+        } else {
+            [boundLabel configureLevel:nil];
+        }
+    }];
+}
+
+static void DY778FansInstallProfileLevel(void) {
+    static BOOL installed;
+    if (installed) return;
+    Class cls = NSClassFromString(@"AWEProfileHeaderSocialStatisticCollectionViewCellV2");
+    SEL sel = @selector(layoutSubviews);
+    Method method = cls ? class_getInstanceMethod(cls, sel) : NULL;
+    if (!DY778FansMatch(method, "v", "")) return;
+    IMP original = method_getImplementation(method);
+    IMP replacement = imp_implementationWithBlock(^(UIView *cell) {
+        ((void (*)(id, SEL))original)(cell, sel);
+        DY778FansLevelBind(cell);
+    });
+    class_replaceMethod(cls, sel, replacement, method_getTypeEncoding(method));
+    installed = YES;
 }
