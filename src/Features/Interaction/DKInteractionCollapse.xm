@@ -4,16 +4,17 @@
 //  一起滑出淡出且不拦截点击（点按落到视频上）；收缩圆键在头像上方贴右边缘吸附
 //  （自建玻璃圆键，只露一小条，点它展开底栏），底栏展开时右侧按钮回来、圆键消失。
 //
-//  transform 处理（0.6.9.75 重写，修右侧错位）：绝不把某一时刻捕获的 transform
-//  当「基准」回写——抖音在 cell 出现动画中会给元素写瞬态缩放/位移，旧版把瞬态值
-//  记成基准、展开时回写，元素就永久错位变小且每轮重录自 perpetuate。新版只在
-//  元素当前 transform 上叠加/撤掉我们自己的平移量：写之前先按「上次写入值」
-//  判断当前 transform 是否还是我们写的那份，是则先撤掉旧平移再叠新的；若已被
-//  外部改写（抖音重置/动画），就以当前值为准重新叠加，展开时只撤自己的平移、
-//  不碰外部写的值。
+//  位移方式（0.6.9.76 改）：只动元素 center，绝不碰 transform。
+//  旧版两代 transform 方案都出过事：63 版把某时刻的 transform 记成基准回写，
+//  抖音出现动画的瞬态缩放被固化（元素变小错位）；75 版靠「上次写入值」浮点比对
+//  叠加/撤销平移，比对在真机上总被外部改写打断，平移逐轮叠加、元素飞出屏幕缩没。
+//  center 方案：收缩时把 center 右移一个栈宽，记下原 center 与写入 center；
+//  布局期发现 center 被抖音布局重置回原位就重新右移，发现被移到别处就以新位置
+//  为原位重新右移；展开时 center 还是我们写的那份才还原，已被抖音接管就不碰。
+//  抖音自己的布局每轮都会把元素放回自然位置，天然兜底，不存在叠加漂移。
 //
-//  性能（0.6.9.75）：右侧栈判定与头像元素按栈缓存（子视图签名变化才重查），
-//  布局期不再逐元素递归搜子树；transform/alpha 只在值变化时写。
+//  性能：右侧栈判定与头像元素按栈缓存（子视图签名变化才重查），
+//  布局期不再逐元素递归搜子树；center/alpha 只在值变化时写。
 //
 
 #import "DKInteractionCollapse.h"
@@ -26,8 +27,8 @@
 
 static BOOL gInteractionCollapsed = NO;
 static NSHashTable<UIView *> *gInteractionStacks = nil;
-static char kDKInteractionAppliedOffsetKey;
-static char kDKInteractionLastWrittenKey;
+static char kDKInteractionStoredCenterKey;
+static char kDKInteractionWrittenCenterKey;
 static char kDKInteractionModifiedKey;
 static char kDKInteractionKeyViewKey;
 static char kDKInteractionRightStackKey;
@@ -120,54 +121,42 @@ static UIView *DKInteractionAvatarElement(UIView *stack) {
     return avatar;
 }
 
-#pragma mark - transform 平移叠加/撤销
+#pragma mark - center 位移
 
-static CGFloat DKInteractionAppliedOffset(UIView *element) {
-    return [objc_getAssociatedObject(element, &kDKInteractionAppliedOffsetKey) doubleValue];
+static BOOL DKInteractionCenterClose(CGPoint a, CGPoint b) {
+    return fabs(a.x - b.x) < 0.5 && fabs(a.y - b.y) < 0.5;
 }
 
-static BOOL DKInteractionOffsetIntact(UIView *element) {
-    NSValue *lastWritten = objc_getAssociatedObject(element, &kDKInteractionLastWrittenKey);
-    if (!lastWritten) return NO;
-    return CGAffineTransformEqualToTransform(element.transform, lastWritten.CGAffineTransformValue);
-}
-
-// 当前 transform 去掉我们自己的平移后的「干净」值；若已被外部改写，
-// 说明我们的平移已不在其中，直接以当前值为准并清掉记账。
-static CGAffineTransform DKInteractionCleanTransform(UIView *element) {
-    CGFloat applied = DKInteractionAppliedOffset(element);
-    if (applied == 0) return element.transform;
-    if (!DKInteractionOffsetIntact(element)) {
-        objc_setAssociatedObject(element, &kDKInteractionAppliedOffsetKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        objc_setAssociatedObject(element, &kDKInteractionLastWrittenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        return element.transform;
+// 收缩落定：确保元素 center 在原位 + offset 处。返回是否需要动画由调用方决定，
+// 这里只做即时落定（布局期兜底）。
+static void DKInteractionSettleCollapsed(UIView *element, CGFloat offset) {
+    NSValue *storedValue = objc_getAssociatedObject(element, &kDKInteractionStoredCenterKey);
+    NSValue *writtenValue = objc_getAssociatedObject(element, &kDKInteractionWrittenCenterKey);
+    CGPoint current = element.center;
+    if (writtenValue && DKInteractionCenterClose(current, writtenValue.CGPointValue)) return;
+    CGPoint stored;
+    if (storedValue && DKInteractionCenterClose(current, storedValue.CGPointValue)) {
+        stored = storedValue.CGPointValue;
+    } else {
+        // 抖音把元素放到了新位置（或首次收缩）：以当前为原位。
+        stored = current;
     }
-    return CGAffineTransformConcat(element.transform, CGAffineTransformMakeTranslation(-applied, 0));
-}
-
-static void DKInteractionWriteTransform(UIView *element, CGAffineTransform transform, CGFloat appliedOffset) {
-    element.transform = transform;
-    objc_setAssociatedObject(element, &kDKInteractionAppliedOffsetKey, @(appliedOffset), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    objc_setAssociatedObject(element, &kDKInteractionLastWrittenKey,
-        [NSValue valueWithCGAffineTransform:transform], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
-
-static CGAffineTransform DKInteractionTargetTransform(UIView *element, CGFloat offset) {
-    CGAffineTransform clean = DKInteractionCleanTransform(element);
-    if (offset == 0) return clean;
-    return CGAffineTransformConcat(clean, CGAffineTransformMakeTranslation(offset, 0));
+    CGPoint written = CGPointMake(stored.x + offset, stored.y);
+    objc_setAssociatedObject(element, &kDKInteractionStoredCenterKey,
+        [NSValue valueWithCGPoint:stored], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(element, &kDKInteractionWrittenCenterKey,
+        [NSValue valueWithCGPoint:written], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    element.center = written;
 }
 
 static void DKInteractionRestoreElement(UIView *element) {
-    if (DKInteractionAppliedOffset(element) != 0) {
-        CGAffineTransform clean = DKInteractionCleanTransform(element);
-        if (!CGAffineTransformEqualToTransform(element.transform, clean)) {
-            DKInteractionWriteTransform(element, clean, 0);
-        } else {
-            objc_setAssociatedObject(element, &kDKInteractionAppliedOffsetKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            objc_setAssociatedObject(element, &kDKInteractionLastWrittenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }
+    NSValue *storedValue = objc_getAssociatedObject(element, &kDKInteractionStoredCenterKey);
+    NSValue *writtenValue = objc_getAssociatedObject(element, &kDKInteractionWrittenCenterKey);
+    if (storedValue && writtenValue && DKInteractionCenterClose(element.center, writtenValue.CGPointValue)) {
+        element.center = storedValue.CGPointValue;
     }
+    objc_setAssociatedObject(element, &kDKInteractionStoredCenterKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(element, &kDKInteractionWrittenCenterKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     element.alpha = 1.0;
     element.userInteractionEnabled = YES;
     objc_setAssociatedObject(element, &kDKInteractionModifiedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -237,9 +226,15 @@ static void DKInteractionLayoutKey(UIView *stack) {
         key.hidden = YES;
         return;
     }
-    // 用 center/bounds 算头像原位（不受 transform 影响，头像收缩后圆键位置不变）。
-    CGPoint avatarCenter = [stack convertPoint:avatar.center toView:host];
-    CGFloat avatarMinY = avatarCenter.y - CGRectGetHeight(avatar.bounds) / 2.0;
+    // 头像原位：收缩时 center 已右移，用记账的原 center；否则用当前 center。
+    CGPoint avatarCenter = avatar.center;
+    NSValue *storedValue = objc_getAssociatedObject(avatar, &kDKInteractionStoredCenterKey);
+    NSValue *writtenValue = objc_getAssociatedObject(avatar, &kDKInteractionWrittenCenterKey);
+    if (storedValue && writtenValue && DKInteractionCenterClose(avatarCenter, writtenValue.CGPointValue)) {
+        avatarCenter = storedValue.CGPointValue;
+    }
+    CGPoint avatarCenterInHost = [stack convertPoint:avatarCenter toView:host];
+    CGFloat avatarMinY = avatarCenterInHost.y - CGRectGetHeight(avatar.bounds) / 2.0;
     CGFloat side = kDKInteractionKeySide;
     // 圆键贴右边缘吸附：只露出一小条，其余藏到边缘外，点露出部分展开。
     CGFloat x = CGRectGetWidth(host.bounds) - kDKInteractionKeyPeek;
@@ -302,19 +297,15 @@ void DKInteractionCollapseApplyStack(UIView *stack) {
     CGFloat offset = CGRectGetWidth(stack.bounds) + 24.0;
     for (UIView *element in stack.subviews) {
         if (gInteractionCollapsed) {
-            // 已落定（当前值就是我们写的那份且平移量对）就不再写，避免打断动画与无谓布局。
-            if (DKInteractionAppliedOffset(element) == offset && DKInteractionOffsetIntact(element)) {
-                if (element.alpha != 0.0) element.alpha = 0.0;
-                continue;
-            }
             objc_setAssociatedObject(element, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             objc_setAssociatedObject(stack, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             element.userInteractionEnabled = NO;
-            element.alpha = 0.0;
-            DKInteractionWriteTransform(element, DKInteractionTargetTransform(element, offset), offset);
+            if (element.alpha != 0.0) element.alpha = 0.0;
+            DKInteractionSettleCollapsed(element, offset);
         } else if ([objc_getAssociatedObject(element, &kDKInteractionModifiedKey) boolValue]) {
-            // 展开动画由 SetCollapsed 驱动；布局期只兜底撤销残留平移（动画被打断/外部改写时）。
-            if (!DKInteractionOffsetIntact(element)) {
+            // 展开动画由 SetCollapsed 驱动；布局期只兜底：动画被打断且 center 还在写入位时还原。
+            NSValue *writtenValue = objc_getAssociatedObject(element, &kDKInteractionWrittenCenterKey);
+            if (!writtenValue || !DKInteractionCenterClose(element.center, writtenValue.CGPointValue)) {
                 DKInteractionRestoreElement(element);
             }
         }
@@ -338,29 +329,47 @@ void DKInteractionCollapseSetCollapsed(BOOL collapsed) {
         }
         CGFloat offset = CGRectGetWidth(stack.bounds) + 24.0;
         for (UIView *element in stack.subviews) {
+            CGPoint target;
             if (collapsed) {
                 objc_setAssociatedObject(element, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
                 objc_setAssociatedObject(stack, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
                 element.userInteractionEnabled = NO;
+                NSValue *storedValue = objc_getAssociatedObject(element, &kDKInteractionStoredCenterKey);
+                NSValue *writtenValue = objc_getAssociatedObject(element, &kDKInteractionWrittenCenterKey);
+                CGPoint stored;
+                if (writtenValue && DKInteractionCenterClose(element.center, writtenValue.CGPointValue) && storedValue) {
+                    stored = storedValue.CGPointValue;
+                } else if (storedValue && DKInteractionCenterClose(element.center, storedValue.CGPointValue)) {
+                    stored = storedValue.CGPointValue;
+                } else {
+                    stored = element.center;
+                }
+                target = CGPointMake(stored.x + offset, stored.y);
+                objc_setAssociatedObject(element, &kDKInteractionStoredCenterKey,
+                    [NSValue valueWithCGPoint:stored], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                objc_setAssociatedObject(element, &kDKInteractionWrittenCenterKey,
+                    [NSValue valueWithCGPoint:target], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            } else {
+                NSValue *storedValue = objc_getAssociatedObject(element, &kDKInteractionStoredCenterKey);
+                NSValue *writtenValue = objc_getAssociatedObject(element, &kDKInteractionWrittenCenterKey);
+                if (storedValue && writtenValue && DKInteractionCenterClose(element.center, writtenValue.CGPointValue)) {
+                    target = storedValue.CGPointValue;
+                } else {
+                    target = element.center;
+                }
             }
-            CGAffineTransform target = DKInteractionTargetTransform(element, collapsed ? offset : 0);
-            // 先记账再动画：模型值立即变成 target，布局期靠记账判断是否已落定。
-            objc_setAssociatedObject(element, &kDKInteractionAppliedOffsetKey,
-                @(collapsed ? offset : 0), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            objc_setAssociatedObject(element, &kDKInteractionLastWrittenKey,
-                [NSValue valueWithCGAffineTransform:target], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             CGFloat alpha = collapsed ? 0.0 : 1.0;
             [UIView animateWithDuration:0.4 delay:0.0 usingSpringWithDamping:0.86 initialSpringVelocity:0.0
                                 options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
                              animations:^{
                                  element.alpha = alpha;
-                                 element.transform = target;
+                                 element.center = target;
                              } completion:^(BOOL finished) {
                                  if (!collapsed) {
                                      element.userInteractionEnabled = YES;
                                      objc_setAssociatedObject(element, &kDKInteractionModifiedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                                     objc_setAssociatedObject(element, &kDKInteractionAppliedOffsetKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                                     objc_setAssociatedObject(element, &kDKInteractionLastWrittenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                                     objc_setAssociatedObject(element, &kDKInteractionStoredCenterKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                                     objc_setAssociatedObject(element, &kDKInteractionWrittenCenterKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
                                  }
                              }];
         }
