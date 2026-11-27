@@ -164,13 +164,6 @@ void DKTabBarCollapseDetach(void) {
             @"收缩后圆键以外的位置不拦截点击，拍摄键一起隐藏。需开启「悬浮玻璃底栏」，仅 iPhone 可用。");
     });
 
-    DKSettingsRegister(DKKeyGlassTabBarCollapsePeek, ^AWESettingItemModel *{
-        AWESettingItemModel *item = DKMakeSwitch(DKKeyGlassTabBarCollapsePeek, @"收缩圆键贴边隐藏",
-            @"开启后，收缩的系统圆键自动贴到右侧边缘，只露出一小条，点露出部分展开底栏。"
-            @"需开启「悬浮玻璃底栏」与「动态收缩底栏」。");
-        return DKSettingsOnChange(item, ^{ DKGlassTabBarRefresh(); });
-    });
-
     if (DKCollapseSupported()) {
         %init(DKTabBarCollapseHooks);
     }
