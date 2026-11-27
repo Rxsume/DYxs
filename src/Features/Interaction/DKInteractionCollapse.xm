@@ -1,8 +1,9 @@
 //
 //  DKInteractionCollapse.xm
 //  功能：右侧互动区随底栏动态收缩 —— 底栏收成圆键时，右侧点赞/评论/收藏/分享
-//  一起滑出淡出且不拦截点击（点按落到视频上），头像保留；收缩圆键改到头像正下方
-//  （自建玻璃圆键，点它展开底栏），底栏展开时右侧按钮回来、圆键消失。
+//  一起滑出淡出且不拦截点击（点按落到视频上），头像保留；展开入口改为贴右侧
+//  边缘的小圆键（收缩时从边缘侧入，点它展开底栏），底栏展开时右侧按钮回来、
+//  小圆键收起。
 //  收缩位移叠加在元素缩放的 transform 之上，基准 transform 每轮布局重新记录。
 //
 
@@ -20,8 +21,10 @@ static char kDKInteractionBaseTransformKey;
 static char kDKInteractionModifiedKey;
 static char kDKInteractionKeyViewKey;
 
-static const CGFloat kDKInteractionKeySide = 62.0;
+static const CGFloat kDKInteractionKeySide = 32.0;
 static const CGFloat kDKInteractionKeyGap = 8.0;
+// 小圆键贴右侧边缘：露出部分宽度，其余藏在边缘外。
+static const CGFloat kDKInteractionKeyPeek = 22.0;
 static const NSInteger kDKInteractionKeyIconTag = 7701;
 
 static BOOL DKInteractionCollapseEnabled(void) {
@@ -167,14 +170,14 @@ static void DKInteractionLayoutKey(UIView *stack) {
     }
     CGRect avatarFrame = [stack convertRect:avatar.frame toView:host];
     CGFloat side = kDKInteractionKeySide;
-    CGFloat x = CGRectGetMidX(avatarFrame) - side / 2.0;
-    x = MIN(MAX(x, 4.0), CGRectGetWidth(host.bounds) - side - 4.0);
+    // 贴右侧边缘：只露出 kDKInteractionKeyPeek，其余藏在边缘外，点露出部分展开。
+    CGFloat x = CGRectGetWidth(host.bounds) - kDKInteractionKeyPeek;
     CGFloat y = CGRectGetMaxY(avatarFrame) + kDKInteractionKeyGap;
     CGRect frame = CGRectMake(x, y, side, side);
     if (!CGRectEqualToRect(key.frame, frame)) key.frame = frame;
 
     UIImageView *icon = (UIImageView *)[key viewWithTag:kDKInteractionKeyIconTag];
-    if (icon) icon.frame = CGRectMake((side - 26.0) / 2.0, (side - 26.0) / 2.0, 26.0, 26.0);
+    if (icon) icon.frame = CGRectMake((side - 16.0) / 2.0, (side - 16.0) / 2.0, 16.0, 16.0);
     for (UIView *subview in ((UIVisualEffectView *)key).contentView.subviews) {
         if ([subview isKindOfClass:UIButton.class]) subview.frame = key.bounds;
     }
@@ -246,11 +249,22 @@ void DKInteractionCollapseSetCollapsed(BOOL collapsed) {
             if (collapsed) {
                 DKInteractionUpdateKeyIcon(key);
                 key.hidden = NO;
+                // 从右侧边缘外侧入到露出位置。
+                key.transform = CGAffineTransformMakeTranslation(kDKInteractionKeySide, 0);
             }
             [UIView animateWithDuration:0.4 delay:0.0 usingSpringWithDamping:0.86 initialSpringVelocity:0.0
                                 options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
-                             animations:^{ key.alpha = collapsed ? 1.0 : 0.0; }
-                             completion:^(BOOL finished) { if (!collapsed) key.hidden = YES; }];
+                             animations:^{
+                                 key.alpha = collapsed ? 1.0 : 0.0;
+                                 key.transform = collapsed ? CGAffineTransformIdentity
+                                                           : CGAffineTransformMakeTranslation(kDKInteractionKeySide, 0);
+                             }
+                             completion:^(BOOL finished) {
+                                 if (!collapsed) {
+                                     key.hidden = YES;
+                                     key.transform = CGAffineTransformIdentity;
+                                 }
+                             }];
         }
         for (UIView *element in stack.subviews) {
             if (DKInteractionIsAvatarElement(element)) continue;
@@ -293,7 +307,7 @@ static void DKInteractionCollapseRefresh(void) {
     DKSettingsRegister(DKKeyInteractionCollapse, ^AWESettingItemModel *{
         AWESettingItemModel *item = DKMakeSwitch(DKKeyInteractionCollapse, @"右侧按钮随底栏收缩",
             @"开启后，底栏动态收缩时右侧点赞、评论、收藏、分享按钮一起滑出隐藏且不拦截点击，头像保留；"
-            @"收缩圆键改到头像正下方，点它或下滑展开。需开启「悬浮玻璃底栏」与「动态收缩底栏」。");
+            @"展开入口是贴右侧边缘的小圆键，点它或下滑展开。需开启「悬浮玻璃底栏」与「动态收缩底栏」。");
         return DKSettingsOnChange(item, ^{ DKInteractionCollapseRefresh(); });
     });
 }
