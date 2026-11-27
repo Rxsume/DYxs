@@ -1,7 +1,7 @@
 //
 //  DKInteractionCollapse.xm
 //  功能：右侧互动区随底栏动态收缩 —— 底栏收成圆键时，右侧点赞/评论/收藏/分享
-//  一起滑出淡出且不拦截点击（点按落到视频上），头像保留；收缩圆键改到头像正下方
+//  一起滑出淡出且不拦截点击（点按落到视频上），头像保留；收缩圆键改到头像正上方
 //  （自建玻璃圆键，点它展开底栏），底栏展开时右侧按钮回来、圆键消失。
 //  收缩位移叠加在元素缩放的 transform 之上，基准 transform 每轮布局重新记录。
 //
@@ -98,7 +98,7 @@ static void DKInteractionRestoreElement(UIView *element) {
     objc_setAssociatedObject(element, &kDKInteractionModifiedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-#pragma mark - 头像下方圆键
+#pragma mark - 头像上方圆键
 
 @interface DKInteractionKeyTarget : NSObject
 - (void)keyDidTap;
@@ -169,7 +169,7 @@ static void DKInteractionLayoutKey(UIView *stack) {
     CGFloat side = kDKInteractionKeySide;
     CGFloat x = CGRectGetMidX(avatarFrame) - side / 2.0;
     x = MIN(MAX(x, 4.0), CGRectGetWidth(host.bounds) - side - 4.0);
-    CGFloat y = CGRectGetMaxY(avatarFrame) + kDKInteractionKeyGap;
+    CGFloat y = CGRectGetMinY(avatarFrame) - kDKInteractionKeyGap - side;
     CGRect frame = CGRectMake(x, y, side, side);
     if (!CGRectEqualToRect(key.frame, frame)) key.frame = frame;
 
@@ -293,7 +293,7 @@ static void DKInteractionCollapseRefresh(void) {
     DKSettingsRegister(DKKeyInteractionCollapse, ^AWESettingItemModel *{
         AWESettingItemModel *item = DKMakeSwitch(DKKeyInteractionCollapse, @"右侧按钮随底栏收缩",
             @"开启后，底栏动态收缩时右侧点赞、评论、收藏、分享按钮一起滑出隐藏且不拦截点击，头像保留；"
-            @"收缩圆键改到头像正下方，点它或下滑展开。需开启「悬浮玻璃底栏」与「动态收缩底栏」。");
+            @"收缩圆键改到头像正上方，点它或下滑展开。需开启「悬浮玻璃底栏」与「动态收缩底栏」。");
         return DKSettingsOnChange(item, ^{ DKInteractionCollapseRefresh(); });
     });
 }
