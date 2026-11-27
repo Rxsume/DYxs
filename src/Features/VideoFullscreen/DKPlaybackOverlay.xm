@@ -107,12 +107,18 @@ void DKPlaybackOverlayLayoutProgress(UIView *container) {
 static void DKSpeedSyncBackdrop(AFDFastSpeedView *view) {
     [gDKSpeedViews addObject:view];
     BOOL active = DKPlaybackOverlayActive();
+    DKOverlayClearColor(view, active);
     // 三个具名槽位只含原生背景，文字、箭头与手势视图保留。
     for (UIView *background in @[ view.bottomBlackView ?: NSNull.null,
                                   view.bottomBackGroundView ?: NSNull.null,
                                   view.foldableBottomTextBackgroundView ?: NSNull.null ]) {
         if (![background isKindOfClass:UIView.class]) continue;
         DKOverlayClearColor(background, active);
+    }
+    // DYYY 3.0.1 的做法：倍速浮层里所有纯 UIView 直属子视图都是背景层，一并清掉。
+    // 40.1.0 上底栏黑底不在三个具名槽位里，只清槽位清不掉。
+    for (UIView *subview in view.subviews) {
+        if ([subview class] == [UIView class]) DKOverlayClearColor(subview, active);
     }
 }
 
@@ -175,3 +181,4 @@ void DKPlaybackOverlayRefresh(void) {
     if (NSClassFromString(@"AFDFastSpeedView")) { %init(DKSpeedBackdrop); }
     if (NSClassFromString(@"AFDRoundRectangleBoxView")) { %init(DKPureControlBackdrop); }
 }
+
