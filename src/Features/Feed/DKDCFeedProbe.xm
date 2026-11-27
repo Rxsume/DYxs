@@ -7,6 +7,7 @@
 
 #import "DKDCFeedProbe.h"
 
+#import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 
 @interface AWEDCFeedSwitchPreviewViewController : UIViewController
