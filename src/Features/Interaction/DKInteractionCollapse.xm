@@ -1,10 +1,9 @@
 //
 //  DKInteractionCollapse.xm
 //  功能：右侧互动区随底栏动态收缩 —— 底栏收成圆键时，右侧点赞/评论/收藏/分享
-//  一起滑出淡出且不拦截点击（点按落到视频上），头像保留；展开入口是画中画
-//  悬浮窗（显示当前页图标，可拖动、拖到侧边吸附隐藏、大小可调），点它或系统
-//  还原按钮展开底栏；底栏展开时右侧按钮回来、悬浮窗关闭。画中画不可用时
-//  回退到贴右侧边缘的小圆键。
+//  一起滑出淡出且不拦截点击（点按落到视频上），头像保留；展开入口改为贴右侧
+//  边缘的小圆键（收缩时从边缘侧入，点它展开底栏），底栏展开时右侧按钮回来、
+//  小圆键收起。
 //  收缩位移叠加在元素缩放的 transform 之上，基准 transform 每轮布局重新记录。
 //
 
@@ -14,7 +13,6 @@
 #import "DKSettings.h"
 #import "DKUtils.h"
 
-#import <AVKit/AVKit.h>
 #import <objc/runtime.h>
 
 static BOOL gInteractionCollapsed = NO;
@@ -185,161 +183,6 @@ static void DKInteractionLayoutKey(UIView *stack) {
     }
 }
 
-#pragma mark - 画中画悬浮窗
-
-// 机制取自 Yoroin/GlobalRefresh-PiP 的 VideoCall 悬浮窗：透明的
-// AVPictureInPictureVideoCallViewController 以 preferredContentSize 控制尺寸，
-// 自定义 View 挂进 content view，AVPictureInPictureController(ContentSource)
-// 启动；拖动、侧边吸附隐藏与缩放由系统负责。仅取悬浮窗本身，
-// 不含其高刷请求与后台保活部分。
-
-static BOOL gInteractionPiPActive = NO;
-
-static CGFloat DKInteractionPiPSide(void) {
-    NSInteger value = DKPrefInteger(DKKeyInteractionPiPSize);
-    if (value <= 0) value = 48;
-    return MIN(MAX((CGFloat)value, 24.0), 120.0);
-}
-
-static void DKInteractionShowFallbackKeys(void);
-
-@interface DKInteractionPiPManager : NSObject <AVPictureInPictureControllerDelegate>
-@property (nonatomic, strong) AVPictureInPictureController *pipController;
-@property (nonatomic, strong) AVPictureInPictureVideoCallViewController *contentController;
-@property (nonatomic, strong) UIView *sourceView;
-@property (nonatomic, strong) UIImageView *iconView;
-@property (nonatomic, assign) BOOL stoppingByUs;
-+ (instancetype)sharedManager;
-- (BOOL)startWithWindow:(UIWindow *)window;
-- (void)stop;
-- (void)applySize;
-- (void)contentDidTap;
-@end
-
-@implementation DKInteractionPiPManager
-
-+ (instancetype)sharedManager {
-    static DKInteractionPiPManager *manager = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{ manager = [[DKInteractionPiPManager alloc] init]; });
-    return manager;
-}
-
-- (void)contentDidTap {
-    DKGlassTabBarSetCollapsed(NO);
-}
-
-- (void)updateIcon {
-    UIView *platter = DKGlassTabBarCollapsePlatter();
-    UIImageView *source = platter ? DKInteractionFindIcon(platter) : nil;
-    self.iconView.image = source.image;
-    self.iconView.tintColor = source.tintColor;
-}
-
-- (void)applySize {
-    if (!self.contentController) return;
-    CGFloat side = DKInteractionPiPSide();
-    self.contentController.preferredContentSize = CGSizeMake(side, side);
-}
-
-- (BOOL)startWithWindow:(UIWindow *)window {
-    if (!window) return NO;
-    if (![AVPictureInPictureController isPictureInPictureSupported]) return NO;
-    if (@available(iOS 15.0, *)) {
-        CGFloat side = DKInteractionPiPSide();
-        if (!self.sourceView) {
-            self.sourceView = [[UIView alloc] init];
-            self.sourceView.backgroundColor = UIColor.clearColor;
-            self.sourceView.opaque = NO;
-            self.sourceView.userInteractionEnabled = NO;
-        }
-        CGRect bounds = window.bounds;
-        self.sourceView.frame = CGRectMake(CGRectGetWidth(bounds) - side - 8.0,
-                                           CGRectGetHeight(bounds) * 0.66, side, side);
-        if (self.sourceView.superview != window) [window addSubview:self.sourceView];
-
-        if (!self.contentController) {
-            self.contentController = [[AVPictureInPictureVideoCallViewController alloc] init];
-            UIView *host = self.contentController.view;
-            host.backgroundColor = UIColor.clearColor;
-            host.opaque = NO;
-            host.layer.backgroundColor = UIColor.clearColor.CGColor;
-            host.layer.opaque = NO;
-            host.clipsToBounds = YES;
-
-            self.iconView = [[UIImageView alloc] init];
-            self.iconView.contentMode = UIViewContentModeScaleAspectFit;
-            self.iconView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-            [host addSubview:self.iconView];
-
-            UIButton *hit = [UIButton buttonWithType:UIButtonTypeCustom];
-            hit.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-            [hit addTarget:self action:@selector(contentDidTap) forControlEvents:UIControlEventTouchUpInside];
-            [host addSubview:hit];
-        }
-        self.contentController.preferredContentSize = CGSizeMake(side, side);
-        self.iconView.frame = CGRectInset(self.contentController.view.bounds, side * 0.22, side * 0.22);
-        [self updateIcon];
-
-        AVPictureInPictureControllerContentSource *source =
-            [[AVPictureInPictureControllerContentSource alloc]
-                initWithActiveVideoCallSourceView:self.sourceView
-                            contentViewController:self.contentController];
-        self.pipController = [[AVPictureInPictureController alloc] initWithContentSource:source];
-        self.pipController.delegate = self;
-        self.pipController.requiresLinearPlayback = YES;
-        self.stoppingByUs = NO;
-        gInteractionPiPActive = YES;
-        [self.pipController startPictureInPicture];
-        return YES;
-    }
-    return NO;
-}
-
-- (void)stop {
-    if (self.pipController.isPictureInPictureActive) {
-        self.stoppingByUs = YES;
-        [self.pipController stopPictureInPicture];
-    }
-    gInteractionPiPActive = NO;
-}
-
-#pragma mark AVPictureInPictureControllerDelegate
-
-- (void)pictureInPictureController:(AVPictureInPictureController *)pictureInPictureController
-    failedToStartPictureInPictureWithError:(NSError *)error {
-    gInteractionPiPActive = NO;
-    DKInteractionShowFallbackKeys();
-}
-
-- (void)pictureInPictureControllerDidStopPictureInPicture:(AVPictureInPictureController *)pictureInPictureController {
-    BOOL byUs = self.stoppingByUs;
-    self.stoppingByUs = NO;
-    gInteractionPiPActive = NO;
-    // 用户手动关掉悬浮窗时把底栏展开，避免无入口。
-    if (!byUs && gInteractionCollapsed) DKGlassTabBarSetCollapsed(NO);
-}
-
-- (void)pictureInPictureController:(AVPictureInPictureController *)pictureInPictureController
-    restoreUserInterfaceForPictureInPictureStopWithCompletionHandler:(void (^)(BOOL restored))completionHandler {
-    DKGlassTabBarSetCollapsed(NO);
-    completionHandler(YES);
-}
-
-@end
-
-// 画中画启动失败时回退：显示贴边小圆键。
-static void DKInteractionShowFallbackKeys(void) {
-    if (!gInteractionCollapsed) return;
-    for (UIView *stack in gInteractionStacks.allObjects) {
-        UIView *key = objc_getAssociatedObject(stack, &kDKInteractionKeyViewKey);
-        if (!key) continue;
-        DKInteractionUpdateKeyIcon(key);
-        key.hidden = NO;
-        key.alpha = 1.0;
-    }
-}
-
 static void DKInteractionRestoreStack(UIView *stack) {
     for (UIView *element in stack.subviews) {
         if ([objc_getAssociatedObject(element, &kDKInteractionModifiedKey) boolValue]) {
@@ -375,8 +218,7 @@ void DKInteractionCollapseApplyStack(UIView *stack) {
         if (key) {
             if (key.superview != stack.superview && stack.superview) [stack.superview addSubview:key];
             DKInteractionLayoutKey(stack);
-            // 画中画悬浮窗在运行时不显示回退小圆键。
-            if (gInteractionCollapsed && !gInteractionPiPActive) {
+            if (gInteractionCollapsed) {
                 key.hidden = NO;
                 key.alpha = 1.0;
             }
@@ -401,23 +243,9 @@ void DKInteractionCollapseApplyStack(UIView *stack) {
 void DKInteractionCollapseSetCollapsed(BOOL collapsed) {
     gInteractionCollapsed = collapsed;
     if (!DKInteractionCollapseEnabled()) return;
-    BOOL pipStarted = NO;
-    if (collapsed) {
-        UIWindow *window = nil;
-        for (UIView *stack in gInteractionStacks.allObjects) {
-            if (stack.window) { window = stack.window; break; }
-        }
-        if (!window) window = [UIApplication sharedApplication].windows.firstObject;
-        pipStarted = [[DKInteractionPiPManager sharedManager] startWithWindow:window];
-    } else {
-        [[DKInteractionPiPManager sharedManager] stop];
-    }
     for (UIView *stack in gInteractionStacks.allObjects) {
         UIView *key = objc_getAssociatedObject(stack, &kDKInteractionKeyViewKey);
-        if (key && pipStarted) {
-            key.hidden = YES;
-            key.alpha = 0.0;
-        } else if (key) {
+        if (key) {
             if (collapsed) {
                 DKInteractionUpdateKeyIcon(key);
                 key.hidden = NO;
@@ -479,12 +307,7 @@ static void DKInteractionCollapseRefresh(void) {
     DKSettingsRegister(DKKeyInteractionCollapse, ^AWESettingItemModel *{
         AWESettingItemModel *item = DKMakeSwitch(DKKeyInteractionCollapse, @"右侧按钮随底栏收缩",
             @"开启后，底栏动态收缩时右侧点赞、评论、收藏、分享按钮一起滑出隐藏且不拦截点击，头像保留；"
-            @"展开入口是画中画悬浮窗（显示当前页图标，可拖动、拖到侧边吸附隐藏），点它或下滑展开。"
-            @"需开启「悬浮玻璃底栏」与「动态收缩底栏」。");
+            @"展开入口是贴右侧边缘的小圆键，点它或下滑展开。需开启「悬浮玻璃底栏」与「动态收缩底栏」。");
         return DKSettingsOnChange(item, ^{ DKInteractionCollapseRefresh(); });
-    });
-    DKSettingsRegister(DKKeyInteractionPiPSize, ^AWESettingItemModel *{
-        AWESettingItemModel *item = DKMakeTextInput(DKKeyInteractionPiPSize, @"悬浮窗大小", @"48", 60);
-        return DKSettingsOnChange(item, ^{ [[DKInteractionPiPManager sharedManager] applySize]; });
     });
 }
