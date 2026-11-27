@@ -21,6 +21,7 @@ static char kDKInteractionModifiedKey;
 static char kDKInteractionKeyViewKey;
 
 static const CGFloat kDKInteractionKeySide = 44.0;
+static const CGFloat kDKInteractionKeyPeek = 22.0;
 static const CGFloat kDKInteractionKeyGap = 8.0;
 static const NSInteger kDKInteractionKeyIconTag = 7701;
 
@@ -167,14 +168,14 @@ static void DKInteractionLayoutKey(UIView *stack) {
     }
     CGRect avatarFrame = [stack convertRect:avatar.frame toView:host];
     CGFloat side = kDKInteractionKeySide;
-    CGFloat x = CGRectGetMidX(avatarFrame) - side / 2.0;
-    x = MIN(MAX(x, 4.0), CGRectGetWidth(host.bounds) - side - 4.0);
+    // 圆键贴右边缘吸附：只露出一小条，其余藏到边缘外，点露出部分展开。
+    CGFloat x = CGRectGetWidth(host.bounds) - kDKInteractionKeyPeek;
     CGFloat y = CGRectGetMinY(avatarFrame) - kDKInteractionKeyGap - side;
     CGRect frame = CGRectMake(x, y, side, side);
     if (!CGRectEqualToRect(key.frame, frame)) key.frame = frame;
 
     UIImageView *icon = (UIImageView *)[key viewWithTag:kDKInteractionKeyIconTag];
-    if (icon) icon.frame = CGRectMake((side - 20.0) / 2.0, (side - 20.0) / 2.0, 20.0, 20.0);
+    if (icon) icon.frame = CGRectMake((kDKInteractionKeyPeek - 20.0) / 2.0, (side - 20.0) / 2.0, 20.0, 20.0);
     for (UIView *subview in ((UIVisualEffectView *)key).contentView.subviews) {
         if ([subview isKindOfClass:UIButton.class]) subview.frame = key.bounds;
     }
@@ -293,7 +294,7 @@ static void DKInteractionCollapseRefresh(void) {
     DKSettingsRegister(DKKeyInteractionCollapse, ^AWESettingItemModel *{
         AWESettingItemModel *item = DKMakeSwitch(DKKeyInteractionCollapse, @"右侧按钮随底栏收缩",
             @"开启后，底栏动态收缩时右侧点赞、评论、收藏、分享按钮一起滑出隐藏且不拦截点击，头像保留；"
-            @"收缩圆键改到头像正上方，点它或下滑展开。需开启「悬浮玻璃底栏」与「动态收缩底栏」。");
+            @"收缩圆键在头像上方贴右边缘吸附，只露出一小条，点露出部分或下滑展开。需开启「悬浮玻璃底栏」与「动态收缩底栏」。");
         return DKSettingsOnChange(item, ^{ DKInteractionCollapseRefresh(); });
     });
 }
