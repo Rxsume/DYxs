@@ -15,6 +15,7 @@
 //
 
 #import "DKGlassTabBar.h"
+#import "DKInteractionCollapse.h"
 #import "DKGlassPadElements.h"
 #import "DKDoubleColumnFeed.h"
 #import "DKPlaybackOverlay.h"
@@ -1404,6 +1405,7 @@ void DKGlassTabBarSetCollapsed(BOOL collapsed) {
 
     // 图片先换好：圆键沿用选中项的图。
     gCollapsed = collapsed;
+    DKInteractionCollapseSetCollapsed(collapsed);
     DKGlassApplyItemImages();
     ((void (*)(id, SEL, BOOL))objc_msgSend)(provider, selector, collapsed);
     DKGlassAnimatePlusKey();
@@ -1413,6 +1415,7 @@ void DKGlassTabBarSetCollapsed(BOOL collapsed) {
 void DKGlassTabBarPlatterDidShow(UIView *platter) {
     if (!gCollapsed || platter != gPlatter) return;
     gCollapsed = NO;
+    DKInteractionCollapseSetCollapsed(NO);
     DKGlassApplyItemImages();
     DKGlassAnimatePlusKey();
 }

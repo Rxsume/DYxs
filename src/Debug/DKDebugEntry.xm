@@ -6,6 +6,7 @@
 //
 
 #import "DKDebugInspector.h"
+#import "DKDCFeedProbe.h"
 #import "DKDebugCapture.h"
 #import "DKAudioProbe.h"
 #import "DY778Core.h"
@@ -98,6 +99,7 @@ static AWESettingItemModel *DKMakeDebugSwitch(void) {
                 [report appendFormat:@"%@ = %@\n", key, [hooks[key] boolValue] ? @"OK" : @"FAIL"];
             [report appendString:DY778LuckyDiagnosticsText()];
             [report appendString:DY778LikeDiagnosticsText()];
+            [report appendString:DKDCFeedProbeText()];
             [UIPasteboard generalPasteboard].string = report;
             DKDebugShowToast([NSString stringWithFormat:@"视图树已复制（%lu 字）", (unsigned long)report.length]);
         }
