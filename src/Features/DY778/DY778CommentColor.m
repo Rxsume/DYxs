@@ -2,9 +2,13 @@
 //  DY778CommentColor.m
 //  评论蓝字（DY778 1.1-2 移植，2026-11-27）。
 //  机制（1.1-2 实证）：hook 三处，均先签名校验再安装——
-//   ① AWECommentModel.textExtras（渲染：合并本地扫描出的 segments）；
-//   ② AWECommentInputContentModel.setExtraInfo:（输入：发送前补 segments）；
+//   ① AWECommentModel.textExtras（渲染）；
+//   ② AWECommentInputContentModel.setExtraInfo:（输入）；
 //   ③ AWESendCommentRequestModel.generateRequestParamsDict:（发送：注入）。
+//  0.6.9.71 起 ①② 只透传不再注入：40.1.0 的 Swift 评论数据解析对本地拼的
+//  裸 segments（缺 user_id 等字段）会空指针崩溃（2026-11-27 .ips 实证，
+//  comment_data_controller_execute 线程 EXC_BAD_ACCESS）。只保留 ③ 发送侧注入，
+//  服务端回传的评论自带完整 segments，本机渲染走原生数据。
 //  segments 形如 {type（数值）, range{start,end}}，range 覆盖符号内层文字。
 //  文本键多拼写兼容；媒体键一律不碰。
 //
@@ -174,51 +178,16 @@ static id DY778GenerateParams(id self, SEL _cmd, id arg) {
     }
 }
 
-// ① 渲染：textExtras getter 合并本地 segments（保证本机立即变蓝）。
+// ① 渲染：只透传原生 textExtras，不再合并本地 segments（见文件头说明）。
 static id (*origTextExtras)(id, SEL);
 static id DY778TextExtras(id self, SEL _cmd) {
-    id result = origTextExtras ? origTextExtras(self, _cmd) : nil;
-    if (!DY778CommentEnabled()) return result;
-    @try {
-        NSString *text = nil;
-        for (NSString *key in @[@"text", @"commentText", @"content"]) {
-            id value = nil;
-            @try { value = [self valueForKey:key]; } @catch (NSException *e) { value = nil; }
-            if ([value isKindOfClass:NSString.class] && ((NSString *)value).length) { text = value; break; }
-        }
-        if (!text.length) return result;
-        NSDictionary *extras = [result isKindOfClass:NSDictionary.class] ? result : nil;
-        NSDictionary *merged = DY778CommentMergeExtras(extras, text);
-        return merged ?: result;
-    } @catch (NSException *exception) {
-        return result;
-    }
+    return origTextExtras ? origTextExtras(self, _cmd) : nil;
 }
 
-// ② 输入：setExtraInfo: 后若 extraInfo 缺 segments，按当前文本补上。
+// ② 输入：只透传，不再按文本补 segments（发送侧 ③ 已覆盖）。
 static void (*origSetExtraInfo)(id, SEL, id);
-static BOOL gDY778CommentSettingExtraInfo;
 static void DY778SetExtraInfo(id self, SEL _cmd, id info) {
     if (origSetExtraInfo) origSetExtraInfo(self, _cmd, info);
-    if (!DY778CommentEnabled() || gDY778CommentSettingExtraInfo) return;
-    if (![info isKindOfClass:NSDictionary.class]) return;
-    @try {
-        NSString *text = nil;
-        for (NSString *key in @[@"text", @"content", @"commentText"]) {
-            id value = nil;
-            @try { value = [self valueForKey:key]; } @catch (NSException *e) { value = nil; }
-            if ([value isKindOfClass:NSString.class] && ((NSString *)value).length) { text = value; break; }
-        }
-        if (!text.length) return;
-        NSDictionary *merged = DY778CommentMergeExtras(info, text);
-        if (merged && ![merged isEqual:info]) {
-            gDY778CommentSettingExtraInfo = YES;
-            [self performSelector:_cmd withObject:merged];
-            gDY778CommentSettingExtraInfo = NO;
-        }
-    } @catch (NSException *exception) {
-        gDY778CommentSettingExtraInfo = NO;
-    }
 }
 
 void DY778InstallCommentColorHooks(void) {

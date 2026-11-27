@@ -74,8 +74,6 @@ static const CGFloat kDKItemIconSide = 26.0;
 static const CGFloat kDKItemIconTextSide = 24.0;
 // 收缩后未读红点的直径（100% 时），随宿主视图一起缩放。
 static const CGFloat kDKCollapseDotSide = 10.0;
-// 贴边隐藏时圆键在屏幕内露出的宽度，其余藏在右侧边缘外。
-static const CGFloat kDKCollapsePeekWidth = 22.0;
 // 按系统数字角标与图标的相对位置换算成 10pt 红点，偏移以图标边长为单位。
 static const CGPoint kDKCollapseDotIconOffsetRatio = {12.0 / 26.0, -11.0 / 26.0};
 static const CGFloat kDKItemIconTextGap = 2.0;
@@ -1122,13 +1120,10 @@ static void DKGlassPlaceCollapsePlatter(UIView *collapse, CGFloat barWidth, CGFl
         case DKTabBarCollapseSideLeft:
             break;
     }
-    // 贴边隐藏：圆键左缘贴到屏幕右缘内侧，只露 kDKCollapsePeekWidth，系统形变自动滑到边缘。
-    if (DKPrefBool(DKKeyGlassTabBarCollapsePeek)) {
-        targetX = barWidth - kDKCollapsePeekWidth;
-    }
     gCollapseFrame = CGRectMake(capsuleX + (targetX - capsuleLeft) / scale, gMetrics.top, side, side);
     gCollapsePlatter = collapse;
-    collapse.alpha = 1.0;
+    // 右侧收缩开启时圆键改到头像正下方（自建圆键），系统收缩圆键不显示。
+    collapse.alpha = DKPrefBool(DKKeyInteractionCollapse) ? 0.0 : 1.0;
     if (!CGRectEqualToRect(collapse.frame, gCollapseFrame)) collapse.frame = gCollapseFrame;
     DKGlassPrepareCollapseContent(collapse);
 }
@@ -1436,6 +1431,8 @@ CGRect DKGlassTabBarCollapseFrame(void) {
 }
 
 UIView *DKGlassTabBarCollapsedHitView(void) {
+    // 右侧收缩开启时圆键在头像正下方，底栏区域不拦截点击。
+    if (DKPrefBool(DKKeyInteractionCollapse)) return nil;
     return gCollapsed ? gCollapsePlatter : nil;
 }
 
