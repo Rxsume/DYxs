@@ -84,6 +84,8 @@ static NSString *const DKKeyGlassTabBarCollapse = @"DYxsGlassTabBarCollapse";
 static NSString *const DKKeyGlassTabBarCollapseHideDot = @"DYxsGlassTabBarCollapseHideDot";
 // 右侧互动区（点赞/评论/收藏/分享）随底栏动态收缩一起收起/展开；需开启「动态收缩底栏」（见 DKInteractionCollapse.xm）
 static NSString *const DKKeyInteractionCollapse = @"DYxsInteractionCollapse";
+// 收缩悬浮窗（画中画）边长（pt，整数，24–120，默认 48；见 DKInteractionCollapse.xm）
+static NSString *const DKKeyInteractionPiPSize = @"DYxsInteractionPiPSize";
 // 悬浮玻璃底栏尺寸（百分比，100 为抖音默认效果）：胶囊等比缩放、胶囊长度、拍摄圆键直径，三者都以底边为锚。
 // 常规范围见 DKAdjustRange.m，开启「扩展所有缩放与位移」后放宽。
 static NSString *const DKKeyGlassTabBarCapsuleHeight = @"DYxsGlassTabBarCapsuleHeight";
