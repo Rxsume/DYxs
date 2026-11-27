@@ -77,6 +77,13 @@ static BOOL DKInteractionIsCollapsibleStack(UIView *stack) {
     return result;
 }
 
+// 地区行（文案下方的「日期 IP属地」时间元素）不参与收缩，始终保留显示。
+static BOOL DKInteractionIsRegionElement(UIView *element) {
+    if (![element respondsToSelector:@selector(elementClassName)]) return NO;
+    NSString *name = [element performSelector:@selector(elementClassName)];
+    return [name isEqualToString:@"AWEPlayInteractionTimestampElement"];
+}
+
 #pragma mark - center 位移
 
 static BOOL DKInteractionCenterClose(CGPoint a, CGPoint b) {
@@ -158,6 +165,12 @@ void DKInteractionCollapseApplyStack(UIView *stack) {
     [gInteractionStacks addObject:stack];
 
     for (UIView *element in stack.subviews) {
+        if (DKInteractionIsRegionElement(element)) {
+            if ([objc_getAssociatedObject(element, &kDKInteractionModifiedKey) boolValue]) {
+                DKInteractionRestoreView(element);
+            }
+            continue;
+        }
         if (gInteractionCollapsed) {
             objc_setAssociatedObject(element, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             objc_setAssociatedObject(stack, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -258,6 +271,7 @@ void DKInteractionCollapseSetCollapsed(BOOL collapsed) {
             objc_setAssociatedObject(stack, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
         for (UIView *element in stack.subviews) {
+            if (DKInteractionIsRegionElement(element)) continue;
             DKInteractionAnimateView(element, collapsed);
         }
         if (!collapsed) {
@@ -289,7 +303,7 @@ static void DKInteractionCollapseRefresh(void) {
     DKSettingsRegister(DKKeyInteractionCollapse, ^AWESettingItemModel *{
         AWESettingItemModel *item = DKMakeSwitch(DKKeyInteractionCollapse, @"右侧按钮随底栏收缩",
             @"开启后，底栏动态收缩时右侧按钮、左侧用户名文案和顶栏一起收进底栏圆键且不拦截点击；"
-            @"点底栏圆键或下滑全部展开。需开启「悬浮玻璃底栏」与「动态收缩底栏」。");
+            @"文案下方的地区行保留显示。点底栏圆键或下滑全部展开。需开启「悬浮玻璃底栏」与「动态收缩底栏」。");
         return DKSettingsOnChange(item, ^{ DKInteractionCollapseRefresh(); });
     });
 }
