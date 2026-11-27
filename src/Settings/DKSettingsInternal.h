@@ -31,6 +31,12 @@ void DKSettingsEnumerateItems(UIViewController *page, void (^block)(AWESettingIt
 /// 当前显示的 DYxs 设置页，弹窗与刷新都以它为宿主。
 UIViewController *DKSettingsCurrentPage(void);
 
+/// 登记当前显示的 DYxs 设置页（面板页在 viewWillAppear 时调用）。
+void DKSettingsSetCurrentPage(UIViewController *page);
+
+/// 一级页分区数据（布局表主分区 + 未归类分区），面板与抖音设置页共用。
+NSArray<AWESettingSectionModel *> *DKSettingsBuildMainSections(void);
+
 /// 页面的分区数据（DYxs 页面才有值）；不是本插件的页返回 nil。
 NSArray *DKSettingsPageSections(UIViewController *page);
 

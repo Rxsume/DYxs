@@ -146,7 +146,7 @@ void DKSettingsPushPage(UIViewController *presenter, NSString *title, NSString *
 /// 从 presenter 所在导航栈推入 DYxs 设置一级页（推入时隐藏底栏）；presenter 不在导航栈里时不推入。
 void DKSettingsOpenMain(UIViewController *presenter);
 
-/// 在当前页原地弹出 DYxs 设置面板（简洁毛玻璃、纯黑 iOS 风格的 sheet），
+/// 在当前页原地弹出 DYxs 设置面板（DYYY 风格：深色毛玻璃、可折叠分区、渐变标题），
 /// 不跳转抖音设置页。presenter 已有模态在展示时不叠加。
 void DKSettingsPresentMainPanel(UIViewController *presenter);
 

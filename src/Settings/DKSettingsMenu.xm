@@ -6,6 +6,7 @@
 
 #import "DKSettingsInternal.h"
 #import "DKSettingsLayout.h"
+#import "DKSettingsPanelViewController.h"
 #import "DKKeys.h"
 #import "DKSearchOverlay.h"
 #import "DKSearchReveal.h"
@@ -64,10 +65,14 @@ NSArray<NSString *> *DKSettingsRegisteredKeys(void) {
 #pragma mark - 当前页
 
 // 当前显示的 DYxs 设置页；子页出现时由 viewWillAppear 接管。
-static __weak AWESettingBaseViewController *gSettingsPresenter = nil;
+static __weak UIViewController *gSettingsPresenter = nil;
 
 UIViewController *DKSettingsCurrentPage(void) {
     return gSettingsPresenter;
+}
+
+void DKSettingsSetCurrentPage(UIViewController *page) {
+    gSettingsPresenter = page;
 }
 
 static AWESettingsViewModel *DKPageViewModel(UIViewController *page) {
@@ -98,6 +103,10 @@ void DKSettingsEnumerateItems(UIViewController *page, void (^block)(AWESettingIt
 
 void DKSettingsReloadCurrentPage(void) {
     UIViewController *page = gSettingsPresenter;
+    if ([page isKindOfClass:DKSettingsPanelViewController.class]) {
+        [(DKSettingsPanelViewController *)page dk_reload];
+        return;
+    }
     DKSettingsApplyLocks(DKPageViewModel(page).sectionDataArray);
     [DKSettingsPageTableView(page) reloadData];
 }
@@ -108,6 +117,12 @@ NSArray *DKSettingsPageSections(UIViewController *page) {
 
 void DKSettingsValuesChanged(void) {
     UIViewController *page = gSettingsPresenter;
+    if ([page isKindOfClass:DKSettingsPanelViewController.class]) {
+        DKSettingsPanelViewController *panel = (DKSettingsPanelViewController *)page;
+        NSArray<AWESettingItemModel *> *changed = DKSettingsApplyLocks(panel.dk_sections);
+        [panel dk_reloadItems:changed];
+        return;
+    }
     NSArray<AWESettingItemModel *> *changed = DKSettingsApplyLocks(DKPageViewModel(page).sectionDataArray);
     for (AWESettingItemModel *item in changed) {
         if ([item respondsToSelector:@selector(refreshCell)]) [item refreshCell];
@@ -236,6 +251,15 @@ static AWESettingItemModel *DKMakePageEntry(DKSettingsPage *spec) {
     item.cellTappedBlock = ^{
         UIViewController *presenter = DKSettingsCurrentPage();
         if (!presenter || !weakItem.isEnable) return;
+        if ([presenter isKindOfClass:DKSettingsPanelViewController.class]) {
+            // 面板内子页同样走 DYYY 风格面板页。
+            DKSettingsPanelViewController *panelPage =
+                [[DKSettingsPanelViewController alloc] initWithTitle:spec.title
+                                                            sections:DKBuildSections(spec.sections)
+                                                                note:spec.note];
+            [presenter.navigationController pushViewController:panelPage animated:YES];
+            return;
+        }
         AWESettingBaseViewController *page = DKSettingsBuildPage(spec);
         NSArray<NSString *> *parentPath = DKSearchPagePath(presenter);
         if (parentPath) DKSearchSetPagePath(page, [parentPath arrayByAddingObject:spec.identifier]);
@@ -305,12 +329,15 @@ static AWESettingSectionModel *DKBuildUnplacedSection(void) {
     return items.count ? DKSettingsMakeSection(kDKUnplacedHeader, nil, items) : nil;
 }
 
-static AWESettingBaseViewController *DKMakeMainPage(void) {
+NSArray<AWESettingSectionModel *> *DKSettingsBuildMainSections(void) {
     NSMutableArray *sections = [DKBuildSections(DKSettingsLayoutMain()) mutableCopy];
     AWESettingSectionModel *unplaced = DKBuildUnplacedSection();
     if (unplaced) [sections addObject:unplaced];
+    return sections;
+}
 
-    AWESettingBaseViewController *page = DKMakeSettingsPage(@"DYxs", sections);
+static AWESettingBaseViewController *DKMakeMainPage(void) {
+    AWESettingBaseViewController *page = DKMakeSettingsPage(@"DYxs", DKSettingsBuildMainSections());
     DKSearchSetPagePath(page, @[]);
     gSettingsPresenter = page;
     return page;
@@ -338,23 +365,15 @@ void DKSettingsOpenMain(UIViewController *presenter) {
 @end
 static char kDKPanelDismissTargetKey;
 
-// 0.6.9.64：原地弹出设置面板。简洁毛玻璃 + 纯黑 iOS 风格：系统 sheet
-// 材质打底、深色样式、纯黑背景与导航栏，下滑或点「完成」关闭。
+// 0.6.9.65：原地弹出设置面板，改用 DYYY 风格面板控制器
+// （深色毛玻璃、可折叠分区、渐变标题），系统 sheet 承载，
+// 下滑或点「完成」关闭，不跳转抖音设置页。
 void DKSettingsPresentMainPanel(UIViewController *presenter) {
     if (!presenter || presenter.presentedViewController) return;
-    AWESettingBaseViewController *page = DKMakeMainPage();
+    DKSettingsPanelViewController *page = [DKSettingsPanelViewController mainPanel];
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:page];
     nav.modalPresentationStyle = UIModalPresentationPageSheet;
     nav.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
-    nav.view.backgroundColor = UIColor.blackColor;
-    page.view.backgroundColor = UIColor.blackColor;
-    UINavigationBarAppearance *appearance = [UINavigationBarAppearance new];
-    [appearance configureWithOpaqueBackground];
-    appearance.backgroundColor = UIColor.blackColor;
-    appearance.titleTextAttributes = @{NSForegroundColorAttributeName: UIColor.whiteColor};
-    nav.navigationBar.standardAppearance = appearance;
-    nav.navigationBar.scrollEdgeAppearance = appearance;
-    nav.navigationBar.tintColor = UIColor.whiteColor;
     if (@available(iOS 15.0, *)) {
         UISheetPresentationController *sheet = nav.sheetPresentationController;
         sheet.detents = @[[UISheetPresentationControllerDetent largeDetent]];
@@ -378,6 +397,13 @@ void DKSettingsPushNotedSections(UIViewController *presenter, NSString *title, N
     if (!presenter.navigationController || sections.count == 0) return;
     for (AWESettingSectionModel *section in sections) {
         for (AWESettingItemModel *item in section.itemArray) DKSettingsPrepareItem(item, nil);
+    }
+    if ([presenter isKindOfClass:DKSettingsPanelViewController.class]) {
+        // 面板内推入的子页同样走 DYYY 风格面板页。
+        DKSettingsPanelViewController *panelPage =
+            [[DKSettingsPanelViewController alloc] initWithTitle:title sections:sections note:note];
+        [presenter.navigationController pushViewController:panelPage animated:YES];
+        return;
     }
     AWESettingBaseViewController *page = DKMakeSettingsPage(title, sections);
     if (note.length) objc_setAssociatedObject(page, &kDKPageNoteKey, [note copy], OBJC_ASSOCIATION_COPY_NONATOMIC);
