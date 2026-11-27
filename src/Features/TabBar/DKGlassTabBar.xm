@@ -1122,8 +1122,6 @@ static void DKGlassPlaceCollapsePlatter(UIView *collapse, CGFloat barWidth, CGFl
     }
     gCollapseFrame = CGRectMake(capsuleX + (targetX - capsuleLeft) / scale, gMetrics.top, side, side);
     gCollapsePlatter = collapse;
-    // 右侧收缩开启时圆键改到头像正下方（自建圆键），系统收缩圆键不显示。
-    collapse.alpha = DKPrefBool(DKKeyInteractionCollapse) ? 0.0 : 1.0;
     if (!CGRectEqualToRect(collapse.frame, gCollapseFrame)) collapse.frame = gCollapseFrame;
     DKGlassPrepareCollapseContent(collapse);
 }
@@ -1431,8 +1429,6 @@ CGRect DKGlassTabBarCollapseFrame(void) {
 }
 
 UIView *DKGlassTabBarCollapsedHitView(void) {
-    // 右侧收缩开启时圆键在头像正下方，底栏区域不拦截点击。
-    if (DKPrefBool(DKKeyInteractionCollapse)) return nil;
     return gCollapsed ? gCollapsePlatter : nil;
 }
 
