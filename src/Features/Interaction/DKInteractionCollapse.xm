@@ -1,11 +1,13 @@
 //
 //  DKInteractionCollapse.xm
-//  功能：右侧互动区随底栏动态收缩 —— 底栏收成圆键时，右侧点赞/评论/收藏/分享栈
-//  一起滑出淡出且不拦截点击（点按落到视频上），底栏展开时回来。
+//  功能：右侧互动区随底栏动态收缩 —— 底栏收成圆键时，右侧点赞/评论/收藏/分享
+//  一起滑出淡出且不拦截点击（点按落到视频上），头像保留；收缩圆键改到头像正下方
+//  （自建玻璃圆键，点它展开底栏），底栏展开时右侧按钮回来、圆键消失。
 //  收缩位移叠加在元素缩放的 transform 之上，基准 transform 每轮布局重新记录。
 //
 
 #import "DKInteractionCollapse.h"
+#import "DKGlassTabBar.h"
 #import "DKKeys.h"
 #import "DKSettings.h"
 #import "DKUtils.h"
@@ -16,6 +18,11 @@ static BOOL gInteractionCollapsed = NO;
 static NSHashTable<UIView *> *gInteractionStacks = nil;
 static char kDKInteractionBaseTransformKey;
 static char kDKInteractionModifiedKey;
+static char kDKInteractionKeyViewKey;
+
+static const CGFloat kDKInteractionKeySide = 62.0;
+static const CGFloat kDKInteractionKeyGap = 8.0;
+static const NSInteger kDKInteractionKeyIconTag = 7701;
 
 static BOOL DKInteractionCollapseEnabled(void) {
     return DKPrefBool(DKKeyInteractionCollapse);
@@ -31,10 +38,21 @@ static UIViewController *DKInteractionViewControllerForView(UIView *view) {
 
 static BOOL DKInteractionContainsClass(Class cls, UIView *container) {
     if (!cls || !container) return NO;
+    if ([container isKindOfClass:cls]) return YES;
     for (UIView *subview in container.subviews) {
-        if ([subview isKindOfClass:cls]) return YES;
         if (DKInteractionContainsClass(cls, subview)) return YES;
     }
+    return NO;
+}
+
+// 头像元素：收缩时不隐藏，保留显示与点击。
+static BOOL DKInteractionIsAvatarElement(UIView *element) {
+    if ([element respondsToSelector:@selector(elementClassName)]) {
+        NSString *name = [element performSelector:@selector(elementClassName)];
+        if ([name isEqualToString:@"AWEPlayInteractionUserAvatarOptElementElement"]) return YES;
+    }
+    if (DKInteractionContainsClass(NSClassFromString(@"AWEPlayInteractionUserProfileContainerView"), element)) return YES;
+    if (DKInteractionContainsClass(NSClassFromString(@"AWEPlayInteractionUserAvatarView"), element)) return YES;
     return NO;
 }
 
@@ -55,44 +73,167 @@ static BOOL DKInteractionIsRightStack(UIView *stack) {
     return NO;
 }
 
-static CGAffineTransform DKInteractionBaseTransform(UIView *stack) {
-    NSValue *value = objc_getAssociatedObject(stack, &kDKInteractionBaseTransformKey);
+static CGAffineTransform DKInteractionBaseTransform(UIView *view) {
+    NSValue *value = objc_getAssociatedObject(view, &kDKInteractionBaseTransformKey);
     return value ? value.CGAffineTransformValue : CGAffineTransformIdentity;
 }
 
-static CGAffineTransform DKInteractionTargetTransform(UIView *stack) {
-    CGAffineTransform base = DKInteractionBaseTransform(stack);
+static void DKInteractionRecordBase(UIView *element) {
+    if ([objc_getAssociatedObject(element, &kDKInteractionModifiedKey) boolValue]) return;
+    objc_setAssociatedObject(element, &kDKInteractionBaseTransformKey,
+        [NSValue valueWithCGAffineTransform:element.transform], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static CGAffineTransform DKInteractionElementTarget(UIView *element, UIView *stack) {
+    CGAffineTransform base = DKInteractionBaseTransform(element);
     if (!gInteractionCollapsed) return base;
     CGFloat offset = CGRectGetWidth(stack.bounds) + 24.0;
     return CGAffineTransformConcat(base, CGAffineTransformMakeTranslation(offset, 0));
 }
 
+static void DKInteractionRestoreElement(UIView *element) {
+    element.alpha = 1.0;
+    element.transform = DKInteractionBaseTransform(element);
+    element.userInteractionEnabled = YES;
+    objc_setAssociatedObject(element, &kDKInteractionModifiedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+#pragma mark - 头像下方圆键
+
+@interface DKInteractionKeyTarget : NSObject
+- (void)keyDidTap;
+@end
+
+@implementation DKInteractionKeyTarget
+- (void)keyDidTap {
+    DKGlassTabBarSetCollapsed(NO);
+}
+@end
+
+static DKInteractionKeyTarget *gKeyTarget = nil;
+
+static UIView *DKInteractionMakeKey(UIView *stack) API_AVAILABLE(ios(26.0)) {
+    UIVisualEffectView *key = [[UIVisualEffectView alloc]
+        initWithEffect:DKGlassTabBarMakeEffect(stack.traitCollection.userInterfaceStyle, YES)];
+    key.cornerConfiguration = [UICornerConfiguration capsuleConfiguration];
+
+    UIImageView *icon = [[UIImageView alloc] init];
+    icon.contentMode = UIViewContentModeScaleAspectFit;
+    icon.tag = kDKInteractionKeyIconTag;
+    [key.contentView addSubview:icon];
+
+    if (!gKeyTarget) gKeyTarget = [[DKInteractionKeyTarget alloc] init];
+    UIButton *hit = [UIButton buttonWithType:UIButtonTypeCustom];
+    [hit addTarget:gKeyTarget action:@selector(keyDidTap) forControlEvents:UIControlEventTouchUpInside];
+    [key.contentView addSubview:hit];
+
+    key.hidden = YES;
+    key.alpha = 0.0;
+    return key;
+}
+
+static UIImageView *DKInteractionFindIcon(UIView *root) {
+    for (UIView *subview in root.subviews) {
+        if ([subview isKindOfClass:UIImageView.class] && ((UIImageView *)subview).image) {
+            return (UIImageView *)subview;
+        }
+        UIImageView *found = DKInteractionFindIcon(subview);
+        if (found) return found;
+    }
+    return nil;
+}
+
+// 圆键图标跟系统收缩圆键一致：从收缩底板里取当前页图标。
+static void DKInteractionUpdateKeyIcon(UIView *key) {
+    UIView *platter = DKGlassTabBarCollapsePlatter();
+    UIImageView *source = platter ? DKInteractionFindIcon(platter) : nil;
+    UIImageView *icon = (UIImageView *)[key viewWithTag:kDKInteractionKeyIconTag];
+    if (!icon) return;
+    icon.image = source.image;
+    icon.tintColor = source.tintColor;
+}
+
+static void DKInteractionLayoutKey(UIView *stack) {
+    UIView *key = objc_getAssociatedObject(stack, &kDKInteractionKeyViewKey);
+    UIView *host = stack.superview;
+    if (!key || !host) return;
+    UIView *avatar = nil;
+    for (UIView *element in stack.subviews) {
+        if (DKInteractionIsAvatarElement(element)) { avatar = element; break; }
+    }
+    if (!avatar) {
+        key.hidden = YES;
+        return;
+    }
+    CGRect avatarFrame = [stack convertRect:avatar.frame toView:host];
+    CGFloat side = kDKInteractionKeySide;
+    CGFloat x = CGRectGetMidX(avatarFrame) - side / 2.0;
+    x = MIN(MAX(x, 4.0), CGRectGetWidth(host.bounds) - side - 4.0);
+    CGFloat y = CGRectGetMaxY(avatarFrame) + kDKInteractionKeyGap;
+    CGRect frame = CGRectMake(x, y, side, side);
+    if (!CGRectEqualToRect(key.frame, frame)) key.frame = frame;
+
+    UIImageView *icon = (UIImageView *)[key viewWithTag:kDKInteractionKeyIconTag];
+    if (icon) icon.frame = CGRectMake((side - 26.0) / 2.0, (side - 26.0) / 2.0, 26.0, 26.0);
+    for (UIView *subview in ((UIVisualEffectView *)key).contentView.subviews) {
+        if ([subview isKindOfClass:UIButton.class]) subview.frame = key.bounds;
+    }
+}
+
 static void DKInteractionRestoreStack(UIView *stack) {
-    stack.alpha = 1.0;
-    stack.transform = DKInteractionBaseTransform(stack);
-    stack.userInteractionEnabled = YES;
+    for (UIView *element in stack.subviews) {
+        if ([objc_getAssociatedObject(element, &kDKInteractionModifiedKey) boolValue]) {
+            DKInteractionRestoreElement(element);
+        }
+    }
+    UIView *key = objc_getAssociatedObject(stack, &kDKInteractionKeyViewKey);
+    if (key) {
+        key.hidden = YES;
+        key.alpha = 0.0;
+    }
     objc_setAssociatedObject(stack, &kDKInteractionModifiedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 void DKInteractionCollapseApplyStack(UIView *stack) {
     if (!stack) return;
-    BOOL modified = [objc_getAssociatedObject(stack, &kDKInteractionModifiedKey) boolValue];
+    BOOL stackModified = [objc_getAssociatedObject(stack, &kDKInteractionModifiedKey) boolValue];
     if (!DKInteractionCollapseEnabled()) {
-        if (modified) DKInteractionRestoreStack(stack);
+        if (stackModified) DKInteractionRestoreStack(stack);
         return;
     }
     if (!DKInteractionIsRightStack(stack)) return;
     if (!gInteractionStacks) gInteractionStacks = [NSHashTable weakObjectsHashTable];
     [gInteractionStacks addObject:stack];
-    // 缩放已在本入口之前应用，当前 transform 即基准；收缩位移在其上叠加。
-    objc_setAssociatedObject(stack, &kDKInteractionBaseTransformKey,
-        [NSValue valueWithCGAffineTransform:stack.transform], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    // 展开过程交给动画，布局期只强制落定收缩态，避免打断动画。
-    if (gInteractionCollapsed) {
-        objc_setAssociatedObject(stack, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        stack.userInteractionEnabled = NO;
-        stack.alpha = 0.0;
-        stack.transform = DKInteractionTargetTransform(stack);
+
+    if (@available(iOS 26.0, *)) {
+        UIView *key = objc_getAssociatedObject(stack, &kDKInteractionKeyViewKey);
+        if (!key && stack.superview) {
+            key = DKInteractionMakeKey(stack);
+            [stack.superview addSubview:key];
+            objc_setAssociatedObject(stack, &kDKInteractionKeyViewKey, key, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        if (key) {
+            if (key.superview != stack.superview && stack.superview) [stack.superview addSubview:key];
+            DKInteractionLayoutKey(stack);
+            if (gInteractionCollapsed) {
+                key.hidden = NO;
+                key.alpha = 1.0;
+            }
+        }
+    }
+
+    for (UIView *element in stack.subviews) {
+        if (DKInteractionIsAvatarElement(element)) continue;
+        // 缩放已在本入口之前应用，当前 transform 即基准；收缩位移在其上叠加。
+        DKInteractionRecordBase(element);
+        // 展开过程交给动画，布局期只强制落定收缩态，避免打断动画。
+        if (gInteractionCollapsed) {
+            objc_setAssociatedObject(element, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(stack, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            element.userInteractionEnabled = NO;
+            element.alpha = 0.0;
+            element.transform = DKInteractionElementTarget(element, stack);
+        }
     }
 }
 
@@ -100,23 +241,42 @@ void DKInteractionCollapseSetCollapsed(BOOL collapsed) {
     gInteractionCollapsed = collapsed;
     if (!DKInteractionCollapseEnabled()) return;
     for (UIView *stack in gInteractionStacks.allObjects) {
-        if (collapsed) {
-            objc_setAssociatedObject(stack, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            stack.userInteractionEnabled = NO;
+        UIView *key = objc_getAssociatedObject(stack, &kDKInteractionKeyViewKey);
+        if (key) {
+            if (collapsed) {
+                DKInteractionUpdateKeyIcon(key);
+                key.hidden = NO;
+            }
+            [UIView animateWithDuration:0.4 delay:0.0 usingSpringWithDamping:0.86 initialSpringVelocity:0.0
+                                options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
+                             animations:^{ key.alpha = collapsed ? 1.0 : 0.0; }
+                             completion:^(BOOL finished) { if (!collapsed) key.hidden = YES; }];
         }
-        CGAffineTransform target = DKInteractionTargetTransform(stack);
-        CGFloat alpha = collapsed ? 0.0 : 1.0;
-        [UIView animateWithDuration:0.4 delay:0.0 usingSpringWithDamping:0.86 initialSpringVelocity:0.0
-                            options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
-                         animations:^{
-                             stack.alpha = alpha;
-                             stack.transform = target;
-                         } completion:^(BOOL finished) {
-                             if (!collapsed) {
-                                 stack.userInteractionEnabled = YES;
-                                 objc_setAssociatedObject(stack, &kDKInteractionModifiedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                             }
-                         }];
+        for (UIView *element in stack.subviews) {
+            if (DKInteractionIsAvatarElement(element)) continue;
+            DKInteractionRecordBase(element);
+            if (collapsed) {
+                objc_setAssociatedObject(element, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                objc_setAssociatedObject(stack, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                element.userInteractionEnabled = NO;
+            }
+            CGAffineTransform target = DKInteractionElementTarget(element, stack);
+            CGFloat alpha = collapsed ? 0.0 : 1.0;
+            [UIView animateWithDuration:0.4 delay:0.0 usingSpringWithDamping:0.86 initialSpringVelocity:0.0
+                                options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
+                             animations:^{
+                                 element.alpha = alpha;
+                                 element.transform = target;
+                             } completion:^(BOOL finished) {
+                                 if (!collapsed) {
+                                     element.userInteractionEnabled = YES;
+                                     objc_setAssociatedObject(element, &kDKInteractionModifiedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                                 }
+                             }];
+        }
+        if (!collapsed) {
+            objc_setAssociatedObject(stack, &kDKInteractionModifiedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
     }
 }
 
@@ -132,8 +292,8 @@ static void DKInteractionCollapseRefresh(void) {
 %ctor {
     DKSettingsRegister(DKKeyInteractionCollapse, ^AWESettingItemModel *{
         AWESettingItemModel *item = DKMakeSwitch(DKKeyInteractionCollapse, @"右侧按钮随底栏收缩",
-            @"开启后，底栏动态收缩时右侧点赞、评论、收藏、分享按钮一起滑出隐藏且不拦截点击，底栏展开时回来。"
-            @"需开启「悬浮玻璃底栏」与「动态收缩底栏」。");
+            @"开启后，底栏动态收缩时右侧点赞、评论、收藏、分享按钮一起滑出隐藏且不拦截点击，头像保留；"
+            @"收缩圆键改到头像正下方，点它或下滑展开。需开启「悬浮玻璃底栏」与「动态收缩底栏」。");
         return DKSettingsOnChange(item, ^{ DKInteractionCollapseRefresh(); });
     });
 }
