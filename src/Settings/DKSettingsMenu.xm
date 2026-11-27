@@ -328,6 +328,47 @@ void DKSettingsOpenMain(UIViewController *presenter) {
     DKPushPage(presenter, page);
 }
 
+// 面板「完成」按钮的关闭目标（经 associated object 保活在导航控制器上）。
+@interface DKSettingsPanelDismissTarget : NSObject
+@property(nonatomic, weak) UIViewController *controller;
+- (void)dk_dismissPanel;
+@end
+@implementation DKSettingsPanelDismissTarget
+- (void)dk_dismissPanel { [self.controller dismissViewControllerAnimated:YES completion:nil]; }
+@end
+static char kDKPanelDismissTargetKey;
+
+// 0.6.9.64：原地弹出设置面板。简洁毛玻璃 + 纯黑 iOS 风格：系统 sheet
+// 材质打底、深色样式、纯黑背景与导航栏，下滑或点「完成」关闭。
+void DKSettingsPresentMainPanel(UIViewController *presenter) {
+    if (!presenter || presenter.presentedViewController) return;
+    AWESettingBaseViewController *page = DKMakeMainPage();
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:page];
+    nav.modalPresentationStyle = UIModalPresentationPageSheet;
+    nav.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+    nav.view.backgroundColor = UIColor.blackColor;
+    page.view.backgroundColor = UIColor.blackColor;
+    UINavigationBarAppearance *appearance = [UINavigationBarAppearance new];
+    [appearance configureWithOpaqueBackground];
+    appearance.backgroundColor = UIColor.blackColor;
+    appearance.titleTextAttributes = @{NSForegroundColorAttributeName: UIColor.whiteColor};
+    nav.navigationBar.standardAppearance = appearance;
+    nav.navigationBar.scrollEdgeAppearance = appearance;
+    nav.navigationBar.tintColor = UIColor.whiteColor;
+    if (@available(iOS 15.0, *)) {
+        UISheetPresentationController *sheet = nav.sheetPresentationController;
+        sheet.detents = @[[UISheetPresentationControllerDetent largeDetent]];
+        sheet.prefersGrabberVisible = YES;
+        sheet.preferredCornerRadius = 20;
+    }
+    DKSettingsPanelDismissTarget *target = [DKSettingsPanelDismissTarget new];
+    target.controller = nav;
+    objc_setAssociatedObject(nav, &kDKPanelDismissTargetKey, target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    page.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"完成"
+        style:UIBarButtonItemStyleDone target:target action:@selector(dk_dismissPanel)];
+    [presenter presentViewController:nav animated:YES completion:nil];
+}
+
 void DKSettingsPushSections(UIViewController *presenter, NSString *title, NSArray<AWESettingSectionModel *> *sections) {
     DKSettingsPushNotedSections(presenter, title, nil, sections);
 }

@@ -79,6 +79,14 @@
 @property(nonatomic, assign) NSTimeInterval lastGeometryWriteAt;
 @property(nonatomic, assign) CGRect lastWrittenFrame;
 @property(nonatomic, assign) CGAffineTransform lastWrittenTransform;
+// 0.6.9.64 全屏性能：图片目标变换缓存。owner/cell 弱引用复用（校验仍在
+// 同一窗口且 view 仍在 cell 内），最终变换按签名命中直接返回，跳过
+// 响应链/层级遍历与几何重算。
+@property(nonatomic, weak) UIViewController *cachedImageOwner;
+@property(nonatomic, weak) UIView *cachedImageCell;
+@property(nonatomic, assign) CGAffineTransform cachedImageTarget;
+@property(nonatomic, copy) NSString *cachedImageSignature;
+@property(nonatomic, assign) BOOL hasCachedImageTarget;
 @end
 @implementation DKXSFullscreenPlayerState
 @end
@@ -879,21 +887,47 @@ static void DKGeometryWriteRecord(DKXSFullscreenPlayerState *state, CGRect writt
     if (!DKXSGetBool(@"DKXSEnableFullScreen") || DKXSGetBool(@"DKXSEnableCommentBlur") || !view.window || !view.superview) {
         return state.imageAdjusted && state.hasClosedImageTransform ? state.closedImageTransform : native;
     }
-    UIViewController *owner = [DKXSUtils firstAvailableViewControllerFromView:view];
-    if (![self usesFullscreenLayoutForController:owner]) return native;
     UIWindow *window = view.window;
-    UIView *cell = [self cellForPlayer:view owner:owner];
+    // 0.6.9.64：owner/cell 缓存——校验通过（同窗口、view 仍在 cell 内）
+    // 时跳过响应链与层级遍历；失效才重算。
+    UIViewController *owner = state.cachedImageOwner;
+    UIView *cell = state.cachedImageCell;
+    if (!owner || !cell || cell.window != window || ![view isDescendantOfView:cell]) {
+        owner = [DKXSUtils firstAvailableViewControllerFromView:view];
+        if (![self usesFullscreenLayoutForController:owner]) {
+            state.cachedImageOwner = nil;
+            state.cachedImageCell = nil;
+            return native;
+        }
+        cell = [self cellForPlayer:view owner:owner];
+        state.cachedImageOwner = owner;
+        state.cachedImageCell = cell;
+    } else if (![self usesFullscreenLayoutForController:owner]) {
+        return native;
+    }
     if (!cell || cell.window != window) return native;
     CGRect viewport = CGRectIntersection([cell convertRect:cell.bounds toView:window], window.bounds);
     CGRect panel = [self panelInWindow:window viewport:viewport];
     if (CGRectIsNull(panel)) {
         return ![self hasCommentInWindow:window] && state.imageAdjusted && state.hasClosedImageTransform ? state.closedImageTransform : native;
     }
+    // 变换签名缓存：几何输入未变时直接返回上次结果。
+    NSString *signature = [NSString stringWithFormat:@"%@|%@|%@|%@|%@|%d",
+        NSStringFromCGRect(window.bounds), NSStringFromCGRect(view.bounds),
+        NSStringFromCGPoint(view.center), NSStringFromCGRect(viewport),
+        NSStringFromCGRect(panel), [self hasCommentInWindow:window]];
+    if (state.hasCachedImageTarget && [state.cachedImageSignature isEqualToString:signature]) {
+        return state.cachedImageTarget;
+    }
     CGFloat top = MAX(CGRectGetMinY(viewport), CGRectGetMinY(window.bounds) + window.safeAreaInsets.top);
     CGRect available = [DKXSFullscreenGeometry unoccludedViewport:viewport top:top panel:panel gap:0];
     if (CGRectIsNull(available) || view.bounds.size.width <= 0 || view.bounds.size.height <= 0) return native;
     CGRect local = [view.superview convertRect:available fromView:window];
-    return [DKXSFullscreenGeometry aspectFitTransformForBounds:view.bounds contentRect:[self contentRectForImageView:view state:state] center:view.center inRect:local];
+    CGAffineTransform target = [DKXSFullscreenGeometry aspectFitTransformForBounds:view.bounds contentRect:[self contentRectForImageView:view state:state] center:view.center inRect:local];
+    state.cachedImageTarget = target;
+    state.cachedImageSignature = signature;
+    state.hasCachedImageTarget = YES;
+    return target;
 }
 + (CGAffineTransform)transformForImageView:(UIView *)view proposed:(CGAffineTransform)transform {
     if (![NSThread isMainThread]) return transform;

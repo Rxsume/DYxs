@@ -169,55 +169,145 @@ static BOOL DY778SLFlag(id object, NSString *key) {
 }
 @end
 
-// ---------- 原生请求（规格 §4.4） ----------
-// 原版经 IESLiveCommonNetworkRequester 发 POST，其方法名未静态还原；
-// DYxs 侧用 NSURLSession POST 到规格 §5 的 lottery 端点，附当前域的
-// Cookie。服务端是否接受此路径、4 段 XOR 串是否含签名字段，均未证实。
+// ---------- 原生请求（规格 §4.4；1.1-2 逆向修正） ----------
+// 1.1-2 实证路径：IESLiveCommonNetworkRequester + IESLiveJSNetworkJsonRequest，
+// 逐键动态 setter（set<Key>:，首字母大写），request:numToString:callback:。
+// 请求 dict {url, method:GET, version:v1, params, data}；params 按命令过滤：
+// participate 只留 task_ids/room_id/activity_id/has_participate/task_activity_id。
+// 类或方法缺失时回退旧 NSURLSession POST（未证实服务端接受，仅兜底）。
+static NSError *DY778SLNativeError(NSInteger code, NSString *message) {
+    return [NSError errorWithDomain:@"DY778.SuperLucky.Native" code:code
+                           userInfo:@{NSLocalizedDescriptionKey: message ?: @""}];
+}
+static NSDictionary *DY778SLNativeParseResponse(id value) {
+    if ([value isKindOfClass:NSDictionary.class]) return value;
+    if ([value isKindOfClass:NSData.class] && ((NSData *)value).length) {
+        id json = [NSJSONSerialization JSONObjectWithData:value options:0 error:nil];
+        if ([json isKindOfClass:NSDictionary.class]) return json;
+    }
+    if ([value isKindOfClass:NSString.class] && ((NSString *)value).length) {
+        id json = [NSJSONSerialization JSONObjectWithData:[(NSString *)value dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+        if ([json isKindOfClass:NSDictionary.class]) return json;
+    }
+    return nil;
+}
+
 @implementation DY778SLNativeCall
-- (NSURLRequest *)DY778SLRequestWithActivity:(NSString *)activityID room:(NSString *)roomID task:(NSDictionary *)task extra:(NSDictionary *)extra {
-    NSString *path = activityID.length ? activityID : @"";
-    NSString *urlString = [NSString stringWithFormat:[NSString stringWithUTF8String:DY778SLLotteryAPIFormat], path];
-    NSURL *url = [NSURL URLWithString:urlString];
-    if (!url) return nil;
-    NSMutableDictionary *body = [NSMutableDictionary dictionary];
-    body[@"url"] = urlString;
-    body[@"version"] = @"1.0";
-    if (roomID.length) { body[@"room_id"] = roomID; body[@"roomID"] = roomID; }
-    body[@"scene"] = @"live";
-    body[@"method"] = @"POST";
-    if (task.count) body[@"data"] = task;
-    if (extra.count) [body addEntriesFromDictionary:extra];
+- (void)finish:(NSDictionary *)response error:(NSError *)error {
+    if (_finished) return;
+    _finished = YES;
+    _keeper = nil;
+    void (^callback)(NSDictionary *, NSError *) = _response;
+    _response = nil;
+    if (callback) callback(response, error);
+}
+- (NSDictionary *)DY778SLRequestDictionary:(NSString *)command activity:(NSString *)activityID room:(NSString *)roomID params:(NSDictionary *)params {
+    NSMutableDictionary *filtered = [NSMutableDictionary dictionary];
+    if (roomID.length) filtered[@"room_id"] = roomID;
+    if (activityID.length) filtered[@"activity_id"] = activityID;
+    if ([command isEqualToString:@"participate"]) {
+        for (NSString *key in @[@"task_ids", @"has_participate", @"task_activity_id"]) {
+            if (params[key]) filtered[key] = params[key];
+        }
+    } else {
+        for (NSString *key in @[@"task_id", @"task_type", @"task_activity_id", @"b_type_new", @"sub_b_type", @"sec_shop_id", @"extra"]) {
+            if (params[key]) filtered[key] = params[key];
+        }
+        if (!filtered[@"scene"]) filtered[@"scene"] = @"1";
+    }
+    NSString *urlString = [NSString stringWithFormat:@"https://lianmengapi.snssdk.com/live/lottery/%@/", command ?: @"detail"];
+    return @{@"url": urlString, @"method": @"GET", @"version": @"v1",
+             @"params": [filtered copy], @"data": @{}};
+}
+- (BOOL)DY778SLSendNative:(NSDictionary *)requestDictionary {
+    Class requesterClass = NSClassFromString(@"IESLiveCommonNetworkRequester");
+    Class jsonRequestClass = NSClassFromString(@"IESLiveJSNetworkJsonRequest");
+    if (!requesterClass || !jsonRequestClass) return NO;
+    id requester = nil, jsonRequest = nil;
+    @try {
+        requester = [requesterClass new];
+        jsonRequest = [jsonRequestClass new];
+    } @catch (__unused NSException *exception) { return NO; }
+    if (!requester || !jsonRequest) return NO;
+    // 逐键动态 setter：set<CapitalizedKey>:（与 1.1-2 同款）。
+    for (NSString *key in requestDictionary) {
+        if (!key.length) continue;
+        NSString *setterName = [NSString stringWithFormat:@"set%@%@:",
+                                [[key substringToIndex:1] uppercaseString], [key substringFromIndex:1]];
+        SEL setter = NSSelectorFromString(setterName);
+        if (![jsonRequest respondsToSelector:setter]) continue;
+        @try {
+            ((void (*)(id, SEL, id))objc_msgSend)(jsonRequest, setter, requestDictionary[key]);
+        } @catch (__unused NSException *exception) { }
+    }
+    SEL sendSelector = NSSelectorFromString(@"request:numToString:callback:");
+    if (![requester respondsToSelector:sendSelector]) return NO;
+    Method method = class_getInstanceMethod(requesterClass, sendSelector);
+    if (!method) return NO;
+    NSMethodSignature *signature = [NSMethodSignature signatureWithObjCTypes:method_getTypeEncoding(method)];
+    // 期望 (id, BOOL/c, block)；签名不符则不走原生路径（防崩）。
+    if (signature.numberOfArguments != 5) return NO;
+    char second = [signature getArgumentTypeAtIndex:3][0];
+    if (second != 'B' && second != 'c') return NO;
+    _keeper = @[requester, jsonRequest];
+    _started = YES;
+    __weak typeof(self) weakSelf = self;
+    void (^callback)(id, id) = ^(id response, id error) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        NSError *failure = [error isKindOfClass:NSError.class] ? error : nil;
+        NSDictionary *parsed = DY778SLNativeParseResponse(response);
+        if (!parsed && !failure) failure = DY778SLNativeError(-2, @"empty response");
+        [strongSelf finish:parsed error:failure];
+    };
+    @try {
+        ((void (*)(id, SEL, id, BOOL, id))objc_msgSend)(requester, sendSelector, jsonRequest, YES, callback);
+    } @catch (__unused NSException *exception) {
+        return NO;
+    }
+    return YES;
+}
+- (void)DY778SLFallbackPost:(NSDictionary *)requestDictionary completion:(void (^)(NSDictionary *response, NSError *error))completion {
+    // 旧路径兜底：NSURLSession POST 到同一 URL（未证实服务端接受）。
+    NSURL *url = [NSURL URLWithString:requestDictionary[@"url"]];
+    if (!url) { if (completion) completion(nil, DY778SLNativeError(-1, @"bad request")); return; }
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
     request.HTTPMethod = @"POST";
     [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
-    return [request copy];
-}
-- (void)DY778SLPost:(NSURLRequest *)request completion:(void (^)(NSDictionary *response, NSError *error))completion {
-    if (!request) { if (completion) completion(nil, [NSError errorWithDomain:@"DY778SL" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"bad request"}]); return; }
-    NSURLSession *session = [NSURLSession sharedSession];
-    NSURLSessionDataTask *task = [session dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+    request.HTTPBody = [NSJSONSerialization dataWithJSONObject:requestDictionary options:0 error:nil];
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error) { if (completion) completion(nil, error); return; }
-        NSDictionary *json = nil;
-        if (data.length) json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-        if (![json isKindOfClass:NSDictionary.class]) json = @{};
+        NSDictionary *json = DY778SLNativeParseResponse(data) ?: @{};
         NSMutableDictionary *result = [json mutableCopy];
         if ([response isKindOfClass:NSHTTPURLResponse.class]) result[@"status_code"] = @(((NSHTTPURLResponse *)response).statusCode);
+        result[@"via"] = @"fallback";
         if (completion) completion([result copy], nil);
     }];
     [task resume];
 }
-- (void)postActivity:(NSString *)activityID room:(NSString *)roomID task:(NSDictionary *)task completion:(void (^)(NSDictionary *response, NSError *error))completion {
+- (void)command:(NSString *)command activity:(NSString *)activityID room:(NSString *)roomID params:(NSDictionary *)params completion:(void (^)(NSDictionary *response, NSError *error))completion {
+    if (!command.length) command = @"detail";
+    _room = [roomID copy];
+    _response = [completion copy];
+    _finished = NO;
     [[NSNotificationCenter defaultCenter] postNotificationName:[NSString stringWithUTF8String:DY778SLNativeRequestStartedNotification] object:nil
-                                                      userInfo:@{@"activityID": activityID ?: @"", @"roomID": roomID ?: @""}];
-    [self DY778SLPost:[self DY778SLRequestWithActivity:activityID room:roomID task:task extra:nil] completion:completion];
+                                                      userInfo:@{@"command": command, @"activityID": activityID ?: @"", @"roomID": roomID ?: @""}];
+    NSDictionary *requestDictionary = [self DY778SLRequestDictionary:command activity:activityID room:roomID params:params];
+    if ([self DY778SLSendNative:requestDictionary]) return;
+    // 原生路径不可用：回退旧 POST，完成后经 finish 收口（与原生同出口）。
+    __weak typeof(self) weakSelf = self;
+    [self DY778SLFallbackPost:requestDictionary completion:^(NSDictionary *response, NSError *error) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf) [strongSelf finish:response error:error];
+        else if (completion) completion(response, error);
+    }];
+}
+- (void)postActivity:(NSString *)activityID room:(NSString *)roomID task:(NSDictionary *)task completion:(void (^)(NSDictionary *response, NSError *error))completion {
+    [self command:@"detail" activity:activityID room:roomID params:task completion:completion];
 }
 - (void)executeTask:(NSString *)taskID activity:(NSString *)activityID room:(NSString *)roomID completion:(void (^)(NSDictionary *response, NSError *error))completion {
-    NSDictionary *task = @{@"execute_task": taskID ?: @"", @"task_id": taskID ?: @"", @"activityID": activityID ?: @"",
-                           @"activity_id": activityID ?: @"", @"participate": @YES};
-    [[NSNotificationCenter defaultCenter] postNotificationName:[NSString stringWithUTF8String:DY778SLNativeRequestStartedNotification] object:nil
-                                                      userInfo:@{@"activityID": activityID ?: @"", @"taskID": taskID ?: @""}];
-    [self DY778SLPost:[self DY778SLRequestWithActivity:activityID room:roomID task:task extra:nil] completion:completion];
+    NSDictionary *params = @{@"task_id": taskID ?: @"", @"task_activity_id": activityID ?: @""};
+    [self command:@"execute_task" activity:activityID room:roomID params:params completion:completion];
 }
 @end
 
@@ -286,7 +376,15 @@ void DY778SLRecordStage(NSString *message) {
 @property(nonatomic, copy) NSString *currentActivityID;
 @property(nonatomic, strong) DY778SLTaskContext *taskContext;
 @property(nonatomic) NSUInteger groupFailures;
+// 1.1-2 发现/流程状态（诊断段读）。
+@property(nonatomic) NSTimeInterval lastDiscoveryAt;
+@property(nonatomic, copy) NSString *lastDiscoverySource;
+@property(nonatomic, copy) NSString *lastCommand;
+@property(nonatomic, copy) NSString *lastResult;
+@property(nonatomic) BOOL requestInFlight;
 - (id)DY778SLFindEntryButtonInView:(UIView *)view depth:(NSUInteger)depth;
+- (NSDictionary *)DY778SLDiscoverCandidate;
+- (void)DY778SLRunDiscoveryFlow;
 @end
 
 @implementation DY778SLCoordinator
@@ -392,6 +490,131 @@ void DY778SLRecordStage(NSString *message) {
     _roomID = nil; _accountID = nil; _roomTitle = nil;
     _currentActivityID = nil; _taskContext = nil; _visit = 0;
     _groupFailures = 0;
+    _lastDiscoveryAt = 0; _lastDiscoverySource = nil;
+    _lastCommand = nil; _lastResult = nil; _requestInFlight = NO;
+}
+// ---------- 发现（1.1-2 Seeds 移植，2026-11-27） ----------
+// 两条线索：① RE 的 BDX 路由记录（DY778LastLotteryBDXURL，电商间面板
+// URL 自带 activity_id/room_id，10:51 导出实证）；② 组件图 BFS
+// （componentLoader/realLoader/componentProcess/componentMaps/components/
+// store → shortTouchAreaConfig/elements/items），找 activity_id。
+// 只读不改状态；预算封顶，失败返回 nil。
+static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
+    if (!text.length || !key.length) return nil;
+    NSString *needle = [key stringByAppendingString:@"="];
+    NSRange range = [text rangeOfString:needle];
+    if (range.location == NSNotFound) return nil;
+    NSString *rest = [text substringFromIndex:range.location + range.length];
+    NSCharacterSet *stop = [NSCharacterSet characterSetWithCharactersInString:@"&\"' <>\n"];
+    NSRange end = [rest rangeOfCharacterFromSet:stop];
+    NSString *value = end.location == NSNotFound ? rest : [rest substringToIndex:end.location];
+    return value.length ? [value stringByRemovingPercentEncoding] ?: value : nil;
+}
+- (NSDictionary *)DY778SLDiscoverCandidate {
+    // 线索 ①：BDX 福袋 URL。
+    NSString *bdxURL = DY778LastLotteryBDXURL();
+    if (bdxURL.length) {
+        NSString *activityID = DY778SLQueryValue(bdxURL, @"activity_id") ?: DY778SLQueryValue(bdxURL, @"activityId");
+        NSString *roomID = DY778SLQueryValue(bdxURL, @"room_id") ?: DY778SLQueryValue(bdxURL, @"roomId");
+        if (activityID.length) {
+            return @{@"activityID": activityID, @"roomID": roomID ?: _roomID ?: @"", @"source": @"bdx"};
+        }
+    }
+    // 线索 ②：组件图 BFS（Seeds）。
+    if (!_host) return nil;
+    static NSArray<NSString *> *keys;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        keys = @[@"componentLoader", @"realLoader", @"componentProcess", @"componentMaps",
+                 @"components", @"store", @"roomDI", @"roomGuarder", @"roomModel",
+                 @"shortTouchAreaConfig", @"elements", @"items", @"_dictionary",
+                 @"views", @"lazyViews", @"subItemListArray", @"shortTouchURL", @"jumpSchema"];
+    });
+    NSMutableArray *queue = [NSMutableArray arrayWithObject:_host];
+    NSHashTable *visited = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+    NSUInteger budget = 320;
+    while (queue.count && budget > 0) {
+        id node = queue.firstObject;
+        [queue removeObjectAtIndex:0];
+        if (!node || [visited containsObject:node]) continue;
+        [visited addObject:node];
+        budget--;
+        if ([node isKindOfClass:NSDictionary.class]) {
+            NSDictionary *dict = node;
+            NSString *activityID = DY778SLText(dict[@"activity_id"]) ?: DY778SLText(dict[@"activityID"]);
+            if (activityID.length) {
+                NSString *roomID = DY778SLText(dict[@"room_id"]) ?: DY778SLText(dict[@"roomID"]);
+                return @{@"activityID": activityID, @"roomID": roomID ?: _roomID ?: @"", @"source": @"seeds-dict"};
+            }
+            for (id value in dict.allValues) if (value) [queue addObject:value];
+            continue;
+        }
+        if ([node isKindOfClass:NSArray.class]) {
+            for (id value in (NSArray *)node) if (value) [queue addObject:value];
+            continue;
+        }
+        if ([node isKindOfClass:NSString.class]) {
+            NSString *text = node;
+            if ([text containsString:@"activity_id"]) {
+                NSString *activityID = DY778SLQueryValue(text, @"activity_id");
+                if (activityID.length) {
+                    NSString *roomID = DY778SLQueryValue(text, @"room_id");
+                    return @{@"activityID": activityID, @"roomID": roomID ?: _roomID ?: @"", @"source": @"seeds-url"};
+                }
+            }
+            continue;
+        }
+        for (NSString *key in keys) {
+            id value = DY778SLValue(node, key);
+            if (value && value != node) [queue addObject:value];
+        }
+    }
+    return nil;
+}
+- (void)DY778SLRunDiscoveryFlow {
+    if (_requestInFlight || ![self canRun]) return;
+    NSTimeInterval now = [NSDate date].timeIntervalSince1970;
+    if (now - _lastDiscoveryAt < 15) return;
+    _lastDiscoveryAt = now;
+    NSDictionary *candidate = [self DY778SLDiscoverCandidate];
+    NSString *activityID = candidate[@"activityID"];
+    if (!activityID.length) { _lastResult = @"no-candidate"; return; }
+    _lastDiscoverySource = candidate[@"source"];
+    _currentActivityID = activityID;
+    NSString *roomID = candidate[@"roomID"];
+    if (!roomID.length) roomID = _roomID;
+    if ([DY778SLRecords hasParticipatedActivity:activityID]) { _lastResult = @"already-participated"; return; }
+    _requestInFlight = YES;
+    _lastCommand = @"detail";
+    __weak typeof(self) weakSelf = self;
+    [_nativeCall command:@"detail" activity:activityID room:roomID params:nil completion:^(NSDictionary *response, NSError *error) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        strongSelf.requestInFlight = NO;
+        if (error || !response.count) {
+            strongSelf.lastResult = error ? [NSString stringWithFormat:@"detail-error:%@", error.localizedDescription ?: @""] : @"detail-empty";
+            return;
+        }
+        // detail 响应里找任务上下文：task_infos_v2 / tasks / data 下同名键。
+        id tasks = response[@"task_infos_v2"] ?: response[@"tasks"] ?: response[@"taskInfos"];
+        if (!tasks && [response[@"data"] isKindOfClass:NSDictionary.class]) {
+            NSDictionary *data = response[@"data"];
+            tasks = data[@"task_infos_v2"] ?: data[@"tasks"] ?: data[@"taskInfos"];
+        }
+        NSMutableDictionary *context = [NSMutableDictionary dictionary];
+        if ([tasks isKindOfClass:NSDictionary.class]) [context addEntriesFromDictionary:tasks];
+        else if ([tasks isKindOfClass:NSArray.class] && ((NSArray *)tasks).count) {
+            id first = ((NSArray *)tasks).firstObject;
+            if ([first isKindOfClass:NSDictionary.class]) [context addEntriesFromDictionary:first];
+            context[@"tasks"] = tasks;
+        }
+        context[@"activityID"] = activityID;
+        context[@"activity_id"] = activityID;
+        if (roomID.length) { context[@"roomID"] = roomID; context[@"room_id"] = roomID; }
+        [DY778Preferences() setObject:[context copy] forKey:[NSString stringWithUTF8String:DY778SLTaskContextRecordKey]];
+        strongSelf.lastResult = @"detail-ok";
+        [strongSelf.automatic performBoundTask:[context copy]];
+    }];
 }
 - (NSString *)displayState {
     if (!_roomActive) return @"未在直播间";
@@ -410,10 +633,14 @@ void DY778SLRecordStage(NSString *message) {
     DY778SLCoordinator *coordinator = _coordinator;
     if (!coordinator || ![coordinator canRun]) return;
     // 任务上下文来自持久化的 DY778.superLucky.taskContext（规格 §4.2）；
-    // 无上下文时不猜任务，只做组心跳。
+    // 无上下文时走 1.1-2 发现流程（BDX URL / Seeds 组件图 → detail），
+    // 不再干等 hybrid 面板（电商间不触发 G1，旧版 phase 恒 0 的根因）。
     id stored = [DY778Preferences() objectForKey:[NSString stringWithUTF8String:DY778SLTaskContextRecordKey]];
     NSDictionary *context = [stored isKindOfClass:NSDictionary.class] ? stored : nil;
-    if (!context.count) return;
+    if (!context.count) {
+        [coordinator DY778SLRunDiscoveryFlow];
+        return;
+    }
     DY778SLTaskContext *taskContext = [[DY778SLTaskContext alloc] initWithDictionary:context];
     coordinator.taskContext = taskContext;
     [self performBoundTask:context];
@@ -445,18 +672,41 @@ void DY778SLRecordStage(NSString *message) {
     // 其余任务类型（关注/加团/送礼等）是否须真实操作未证实（规格 §11.10）：
     // autoFollow 关时不自动关注；其余一律不代做，只调 execute_task 参与
     // 接口——服务端是否接受此调用未证实，失败记 record 不再重试。
+    // 1.1-2 流程：execute_task 成功后补 participate（task_ids）。
+    coordinator.lastCommand = @"execute_task";
     __weak typeof(self) weakSelf = self;
     [coordinator.nativeCall executeTask:context.taskID activity:activityID room:coordinator.roomID completion:^(NSDictionary *response, NSError *error) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
-        (void)strongSelf;
+        if (!strongSelf) return;
         if (error) {
+            coordinator.lastResult = [NSString stringWithFormat:@"execute-error:%@", error.localizedDescription ?: @""];
             [DY778SLRecords rememberRecord:@{@"activityID": activityID, @"taskID": context.taskID,
                                               @"error": error.localizedDescription ?: @""} status:@"failed"];
             return;
         }
-        BOOL ok = [response[@"succeed"] boolValue] || [response[@"status_code"] integerValue] == 200;
+        BOOL ok = [response[@"succeed"] boolValue] || [response[@"status_code"] integerValue] == 200 ||
+                  [response[@"code"] integerValue] == 0 || [response[@"status"] integerValue] == 0;
+        coordinator.lastResult = ok ? @"execute-ok" : @"execute-rejected";
         [DY778SLRecords rememberRecord:@{@"activityID": activityID, @"taskID": context.taskID} status:ok ? @"submitted" : @"failed"];
-        if (ok) [coordinator publishStatus];
+        if (!ok) return;
+        [coordinator publishStatus];
+        coordinator.lastCommand = @"participate";
+        NSDictionary *params = @{@"task_ids": context.taskID ?: @"",
+                                 @"task_activity_id": activityID,
+                                 @"has_participate": @NO};
+        [coordinator.nativeCall command:@"participate" activity:activityID room:coordinator.roomID params:params completion:^(NSDictionary *joinResponse, NSError *joinError) {
+            if (joinError) {
+                coordinator.lastResult = [NSString stringWithFormat:@"participate-error:%@", joinError.localizedDescription ?: @""];
+                return;
+            }
+            BOOL joined = [joinResponse[@"succeed"] boolValue] || [joinResponse[@"status_code"] integerValue] == 200 ||
+                          [joinResponse[@"code"] integerValue] == 0 || [joinResponse[@"status"] integerValue] == 0;
+            coordinator.lastResult = joined ? @"participated" : @"participate-rejected";
+            if (joined) {
+                [DY778SLRecords rememberRecord:@{@"activityID": activityID, @"taskID": context.taskID} status:@"participated"];
+                [coordinator publishStatus];
+            }
+        }];
     }];
 }
 - (void)stop { [_coordinator pauseAutomatic]; }
@@ -484,6 +734,25 @@ void DY778SLGroupTick(void) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(DY778SLGroupTickSeconds * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         if (DY778SuperLuckyEnabled()) DY778SLGroupTick();
     });
+}
+
+// ---------- 摇一摇导出诊断段 ----------
+NSString *DY778SLDiagnosticsText(void) {
+    DY778SLCoordinator *coordinator = [DY778SLCoordinator shared];
+    NSMutableString *text = [NSMutableString stringWithString:@"\n=== DY778 super lucky diagnostics ===\n"];
+    [text appendFormat:@"enabled=%d roomActive=%d canRun=%d\n",
+        DY778SuperLuckyEnabled(), coordinator.roomActive, [coordinator canRun]];
+    [text appendFormat:@"roomID=%@ accountID=%@\n", coordinator.roomID ?: @"(nil)", coordinator.accountID ?: @"(nil)"];
+    [text appendFormat:@"activityID=%@ taskState=%@\n",
+        coordinator.taskContext.activityID ?: coordinator.currentActivityID ?: @"(nil)",
+        coordinator.taskContext.taskState ?: @"(nil)"];
+    [text appendFormat:@"discoverySource=%@ lastCommand=%@ lastResult=%@ inFlight=%d\n",
+        coordinator.lastDiscoverySource ?: @"(none)", coordinator.lastCommand ?: @"(none)",
+        coordinator.lastResult ?: @"(none)", coordinator.requestInFlight];
+    [text appendFormat:@"bdxLotteryURL=%@\n", DY778LastLotteryBDXURL() ?: @"(nil)"];
+    [text appendFormat:@"records=%lu groupFailures=%lu\n",
+        (unsigned long)[DY778SLRecords records].count, (unsigned long)coordinator.groupFailures];
+    return [text copy];
 }
 
 // ---------- 面板 / 历史 / 入口 ----------

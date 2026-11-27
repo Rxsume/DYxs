@@ -63,7 +63,59 @@ static void DY778GuestInstall(NSString *className, NSString *selector, const cha
     }
     DY778RecordHook([NSString stringWithFormat:@"游客身份 / %@.%@", className, selector], installed);
 }
-static BOOL DY778GuestStealth(void) { return DY778Bool(@"liveTools.stealth"); }
+static BOOL DY778GuestStealth(void) { return DY778LiveIdentityGuestActive(); }
+
+// ---------- 身份范围（1.1-2 DY778LiveIdentityScope 移植） ----------
+// sessionOverrides：roomID → 进房时绑定的游客身份（NSNumber BOOL）。
+// currentRoomID：当前所在房间；退房清 current、保留绑定（重进同房沿用）。
+static NSMutableDictionary<NSString *, NSNumber *> *DY778IdentitySessionOverrides;
+static NSString *DY778IdentityCurrentRoomID;
+static NSObject *DY778IdentityLock;
+static NSObject *DY778IdentityLockToken(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        DY778IdentityLock = [NSObject new];
+        DY778IdentitySessionOverrides = [NSMutableDictionary dictionary];
+    });
+    return DY778IdentityLock;
+}
+BOOL DY778LiveIdentityGuestActive(void) {
+    @synchronized (DY778IdentityLockToken()) {
+        if (DY778IdentityCurrentRoomID.length) {
+            NSNumber *bound = DY778IdentitySessionOverrides[DY778IdentityCurrentRoomID];
+            if (bound) return bound.boolValue;
+            // 进房绑定缺失（hook 未覆盖的进房路径）：按当前开关补绑定，
+            // 与 1.1-2 prepareRoomID:defaultGuest: 同义。
+            BOOL guest = DY778Bool(@"liveTools.stealth");
+            DY778IdentitySessionOverrides[DY778IdentityCurrentRoomID] = @(guest);
+            return guest;
+        }
+    }
+    return DY778Bool(@"liveTools.stealth");
+}
+void DY778LiveIdentityRoomEntered(NSString *roomID) {
+    if (!roomID.length) return;
+    @synchronized (DY778IdentityLockToken()) {
+        DY778IdentityCurrentRoomID = [roomID copy];
+        if (!DY778IdentitySessionOverrides[roomID]) {
+            DY778IdentitySessionOverrides[roomID] = @(DY778Bool(@"liveTools.stealth"));
+        }
+    }
+}
+void DY778LiveIdentityRoomExited(void) {
+    @synchronized (DY778IdentityLockToken()) { DY778IdentityCurrentRoomID = nil; }
+}
+NSString *DY778LiveIdentityCurrentRoomID(void) {
+    @synchronized (DY778IdentityLockToken()) { return [DY778IdentityCurrentRoomID copy]; }
+}
+static void DY778LiveIdentitySwitchChanged(void) {
+    // 手动切换隐身开关：当前房间身份按新开关重新确定（1.1-2 语义）。
+    @synchronized (DY778IdentityLockToken()) {
+        if (DY778IdentityCurrentRoomID.length) {
+            DY778IdentitySessionOverrides[DY778IdentityCurrentRoomID] = @(DY778Bool(@"liveTools.stealth"));
+        }
+    }
+}
 static NSString *DY778GuestTTWID(void) {
     NSString *ttwid = [DY778String(@"liveTools.ttwid") stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     return DY778LiveToolsValidTTWID(ttwid.UTF8String) ? ttwid : nil;
@@ -131,7 +183,11 @@ static BOOL DY778GuestUseUnifiedClient(id creator, SEL cmd, id argument) {
 static IMP DY778GuestOriginalTryEnterRoom, DY778GuestOriginalNoNeedRetry, DY778GuestOriginalFetchPermission;
 static IMP DY778GuestOriginalHandleRemoteError, DY778GuestOriginalPingStatus, DY778GuestOriginalSetupIM;
 static void DY778GuestTryEnterRoom(id process, SEL cmd, long long roomID, unsigned long long retryIndex) {
-    if (roomID > 0) DY778LiveToolsRoomDidEnter([NSString stringWithFormat:@"%lld", roomID]);
+    if (roomID > 0) {
+        NSString *identifier = [NSString stringWithFormat:@"%lld", roomID];
+        DY778LiveIdentityRoomEntered(identifier);
+        DY778LiveToolsRoomDidEnter(identifier);
+    }
     ((void (*)(id, SEL, long long, unsigned long long))DY778GuestOriginalTryEnterRoom)(process, cmd, roomID, retryIndex);
 }
 static BOOL DY778GuestNoNeedRetry(id process, SEL cmd, id argument) {
@@ -155,13 +211,14 @@ static IMP DY778GuestOriginalExitRoomService, DY778GuestOriginalExitRoomAPI;
 static void DY778GuestEnterRoom##N(id target, SEL cmd, id requestModel, id finish) { \
     NSString *roomID = DY778LiveRoomIdentifier(requestModel); \
     if (!roomID.length) { id model = DY778Read(requestModel, @"roomModel"); if (model && model != requestModel) roomID = DY778LiveRoomIdentifier(model); } \
-    if (roomID.length) DY778LiveToolsRoomDidEnter(roomID); \
+    if (roomID.length) { DY778LiveIdentityRoomEntered(roomID); DY778LiveToolsRoomDidEnter(roomID); } \
     ((void (*)(id, SEL, id, id))ORIGINAL)(target, cmd, requestModel, finish); }
 DY778_GUEST_ENTER_ROOM(Service, DY778GuestOriginalEnterRoomService)
 DY778_GUEST_ENTER_ROOM(API, DY778GuestOriginalEnterRoomAPI)
 #undef DY778_GUEST_ENTER_ROOM
 #define DY778_GUEST_EXIT_ROOM(N, ORIGINAL) \
 static void DY778GuestExitRoom##N(id target, SEL cmd, id room) { \
+    DY778LiveIdentityRoomExited(); \
     DY778LiveToolsRoomDidExit(); \
     ((void (*)(id, SEL, id))ORIGINAL)(target, cmd, room); }
 DY778_GUEST_EXIT_ROOM(Service, DY778GuestOriginalExitRoomService)
@@ -177,6 +234,16 @@ DY778_GUEST_CHANNEL_CLOSED(MessageClient, DY778GuestOriginalChannelClosedMessage
 
 void DY778InstallLiveGuestHooks(void) {
     if (!NSThread.isMainThread) { dispatch_async(dispatch_get_main_queue(), ^{ DY778InstallLiveGuestHooks(); }); return; }
+    // 身份范围：隐身开关手动切换时，当前房间身份重新确定（只注册一次）。
+    static BOOL identityObserverInstalled;
+    if (!identityObserverInstalled) {
+        identityObserverInstalled = YES;
+        [NSNotificationCenter.defaultCenter addObserverForName:DY778PreferencesChangedNotification object:nil
+            queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *notification) {
+                NSString *key = notification.userInfo[@"key"];
+                if ([key isEqualToString:@"liveTools.stealth"]) DY778LiveIdentitySwitchChanged();
+            }];
+    }
     // 游客身份：网络请求拦截（实例方法优先，不存在时按类方法再试一次）。
     DY778GuestInstall(@"TTNetworkManagerChromium", @"buildJSONHttpTask:params:method:needCommonParams:headerField:requestSerializer:responseSerializer:autoResume:verifyRequest:isCustomizedCookie:callback:callbackWithResponse:dispatch_queue:entrySelector:", "@", "@@B@##BBB@@@:", (IMP)DY778GuestBuildJSON1, &DY778GuestOriginalJSON1);
     DY778GuestInstall(@"TTNetworkManagerChromium", @"buildJSONHttpTask:params:method:needCommonParams:commonParamLevel:headerField:requestSerializer:responseSerializer:autoResume:verifyRequest:isCustomizedCookie:callback:callbackWithResponse:dispatch_queue:entrySelector:", "@", "@@Bi@##BBB@@@:", (IMP)DY778GuestBuildJSON2, &DY778GuestOriginalJSON2);

@@ -1,6 +1,7 @@
 #import "DY778RedEnvelope.h"
 #import "DY778Core.h"
 #import "DY778LiveInfo.h"
+#import "DY778LiveGuest.h"
 #import "DY778RedEnvelopePolicy.h"
 #import "DY778LiveAnalysisPolicy.h"
 #import <WebKit/WebKit.h>
@@ -149,15 +150,15 @@ NSString *DY778RedEnvelopeMode(void) {
 // ---------- 4 门控（规格 §4.7、§9.1，与 SL 共用） ----------
 // 原版 4 个 helper 的内部逻辑未全拆；DYxs 侧按函数名与模块 1 的现有
 // 状态推断实现，未证实。任一成立时自动任务不执行。
+// 1.1-2 身份范围修正（2026-11-27）：隐身/游客判定改用当前房间进房时
+// 绑定的身份（DY778LiveIdentityGuestActive），不再直读全局开关——
+// 账号身份房间继续执行已开启的红包/福袋/超级福袋/定时弹幕，游客及
+// 切换中暂停；手动切换开关或真正换房后才重新确定。
 BOOL DY778LuckyLiveToolsStealthActive(void) {
-    // 隐身是否激活：模块 1 的 liveTools.stealth 开关。
-    return DY778Bool(@"liveTools.stealth");
+    return DY778LiveIdentityGuestActive();
 }
 BOOL DY778LuckyLiveIdentityBlocksAutomation(void) {
-    // 游客身份是否禁止自动化：DYxs 里游客身份即由 stealth 开关驱动
-    // （见 DY778LiveGuest.m），故与 StealthActive 重合；为保原版
-    // 4 门控结构仍单独保留，未证实两者在原版是否确为同一条件。
-    return DY778Bool(@"liveTools.stealth");
+    return DY778LiveIdentityGuestActive();
 }
 BOOL DY778LuckyLiveToolsOwnerIsCurrent(id host) {
     // 当前房间是否归属本账号的 LiveTools 会话：按 host 取 roomModel →

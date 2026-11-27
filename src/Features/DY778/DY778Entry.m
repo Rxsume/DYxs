@@ -43,6 +43,7 @@
 #import "DY778LiveAnalysis.h"
 #import "DY778RedEnvelope.h"
 #import "DY778SuperLucky.h"
+#import "DY778CommentColor.h"
 #import "DY778Misc.h"
 #import "DY778FansUI.h"
 #import "DY778DisplayStats.h"
@@ -62,6 +63,8 @@ static void DY778InstallRemainingModules(void) {
     // 外层包 RE 的替换实现，orig 链完整。
     DY778InstallRedEnvelopeHooks();
     DY778InstallSuperLuckyHooks();
+    // 1.1-2：评论蓝字（六样式+符号 1–8 组混用）。
+    DY778InstallCommentColorHooks();
     // 1.0-8 模块 4：备份恢复 + 抽奖提醒 + 评论展开 + 清理关注 +
     // 直播外观编辑（见 DY778Misc.m）。备份与外观无安装函数，
     // 走设置页调用；抽奖提醒只 dispatch_async 调 DrawCenter tick。

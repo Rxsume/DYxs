@@ -42,6 +42,7 @@
 #import "DY778LiveAnalysis.h"
 #import "DY778RedEnvelope.h"
 #import "DY778SuperLucky.h"
+#import "DY778CommentColor.h"
 #import "DY778DrawReminder.h"
 #import "DY778CommentExpand.h"
 #import "DY778ListClear.h"
@@ -61,6 +62,8 @@ static void DY778SyncRemainingSettings(void) {
         {@"DKXSLivePreviewViewers", @"liveInfo.viewers"},
         {@"DKXSLivePreviewCardDuration", @"liveInfo.cardDuration"},
         {@"DKXSFansEnabled", @"fans.enabled"},
+        // 1.1-2：主页消费等级单独开关（星牌查询未开时不显示）。
+        {@"DKXSFansProfileLevel", @"fans.profileLevel"},
         {@"DKXSDisplayStatsEnabled", @"displayStats.enabled"},
         // 1.0-8 模块 1：直播间工具（开关默认全部关闭）。
         {@"DKXSLiveToolsStealth", @"liveTools.stealth"},
@@ -89,6 +92,8 @@ static void DY778SyncRemainingSettings(void) {
         {@"DKXSSuperLuckyAutoFollow", @"superLucky.autoFollow"},
         {@"DKXSSuperLuckyDrawReminder", @"superLucky.drawReminder"},
         {@"DKXSLuckyDrawReminder", @"lucky.drawReminder"},
+        // 1.1-2：评论蓝字总开关（默认关）。
+        {@"DKXSCommentBlueEnabled", @"comment.blue.enabled"},
         // 1.0-8 模块 4：评论展开与清理关注总开关（默认关，未证实）。
         {@"DKXSMiscCommentsEnabled", @"comments.enabled"},
         {@"DKXSMiscListClearEnabled", @"listClear.enabled"},
@@ -136,6 +141,12 @@ static void DY778SyncRemainingSettings(void) {
         NSInteger index = [defaults integerForKey:@"DKXSRedEnvelopeMode"];
         DY778Set(@"redEnvelope.mode", modes[(NSUInteger)MAX(0, MIN(2, index))]);
     }
+    // 1.1-2：消费等级胶囊配色（选择下标 0 = 金色，1 = 蓝色，2 = 粉色，3 = 灰色）。
+    if ([defaults objectForKey:@"DKXSFansLevelColor"]) {
+        NSArray<NSString *> *colors = @[@"gold", @"blue", @"pink", @"gray"];
+        NSInteger index = [defaults integerForKey:@"DKXSFansLevelColor"];
+        DY778Set(@"fans.levelColor", colors[(NSUInteger)MAX(0, MIN(3, index))]);
+    }
     // 1.0-8 模块 4：直播外观对齐/顺序（选择下标 0/1/2 与 0/1）。
     if ([defaults objectForKey:@"DKXSMiscLiveAppearanceAlignment"]) {
         NSArray<NSString *> *alignments = @[@"left", @"center", @"right"];
@@ -169,6 +180,9 @@ static void DY778SyncRemainingSettings(void) {
         {@"DKXSLuckyDrawReminderSeconds", @"lucky.drawReminderSeconds"},
         // 1.0-8 模块 4：外观缩放，DY778Set 钳制在 0.75–1.5。
         {@"DKXSMiscLiveAppearanceScale", @"liveAppearance.scale"},
+        // 1.1-2：消费等级胶囊大小与字号。
+        {@"DKXSFansLevelScale", @"fans.levelScale"},
+        {@"DKXSFansLevelFontSize", @"fans.levelFontSize"},
     };
     for (NSUInteger i = 0; i < sizeof(numberKeys) / sizeof(numberKeys[0]); i++) {
         id value = [defaults objectForKey:numberKeys[i][0]];
@@ -286,6 +300,26 @@ static void DY778SyncRemainingSettings(void) {
     DKSettingsRegister(@"DKXSFansEnabled", ^AWESettingItemModel *{
         return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSFansEnabled", @"启用星牌查询", @""),
             @"开启后，用户主页左上角出现“星牌”按钮，可查询该用户在某主播那里的粉丝灯牌与消费等级。只展示当前可查询且归属匹配的资料。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    // 1.1-2：主页消费等级（粉丝区旁胶囊，单独开关）。
+    DKSettingsRegister(@"DKXSFansProfileLevel", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSFansProfileLevel", @"主页显示消费等级", @""),
+            @"开启后，在自己和他人主页的粉丝区域旁显示消费等级胶囊。需先开启上方星牌查询，未开启时不显示。默认关闭。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSFansLevelScale", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeTextInput(@"DKXSFansLevelScale", @"消费等级胶囊大小", @"1.0", 4),
+            @"0.6–1.6 倍，默认 1.0。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSFansLevelFontSize", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeTextInput(@"DKXSFansLevelFontSize", @"消费等级字号", @"11", 3),
+            @"默认 11。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSFansLevelColor", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKMakeChoice(@"DKXSFansLevelColor", @"消费等级配色", @[@"金色", @"蓝色", @"粉色", @"灰色"]),
             ^{ DY778SyncRemainingSettings(); });
     });
 
@@ -537,6 +571,18 @@ static void DY778SyncRemainingSettings(void) {
         return DKSettingsWithoutBackup(DKMakeAction(@"DKXSSuperLuckyHistory", @"福袋记录", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
             (void)item;
             DY778PresentController(presenter, [[DY778SLHistoryController alloc] init]);
+        }));
+    });
+    // 1.1-2：评论蓝字（六样式：AI/私信/链接/播放/对话/纯蓝色；符号 1–8 组混用）。
+    DKSettingsRegister(@"DKXSCommentBlueEnabled", ^AWESettingItemModel *{
+        return DKSettingsOnChange(DKSettingsWithInfo(DKMakeSwitch(@"DKXSCommentBlueEnabled", @"评论蓝字", @""),
+            @"开启后，评论里用符号包住的文字发送后变蓝。支持 AI、私信、链接、播放、对话和纯蓝色六种样式，符号可在下方编辑（1–8 组，一句中可混用）。默认符号：AI《》、私信、链接{}、播放<>、对话「」、纯蓝色〔〕。默认关闭。"),
+            ^{ DY778SyncRemainingSettings(); });
+    });
+    DKSettingsRegister(@"DKXSCommentBlueSymbols", ^AWESettingItemModel *{
+        return DKSettingsWithoutBackup(DKMakeAction(@"DKXSCommentBlueSymbols", @"蓝字符号编辑", @"", ^(AWESettingItemModel *item, UIViewController *presenter) {
+            (void)item;
+            DY778PresentController(presenter, DY778CommentSymbolEditorController());
         }));
     });
     DKSettingsRegister(@"DKXSRedEnvelopeInfo", ^AWESettingItemModel *{
