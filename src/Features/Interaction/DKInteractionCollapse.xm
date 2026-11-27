@@ -15,8 +15,9 @@
 //  抖音自己的布局每轮都会把元素放回自然位置，天然兜底，不存在叠加漂移。
 //
 //  顶栏注意：AWEFeedTopBarContainer 的 setAlpha: 被 DKXSBatch5dAppearance 强制接管
-//  （恒回 1.0 或透明度设定值），alpha 淡出无效，顶栏改用 center 移到圆键 +
-//  动画完成 hidden，展开时 unhide 并移回。
+//  （恒回 1.0 或透明度设定值），alpha 淡出无效；78 版把顶栏 center 移到圆键位再
+//  hidden，hidden 被抖音改回后顶栏字留在圆键上（用户真机报 bug）。79 版顶栏改纯
+//  hidden 收起、不动 center，布局期每轮重申 hidden，展开时 unhide。
 //
 //  性能：栈判定按栈缓存（子视图签名变化才重查），center/alpha 只在值变化时写。
 //
@@ -188,18 +189,9 @@ static void DKInteractionApplyTopBar(UIView *topBar) {
     if (gInteractionCollapsed) {
         objc_setAssociatedObject(topBar, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         topBar.userInteractionEnabled = NO;
-        NSValue *writtenValue = objc_getAssociatedObject(topBar, &kDKInteractionWrittenCenterKey);
-        if (!writtenValue || !DKInteractionCenterClose(topBar.center, writtenValue.CGPointValue)) {
-            // 抖音把顶栏放回了原位（或首次收缩）：落定到圆键位并隐藏。
-            DKInteractionSettleCollapsed(topBar);
-            topBar.hidden = YES;
-        }
-        // center 已在写入位：动画进行中或已落定，hidden 由动画完成回调负责，不插手。
+        if (!topBar.hidden) topBar.hidden = YES;
     } else if (modified) {
-        NSValue *writtenValue = objc_getAssociatedObject(topBar, &kDKInteractionWrittenCenterKey);
-        if (!writtenValue || !DKInteractionCenterClose(topBar.center, writtenValue.CGPointValue)) {
-            DKInteractionRestoreView(topBar);
-        }
+        DKInteractionRestoreView(topBar);
     }
 }
 
@@ -212,7 +204,7 @@ static void DKInteractionApplyTopBar(UIView *topBar) {
 
 #pragma mark - 收缩/展开驱动
 
-static void DKInteractionAnimateView(UIView *view, BOOL collapsed, BOOL useHidden) {
+static void DKInteractionAnimateView(UIView *view, BOOL collapsed) {
     CGPoint target;
     if (collapsed) {
         objc_setAssociatedObject(view, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -246,12 +238,10 @@ static void DKInteractionAnimateView(UIView *view, BOOL collapsed, BOOL useHidde
     [UIView animateWithDuration:0.4 delay:0.0 usingSpringWithDamping:0.86 initialSpringVelocity:0.0
                         options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
                      animations:^{
-                         if (!useHidden) view.alpha = alpha;
+                         view.alpha = alpha;
                          view.center = target;
                      } completion:^(BOOL finished) {
-                         if (collapsed) {
-                             if (useHidden) view.hidden = YES;
-                         } else {
+                         if (!collapsed) {
                              view.userInteractionEnabled = YES;
                              objc_setAssociatedObject(view, &kDKInteractionModifiedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
                              objc_setAssociatedObject(view, &kDKInteractionStoredCenterKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -268,14 +258,20 @@ void DKInteractionCollapseSetCollapsed(BOOL collapsed) {
             objc_setAssociatedObject(stack, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
         for (UIView *element in stack.subviews) {
-            DKInteractionAnimateView(element, collapsed, NO);
+            DKInteractionAnimateView(element, collapsed);
         }
         if (!collapsed) {
             objc_setAssociatedObject(stack, &kDKInteractionModifiedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
     }
     for (UIView *topBar in gInteractionTopBars.allObjects) {
-        DKInteractionAnimateView(topBar, collapsed, YES);
+        if (collapsed) {
+            objc_setAssociatedObject(topBar, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            topBar.userInteractionEnabled = NO;
+            topBar.hidden = YES;
+        } else if ([objc_getAssociatedObject(topBar, &kDKInteractionModifiedKey) boolValue]) {
+            DKInteractionRestoreView(topBar);
+        }
     }
 }
 
