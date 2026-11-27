@@ -376,8 +376,9 @@ static void DKVizSetVisible(BOOL visible) {
             if (gLevels[k] > 0.002f) { settled = NO; break; }
         }
     }
+    // 0.6.9.75：活跃时也只跑 30fps，减半逐帧采样与图层写入，缓解掉帧。
     link.preferredFrameRateRange = settled ? CAFrameRateRangeMake(8, 15, 10)
-                                           : CAFrameRateRangeMake(30, 60, 60);
+                                           : CAFrameRateRangeMake(24, 30, 30);
     if (settled) return;
 
     if (gFluid) DKVizApplyFluid(gCapsuleFrame, gPlusFrame);
@@ -488,7 +489,7 @@ void DKAudioVisualizerLayout(UIView *douyinBar) {
     if (!gLink) {
         gDriver = [[DKAudioVisualizerDriver alloc] init];
         gLink = [CADisplayLink displayLinkWithTarget:gDriver selector:@selector(tick:)];
-        gLink.preferredFrameRateRange = CAFrameRateRangeMake(30, 60, 60);
+        gLink.preferredFrameRateRange = CAFrameRateRangeMake(24, 30, 30);
         gLastTimestamp = 0;
         [gLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
     }
