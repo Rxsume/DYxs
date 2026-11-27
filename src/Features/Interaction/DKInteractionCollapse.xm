@@ -20,7 +20,7 @@ static char kDKInteractionBaseTransformKey;
 static char kDKInteractionModifiedKey;
 static char kDKInteractionKeyViewKey;
 
-static const CGFloat kDKInteractionKeySide = 62.0;
+static const CGFloat kDKInteractionKeySide = 44.0;
 static const CGFloat kDKInteractionKeyGap = 8.0;
 static const NSInteger kDKInteractionKeyIconTag = 7701;
 
@@ -174,7 +174,7 @@ static void DKInteractionLayoutKey(UIView *stack) {
     if (!CGRectEqualToRect(key.frame, frame)) key.frame = frame;
 
     UIImageView *icon = (UIImageView *)[key viewWithTag:kDKInteractionKeyIconTag];
-    if (icon) icon.frame = CGRectMake((side - 26.0) / 2.0, (side - 26.0) / 2.0, 26.0, 26.0);
+    if (icon) icon.frame = CGRectMake((side - 20.0) / 2.0, (side - 20.0) / 2.0, 20.0, 20.0);
     for (UIView *subview in ((UIVisualEffectView *)key).contentView.subviews) {
         if ([subview isKindOfClass:UIButton.class]) subview.frame = key.bounds;
     }
