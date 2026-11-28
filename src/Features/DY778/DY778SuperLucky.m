@@ -127,7 +127,7 @@ static BOOL DY778SLFlag(id object, NSString *key) {
         _hasParticipated = DY778SLFlag(source, @"hasParticipated") || DY778SLFlag(dictionary, @"hasParticipated");
         _remainingSeconds = DY778SLSeconds(source, @"remainingSeconds");
         if (_remainingSeconds == 0) _remainingSeconds = DY778SLSeconds(dictionary, @"remainingSeconds");
-        _activityID = DY778SLText(DY778SLValue(dictionary, @"activityID")) ?: DY778SLText(DY778SLValue(dictionary, @"activity_id")) ?: @"";
+        _activityID = DY778SLText(DY778SLValue(dictionary, @"activityID")) ?: DY778SLText(DY778SLValue(dictionary, @"activity_id")) ?: DY778SLText(DY778SLValue(dictionary, @"lottery_id")) ?: @"";
         _roomID = DY778SLText(DY778SLValue(dictionary, @"roomID")) ?: DY778SLText(DY778SLValue(dictionary, @"roomId")) ?:
             DY778SLText(DY778SLValue(dictionary, @"roomIdStr")) ?: @"";
     }
@@ -191,6 +191,21 @@ static NSDictionary *DY778SLNativeParseResponse(id value) {
     }
     return nil;
 }
+// 原生回调参数诊断：记录最近一次回调两参的形态（小整数 / 类名），导出可见。
+static NSString *DY778SLLastCallbackArgs = nil;
+static NSString *DY778SLDescribeArg(void *ptr) {
+    uintptr_t value = (uintptr_t)ptr;
+    if (!ptr) return @"nil";
+    if (value < 0x1000) return [NSString stringWithFormat:@"int:%lu", (unsigned long)value];
+    @try {
+        return NSStringFromClass(object_getClass((__bridge id)ptr)) ?: @"?";
+    } @catch (__unused NSException *exception) { return @"bad-ptr"; }
+}
+static id DY778SLObjectArg(void *ptr) {
+    uintptr_t value = (uintptr_t)ptr;
+    if (!ptr || value < 0x1000) return nil;
+    return (__bridge id)ptr;
+}
 
 @implementation DY778SLNativeCall
 - (void)finish:(NSDictionary *)response error:(NSError *)error {
@@ -252,11 +267,28 @@ static NSDictionary *DY778SLNativeParseResponse(id value) {
     _keeper = @[requester, jsonRequest];
     _started = YES;
     __weak typeof(self) weakSelf = self;
-    void (^callback)(id, id) = ^(id response, id error) {
+    // 回调签名防御（2026-11-28 真机崩溃定案）：原生回调首参实为 BOOL/状态码小整数，
+    // 旧版按 ^(id, id) 声明，ARC 在块入口 retain 首参（0x1）直接 EXC_BAD_ACCESS 崩。
+    // 改按 void* 收参：小整数不当对象，其余按对象解析（响应 dict / NSError 任意位置）。
+    void (^callback)(void *, void *) = ^(void *first, void *second) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
+        DY778SLLastCallbackArgs = [NSString stringWithFormat:@"%@,%@",
+            DY778SLDescribeArg(first), DY778SLDescribeArg(second)];
         if (!strongSelf) return;
-        NSError *failure = [error isKindOfClass:NSError.class] ? error : nil;
-        NSDictionary *parsed = DY778SLNativeParseResponse(response);
+        NSError *failure = nil;
+        NSDictionary *parsed = nil;
+        @try {
+            id firstObject = DY778SLObjectArg(first);
+            id secondObject = DY778SLObjectArg(second);
+            if ([secondObject isKindOfClass:NSError.class]) failure = secondObject;
+            if ([firstObject isKindOfClass:NSError.class]) failure = firstObject;
+            parsed = DY778SLNativeParseResponse(firstObject) ?: DY778SLNativeParseResponse(secondObject);
+            if (!parsed && !failure && (uintptr_t)first < 0x1000 && (uintptr_t)first == 0) {
+                failure = DY778SLNativeError(-3, @"native callback reported failure");
+            }
+        } @catch (__unused NSException *exception) {
+            failure = DY778SLNativeError(-4, @"native callback parse exception");
+        }
         if (!parsed && !failure) failure = DY778SLNativeError(-2, @"empty response");
         [strongSelf finish:parsed error:failure];
     };
@@ -514,7 +546,7 @@ static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
     // 线索 ①：BDX 福袋 URL。
     NSString *bdxURL = DY778LastLotteryBDXURL();
     if (bdxURL.length) {
-        NSString *activityID = DY778SLQueryValue(bdxURL, @"activity_id") ?: DY778SLQueryValue(bdxURL, @"activityId");
+        NSString *activityID = DY778SLQueryValue(bdxURL, @"activity_id") ?: DY778SLQueryValue(bdxURL, @"activityId") ?: DY778SLQueryValue(bdxURL, @"lottery_id");
         NSString *roomID = DY778SLQueryValue(bdxURL, @"room_id") ?: DY778SLQueryValue(bdxURL, @"roomId");
         if (activityID.length) {
             return @{@"activityID": activityID, @"roomID": roomID ?: _roomID ?: @"", @"source": @"bdx"};
@@ -541,7 +573,7 @@ static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
         budget--;
         if ([node isKindOfClass:NSDictionary.class]) {
             NSDictionary *dict = node;
-            NSString *activityID = DY778SLText(dict[@"activity_id"]) ?: DY778SLText(dict[@"activityID"]);
+            NSString *activityID = DY778SLText(dict[@"activity_id"]) ?: DY778SLText(dict[@"activityID"]) ?: DY778SLText(dict[@"lottery_id"]);
             if (activityID.length) {
                 NSString *roomID = DY778SLText(dict[@"room_id"]) ?: DY778SLText(dict[@"roomID"]);
                 return @{@"activityID": activityID, @"roomID": roomID ?: _roomID ?: @"", @"source": @"seeds-dict"};
@@ -555,8 +587,8 @@ static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
         }
         if ([node isKindOfClass:NSString.class]) {
             NSString *text = node;
-            if ([text containsString:@"activity_id"]) {
-                NSString *activityID = DY778SLQueryValue(text, @"activity_id");
+            if ([text containsString:@"activity_id"] || [text containsString:@"lottery_id"]) {
+                NSString *activityID = DY778SLQueryValue(text, @"activity_id") ?: DY778SLQueryValue(text, @"lottery_id");
                 if (activityID.length) {
                     NSString *roomID = DY778SLQueryValue(text, @"room_id");
                     return @{@"activityID": activityID, @"roomID": roomID ?: _roomID ?: @"", @"source": @"seeds-url"};
@@ -750,6 +782,7 @@ NSString *DY778SLDiagnosticsText(void) {
         coordinator.lastDiscoverySource ?: @"(none)", coordinator.lastCommand ?: @"(none)",
         coordinator.lastResult ?: @"(none)", coordinator.requestInFlight];
     [text appendFormat:@"bdxLotteryURL=%@\n", DY778LastLotteryBDXURL() ?: @"(nil)"];
+    [text appendFormat:@"lastCallbackArgs=%@\n", DY778SLLastCallbackArgs ?: @"(none)"];
     [text appendFormat:@"records=%lu groupFailures=%lu\n",
         (unsigned long)[DY778SLRecords records].count, (unsigned long)coordinator.groupFailures];
     return [text copy];
