@@ -78,6 +78,13 @@ static BOOL DKInteractionIsCollapsibleStack(UIView *stack) {
     return result;
 }
 
+// 左侧栈（用户名/文案/标签，x 靠左）：只淡出不位移。center 位移的存量还原
+// 跨视频复用时会把上一条视频的位置写到新视频上，个别视频左栈上移一点
+// （2026-11-28 用户对照导出定案）；淡出时元素本就不可见，位移无可见收益。
+static BOOL DKInteractionIsLeftStack(UIView *stack) {
+    return CGRectGetMinX(stack.frame) < 100.0;
+}
+
 // 地区行（文案下方的「日期 IP属地」时间元素）不参与收缩，始终保留显示。
 static BOOL DKInteractionIsRegionElement(UIView *element) {
     if (![element respondsToSelector:@selector(elementClassName)]) return NO;
@@ -186,7 +193,7 @@ void DKInteractionCollapseApplyStack(UIView *stack) {
             objc_setAssociatedObject(stack, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             element.userInteractionEnabled = NO;
             if (element.alpha != 0.0) element.alpha = 0.0;
-            DKInteractionSettleCollapsed(element);
+            if (!DKInteractionIsLeftStack(stack)) DKInteractionSettleCollapsed(element);
         } else if ([objc_getAssociatedObject(element, &kDKInteractionModifiedKey) boolValue]) {
             // 展开动画由 SetCollapsed 驱动；布局期只兜底：动画被打断且 center 还在写入位时还原。
             NSValue *writtenValue = objc_getAssociatedObject(element, &kDKInteractionWrittenCenterKey);
@@ -237,27 +244,33 @@ static void DKInteractionApplyTopBar(UIView *topBar) {
 #pragma mark - 收缩/展开驱动
 
 static void DKInteractionAnimateView(UIView *view, BOOL collapsed) {
+    // 左侧栈元素只淡出/淡入，不动 center（见 DKInteractionIsLeftStack）。
+    BOOL fadeOnly = DKInteractionIsLeftStack(view.superview);
     CGPoint target;
     if (collapsed) {
         objc_setAssociatedObject(view, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         view.userInteractionEnabled = NO;
-        NSValue *storedValue = objc_getAssociatedObject(view, &kDKInteractionStoredCenterKey);
-        NSValue *writtenValue = objc_getAssociatedObject(view, &kDKInteractionWrittenCenterKey);
-        CGPoint stored;
-        if (writtenValue && DKInteractionCenterClose(view.center, writtenValue.CGPointValue) && storedValue) {
-            stored = storedValue.CGPointValue;
-        } else if (storedValue && DKInteractionCenterClose(view.center, storedValue.CGPointValue)) {
-            stored = storedValue.CGPointValue;
+        if (fadeOnly) {
+            target = view.center;
         } else {
-            stored = view.center;
+            NSValue *storedValue = objc_getAssociatedObject(view, &kDKInteractionStoredCenterKey);
+            NSValue *writtenValue = objc_getAssociatedObject(view, &kDKInteractionWrittenCenterKey);
+            CGPoint stored;
+            if (writtenValue && DKInteractionCenterClose(view.center, writtenValue.CGPointValue) && storedValue) {
+                stored = storedValue.CGPointValue;
+            } else if (storedValue && DKInteractionCenterClose(view.center, storedValue.CGPointValue)) {
+                stored = storedValue.CGPointValue;
+            } else {
+                stored = view.center;
+            }
+            target = DKInteractionCollapseTarget(view, stored);
+            objc_setAssociatedObject(view, &kDKInteractionStoredCenterKey,
+                [NSValue valueWithCGPoint:stored], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(view, &kDKInteractionWrittenCenterKey,
+                [NSValue valueWithCGPoint:target], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(view, &kDKInteractionStoredHeightKey,
+                @(CGRectGetHeight(view.bounds)), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
-        target = DKInteractionCollapseTarget(view, stored);
-        objc_setAssociatedObject(view, &kDKInteractionStoredCenterKey,
-            [NSValue valueWithCGPoint:stored], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        objc_setAssociatedObject(view, &kDKInteractionWrittenCenterKey,
-            [NSValue valueWithCGPoint:target], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        objc_setAssociatedObject(view, &kDKInteractionStoredHeightKey,
-            @(CGRectGetHeight(view.bounds)), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     } else {
         view.hidden = NO;
         NSValue *storedValue = objc_getAssociatedObject(view, &kDKInteractionStoredCenterKey);
