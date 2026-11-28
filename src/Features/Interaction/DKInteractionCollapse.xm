@@ -213,6 +213,15 @@ static void DKInteractionApplyTopBar(UIView *topBar) {
     %orig;
     DKInteractionApplyTopBar(self);
 }
+// 收缩期间抖音会把顶栏 hidden 改回 NO（刷视频时偶发，改回后不再触发 layout，
+// 顶栏一直露着、上刷才恢复）——收缩态下强制保持隐藏，展开/关功能时透传。
+- (void)setHidden:(BOOL)hidden {
+    if (!hidden && DKInteractionCollapseEnabled() && gInteractionCollapsed) {
+        %orig(YES);
+        return;
+    }
+    %orig;
+}
 %end
 
 #pragma mark - 收缩/展开驱动
