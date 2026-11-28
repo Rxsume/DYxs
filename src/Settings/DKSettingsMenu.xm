@@ -21,7 +21,7 @@ static const CGFloat kDKNoteInset = 32.0;
 static const CGFloat kDKNoteTop = 12.0;
 static const CGFloat kDKNoteBottom = 4.0;
 
-static NSString *const kDKUnplacedHeader = @"未归类";
+static NSString *const kDKUnplacedHeader = @"评论文字样式";
 static NSString *const kDKEmptyPlaceholder = @"暂无设置项";
 
 #pragma mark - 注册表

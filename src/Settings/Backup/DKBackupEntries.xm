@@ -9,7 +9,7 @@
 #import "DKGlassGuard.h"
 #import "DKKeys.h"
 
-static NSString *const kDKUnplacedGroup = @"未归类";
+static NSString *const kDKUnplacedGroup = @"评论文字样式";
 
 static NSDictionary *gDKLastOperation = nil;
 
