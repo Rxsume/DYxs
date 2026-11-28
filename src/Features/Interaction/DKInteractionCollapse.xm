@@ -35,6 +35,7 @@ static NSHashTable<UIView *> *gInteractionStacks = nil;
 static NSHashTable<UIView *> *gInteractionTopBars = nil;
 static char kDKInteractionStoredCenterKey;
 static char kDKInteractionWrittenCenterKey;
+static char kDKInteractionStoredHeightKey;
 static char kDKInteractionModifiedKey;
 static char kDKInteractionStackVerdictKey;
 static char kDKInteractionStackSignatureKey;
@@ -75,6 +76,13 @@ static BOOL DKInteractionIsCollapsibleStack(UIView *stack) {
     objc_setAssociatedObject(stack, &kDKInteractionStackSignatureKey, @(signature), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(stack, &kDKInteractionStackVerdictKey, @(result), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return result;
+}
+
+// 左侧栈（用户名/文案/标签，x 靠左）：只淡出不位移。center 位移的存量还原
+// 跨视频复用时会把上一条视频的位置写到新视频上，个别视频左栈上移一点
+// （2026-11-28 用户对照导出定案）；淡出时元素本就不可见，位移无可见收益。
+static BOOL DKInteractionIsLeftStack(UIView *stack) {
+    return CGRectGetMinX(stack.frame) < 100.0;
 }
 
 // 地区行（文案下方的「日期 IP属地」时间元素）不参与收缩，始终保留显示。
@@ -119,21 +127,30 @@ static void DKInteractionSettleCollapsed(UIView *view) {
         [NSValue valueWithCGPoint:stored], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(view, &kDKInteractionWrittenCenterKey,
         [NSValue valueWithCGPoint:written], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(view, &kDKInteractionStoredHeightKey,
+        @(CGRectGetHeight(view.bounds)), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     view.center = written;
 }
 
 static void DKInteractionRestoreView(UIView *view) {
     NSValue *storedValue = objc_getAssociatedObject(view, &kDKInteractionStoredCenterKey);
     NSValue *writtenValue = objc_getAssociatedObject(view, &kDKInteractionWrittenCenterKey);
-    if (storedValue && writtenValue && DKInteractionCenterClose(view.center, writtenValue.CGPointValue)) {
+    NSNumber *storedHeight = objc_getAssociatedObject(view, &kDKInteractionStoredHeightKey);
+    // 高度变了（换了视频、文案行数不同）说明存的 center 已过期：不写旧位，
+    // 交给抖音下一次布局摆正，避免个别视频左栈上移一点。
+    BOOL heightChanged = storedHeight && fabs(CGRectGetHeight(view.bounds) - storedHeight.doubleValue) > 0.5;
+    if (!heightChanged && storedValue && writtenValue && DKInteractionCenterClose(view.center, writtenValue.CGPointValue)) {
         view.center = storedValue.CGPointValue;
     }
     objc_setAssociatedObject(view, &kDKInteractionStoredCenterKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(view, &kDKInteractionWrittenCenterKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(view, &kDKInteractionStoredHeightKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     view.alpha = 1.0;
     view.hidden = NO;
     view.userInteractionEnabled = YES;
     objc_setAssociatedObject(view, &kDKInteractionModifiedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [view setNeedsLayout];
+    [view.superview setNeedsLayout];
 }
 
 static void DKInteractionRestoreStack(UIView *stack) {
@@ -176,7 +193,7 @@ void DKInteractionCollapseApplyStack(UIView *stack) {
             objc_setAssociatedObject(stack, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             element.userInteractionEnabled = NO;
             if (element.alpha != 0.0) element.alpha = 0.0;
-            DKInteractionSettleCollapsed(element);
+            if (!DKInteractionIsLeftStack(stack)) DKInteractionSettleCollapsed(element);
         } else if ([objc_getAssociatedObject(element, &kDKInteractionModifiedKey) boolValue]) {
             // 展开动画由 SetCollapsed 驱动；布局期只兜底：动画被打断且 center 还在写入位时还原。
             NSValue *writtenValue = objc_getAssociatedObject(element, &kDKInteractionWrittenCenterKey);
@@ -227,30 +244,40 @@ static void DKInteractionApplyTopBar(UIView *topBar) {
 #pragma mark - 收缩/展开驱动
 
 static void DKInteractionAnimateView(UIView *view, BOOL collapsed) {
+    // 左侧栈元素只淡出/淡入，不动 center（见 DKInteractionIsLeftStack）。
+    BOOL fadeOnly = DKInteractionIsLeftStack(view.superview);
     CGPoint target;
     if (collapsed) {
         objc_setAssociatedObject(view, &kDKInteractionModifiedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         view.userInteractionEnabled = NO;
-        NSValue *storedValue = objc_getAssociatedObject(view, &kDKInteractionStoredCenterKey);
-        NSValue *writtenValue = objc_getAssociatedObject(view, &kDKInteractionWrittenCenterKey);
-        CGPoint stored;
-        if (writtenValue && DKInteractionCenterClose(view.center, writtenValue.CGPointValue) && storedValue) {
-            stored = storedValue.CGPointValue;
-        } else if (storedValue && DKInteractionCenterClose(view.center, storedValue.CGPointValue)) {
-            stored = storedValue.CGPointValue;
+        if (fadeOnly) {
+            target = view.center;
         } else {
-            stored = view.center;
+            NSValue *storedValue = objc_getAssociatedObject(view, &kDKInteractionStoredCenterKey);
+            NSValue *writtenValue = objc_getAssociatedObject(view, &kDKInteractionWrittenCenterKey);
+            CGPoint stored;
+            if (writtenValue && DKInteractionCenterClose(view.center, writtenValue.CGPointValue) && storedValue) {
+                stored = storedValue.CGPointValue;
+            } else if (storedValue && DKInteractionCenterClose(view.center, storedValue.CGPointValue)) {
+                stored = storedValue.CGPointValue;
+            } else {
+                stored = view.center;
+            }
+            target = DKInteractionCollapseTarget(view, stored);
+            objc_setAssociatedObject(view, &kDKInteractionStoredCenterKey,
+                [NSValue valueWithCGPoint:stored], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(view, &kDKInteractionWrittenCenterKey,
+                [NSValue valueWithCGPoint:target], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(view, &kDKInteractionStoredHeightKey,
+                @(CGRectGetHeight(view.bounds)), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
-        target = DKInteractionCollapseTarget(view, stored);
-        objc_setAssociatedObject(view, &kDKInteractionStoredCenterKey,
-            [NSValue valueWithCGPoint:stored], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        objc_setAssociatedObject(view, &kDKInteractionWrittenCenterKey,
-            [NSValue valueWithCGPoint:target], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     } else {
         view.hidden = NO;
         NSValue *storedValue = objc_getAssociatedObject(view, &kDKInteractionStoredCenterKey);
         NSValue *writtenValue = objc_getAssociatedObject(view, &kDKInteractionWrittenCenterKey);
-        if (storedValue && writtenValue && DKInteractionCenterClose(view.center, writtenValue.CGPointValue)) {
+        NSNumber *storedHeight = objc_getAssociatedObject(view, &kDKInteractionStoredHeightKey);
+        BOOL heightChanged = storedHeight && fabs(CGRectGetHeight(view.bounds) - storedHeight.doubleValue) > 0.5;
+        if (!heightChanged && storedValue && writtenValue && DKInteractionCenterClose(view.center, writtenValue.CGPointValue)) {
             target = storedValue.CGPointValue;
         } else {
             target = view.center;
@@ -268,6 +295,11 @@ static void DKInteractionAnimateView(UIView *view, BOOL collapsed) {
                              objc_setAssociatedObject(view, &kDKInteractionModifiedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
                              objc_setAssociatedObject(view, &kDKInteractionStoredCenterKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
                              objc_setAssociatedObject(view, &kDKInteractionWrittenCenterKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                             objc_setAssociatedObject(view, &kDKInteractionStoredHeightKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                             // 展开后强制重排：抖音按当前视频摆正位置，
+                             // 避免存量 center 跨视频复用导致左栈偏移。
+                             [view setNeedsLayout];
+                             [view.superview setNeedsLayout];
                          }
                      }];
 }

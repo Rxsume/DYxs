@@ -212,6 +212,7 @@ static id DY778SLObjectArg(void *ptr) {
 static NSMutableDictionary *DY778SLResponseSummaries = nil;
 static NSString *DY778SLLastCandidate = nil;
 static NSString *DY778SLLastTaskInfo = nil;
+static NSString *DY778SLLastDetailKeys = nil;
 static BOOL DY778SLResponseOK(NSDictionary *response) {
     if (![response isKindOfClass:NSDictionary.class]) return NO;
     if ([response[@"succeed"] boolValue]) return YES;
@@ -237,6 +238,20 @@ static void DY778SLRecordResponse(NSString *command, NSDictionary *response, NSE
     }
     if (!parts.count) [parts addObject:[NSString stringWithFormat:@"keys=%@", [response.allKeys componentsJoinedByString:@","]]];
     DY778SLResponseSummaries[command] = [parts componentsJoinedByString:@" "];
+    if ([command isEqualToString:@"detail"]) {
+        // detail 响应结构转储：顶层键 + data/result 子键（任务信息到底在哪一层）。
+        NSMutableArray *keyParts = [NSMutableArray arrayWithObject:[NSString stringWithFormat:@"top=%@", [response.allKeys componentsJoinedByString:@","]]];
+        for (NSString *nestKey in @[@"data", @"result"]) {
+            id nested = response[nestKey];
+            if ([nested isKindOfClass:NSDictionary.class]) {
+                [keyParts addObject:[NSString stringWithFormat:@"%@=%@", nestKey, [((NSDictionary *)nested).allKeys componentsJoinedByString:@","]]];
+            } else if ([nested isKindOfClass:NSArray.class]) {
+                [keyParts addObject:[NSString stringWithFormat:@"%@=[%lu]", nestKey, (unsigned long)((NSArray *)nested).count]];
+            }
+        }
+        NSString *dump = [keyParts componentsJoinedByString:@" "];
+        DY778SLLastDetailKeys = dump.length > 400 ? [dump substringToIndex:400] : dump;
+    }
 }
 
 @implementation DY778SLNativeCall
@@ -453,6 +468,8 @@ void DY778SLRecordStage(NSString *message) {
 @property(nonatomic, copy) NSString *lastCommand;
 @property(nonatomic, copy) NSString *lastResult;
 @property(nonatomic) BOOL requestInFlight;
+@property(nonatomic) NSTimeInterval activatedAt;
+@property(nonatomic, copy) NSString *entryRoomID;
 - (id)DY778SLFindEntryButtonInView:(UIView *)view depth:(NSUInteger)depth;
 - (NSDictionary *)DY778SLDiscoverCandidate;
 - (void)DY778SLRunDiscoveryFlow;
@@ -485,7 +502,13 @@ void DY778SLRecordStage(NSString *message) {
     if (roomID.length) _roomID = roomID;
     if (!_accountID.length) _accountID = DY778CurrentAccountID();
     _roomActive = YES;
-    [self discoverEntry];
+    _activatedAt = [NSDate date].timeIntervalSince1970;
+    // 入口搜索延后到下一轮 runloop：下滑切房转场期不做整树 DFS。
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf && strongSelf.roomActive) [strongSelf discoverEntry];
+    });
     [self scheduleAutomatic];
     [[DY778SLEntry shared] refresh];
 }
@@ -534,18 +557,24 @@ void DY778SLRecordStage(NSString *message) {
     [self runAutomatic];
     [self publishStatus];
 }
+static NSUInteger DY778SLFindEntryVisited = 0;
 - (void)discoverEntry {
     // 从房间的组件图里找福袋入口（规格 §4.5 Seeds 的 DYxs 侧简化版）：
     // 只读 host 视图层级里标题含「福袋」/lottery 的按钮并记为 button，
-    // 不改任何状态、不触发点击。
+    // 不改任何状态、不触发点击。同房已找到过就不再整树搜索；单次搜索
+    // 访问节点上限 600，避免直播间大视图树在切房时卡主线程。
+    if (_button && _roomID.length && [_entryRoomID isEqualToString:_roomID]) return;
     UIView *view = nil;
     if ([_host isKindOfClass:UIViewController.class]) view = ((UIViewController *)_host).view;
     else if ([_host isKindOfClass:UIView.class]) view = _host;
     if (!view) return;
+    DY778SLFindEntryVisited = 0;
     _button = [self DY778SLFindEntryButtonInView:view depth:0];
+    if (_button) _entryRoomID = [_roomID copy];
 }
 - (id)DY778SLFindEntryButtonInView:(UIView *)view depth:(NSUInteger)depth {
     if (!view || depth > 8 || view.hidden) return nil;
+    if (++DY778SLFindEntryVisited > 600) return nil;
     if ([view isKindOfClass:UIButton.class]) {
         NSString *title = [((UIButton *)view) titleForState:UIControlStateNormal] ?: @"";
         NSString *lower = title.lowercaseString;
@@ -591,12 +620,12 @@ static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
             return @{@"activityID": activityID, @"roomID": roomID ?: _roomID ?: @"", @"source": @"bdx"};
         }
     }
-    // 线索 ②：组件图 BFS（Seeds）。KVC 遍历主线程开销大，单独 60 秒节流，
-    // 预算减半，避免超级福袋房间每 15 秒掉帧。
+    // 线索 ②：组件图 BFS（Seeds）。KVC 遍历主线程开销大，单独 120 秒节流，
+    // 预算 80，避免超级福袋房间掉帧/切房卡顿。
     if (!_host) return nil;
     static NSTimeInterval lastSeedsAt = 0;
     NSTimeInterval seedsNow = [NSDate date].timeIntervalSince1970;
-    if (seedsNow - lastSeedsAt < 60) return nil;
+    if (seedsNow - lastSeedsAt < 120) return nil;
     lastSeedsAt = seedsNow;
     static NSArray<NSString *> *keys;
     static dispatch_once_t once;
@@ -608,7 +637,7 @@ static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
     });
     NSMutableArray *queue = [NSMutableArray arrayWithObject:_host];
     NSHashTable *visited = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
-    NSUInteger budget = 160;
+    NSUInteger budget = 80;
     while (queue.count && budget > 0) {
         id node = queue.firstObject;
         [queue removeObjectAtIndex:0];
@@ -650,6 +679,8 @@ static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
 - (void)DY778SLRunDiscoveryFlow {
     if (_requestInFlight || ![self canRun]) return;
     NSTimeInterval now = [NSDate date].timeIntervalSince1970;
+    // 切房转场后 2 秒内不跑发现，避免转场期主线程再加负。
+    if (now - _activatedAt < 2) return;
     if (now - _lastDiscoveryAt < 15) return;
     _lastDiscoveryAt = now;
     NSDictionary *candidate = [self DY778SLDiscoverCandidate];
@@ -738,6 +769,22 @@ static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
     NSString *activityID = context.activityID.length ? context.activityID : plan.taskID;
     if (!activityID.length) return NO;
     if ([DY778SLRecords hasParticipatedActivity:activityID]) return NO;
+    // detail 没给出任务（taskID 为空）时不发 execute/participate：空任务的
+    // participate 服务端回 code=0 但并不真参与（2026-11-28 导出实证，面板
+    // 仍显示未参与），记 no-task 等下轮 detail，不写假 participated。
+    if (!context.taskID.length) {
+        [DY778SLRecords rememberRecord:@{@"activityID": activityID, @"reason": @"no-task"} status:@"no-task"];
+        coordinator.lastResult = @"detail-no-task";
+        return NO;
+    }
+    // 加入粉丝团类任务默认跳过（用户 2026-11-28 定；superLucky.skipFansClub
+    // 缺省即开，显式关才参与）。
+    BOOL skipFansClub = ![DY778Preferences() objectForKey:@"superLucky.skipFansClub"] || DY778Bool(@"superLucky.skipFansClub");
+    if (skipFansClub && [context.taskType.lowercaseString containsString:@"fans"]) {
+        [DY778SLRecords rememberRecord:@{@"activityID": activityID, @"taskID": context.taskID, @"reason": @"fans-club"} status:@"skipped-fans-club"];
+        coordinator.lastResult = @"skipped-fans-club";
+        return NO;
+    }
     if ([plan expired]) {
         [DY778SLRecords rememberRecord:@{@"activityID": activityID, @"taskID": context.taskID, @"reason": @"expired"} status:@"skipped"];
         return NO;
@@ -853,6 +900,7 @@ NSString *DY778SLDiagnosticsText(void) {
     }
     [text appendFormat:@"lastCandidate=%@\n", DY778SLLastCandidate ?: @"(none)"];
     [text appendFormat:@"lastTaskInfo=%@\n", DY778SLLastTaskInfo ?: @"(none)"];
+    [text appendFormat:@"lastDetailKeys=%@\n", DY778SLLastDetailKeys ?: @"(none)"];
     NSArray *recentRecords = [DY778SLRecords records];
     NSUInteger shown = MIN((NSUInteger)3, recentRecords.count);
     for (NSUInteger index = 0; index < shown; index++) {
