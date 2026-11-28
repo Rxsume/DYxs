@@ -207,9 +207,11 @@ static id DY778SLObjectArg(void *ptr) {
     return (__bridge id)ptr;
 }
 // 响应成功判定：键缺失不算成功（旧版 [nil integerValue]==0 把无 code/status
-// 的响应误判为成功，participated 可能是假成功）。响应摘要记入诊断，
-// 导出可见服务端到底回了什么。
-static NSString *DY778SLLastResponseSummary = nil;
+// 的响应误判为成功，participated 可能是假成功）。响应摘要按命令分别记入
+// 诊断，导出可见服务端到底回了什么。
+static NSMutableDictionary *DY778SLResponseSummaries = nil;
+static NSString *DY778SLLastCandidate = nil;
+static NSString *DY778SLLastTaskInfo = nil;
 static BOOL DY778SLResponseOK(NSDictionary *response) {
     if (![response isKindOfClass:NSDictionary.class]) return NO;
     if ([response[@"succeed"] boolValue]) return YES;
@@ -219,12 +221,13 @@ static BOOL DY778SLResponseOK(NSDictionary *response) {
     return NO;
 }
 static void DY778SLRecordResponse(NSString *command, NSDictionary *response, NSError *error) {
+    if (!DY778SLResponseSummaries) DY778SLResponseSummaries = [NSMutableDictionary dictionary];
     if (error) {
-        DY778SLLastResponseSummary = [NSString stringWithFormat:@"%@ error:%@", command, error.localizedDescription ?: @""];
+        DY778SLResponseSummaries[command] = [NSString stringWithFormat:@"error:%@", error.localizedDescription ?: @""];
         return;
     }
     if (![response isKindOfClass:NSDictionary.class]) {
-        DY778SLLastResponseSummary = [NSString stringWithFormat:@"%@ (no-dict)", command];
+        DY778SLResponseSummaries[command] = @"(no-dict)";
         return;
     }
     NSMutableArray *parts = [NSMutableArray array];
@@ -233,7 +236,7 @@ static void DY778SLRecordResponse(NSString *command, NSDictionary *response, NSE
         if (value) [parts addObject:[NSString stringWithFormat:@"%@=%@", key, value]];
     }
     if (!parts.count) [parts addObject:[NSString stringWithFormat:@"keys=%@", [response.allKeys componentsJoinedByString:@","]]];
-    DY778SLLastResponseSummary = [NSString stringWithFormat:@"%@ %@", command, [parts componentsJoinedByString:@" "]];
+    DY778SLResponseSummaries[command] = [parts componentsJoinedByString:@" "];
 }
 
 @implementation DY778SLNativeCall
@@ -397,6 +400,13 @@ static void DY778SLRecordResponse(NSString *command, NSDictionary *response, NSE
     entry[@"at"] = @([[NSDate date] timeIntervalSince1970]);
     NSMutableArray *records = [[self records] mutableCopy];
     NSString *activityID = DY778SLText(entry[@"activityID"]) ?: DY778SLText(entry[@"activity_id"]);
+    // 最新一条已是同活动同状态时跳过写盘（watch/expired 路径每拍都会调，
+    // 避免每 5 秒重写偏好造成卡顿）。
+    if (activityID.length && records.count) {
+        NSDictionary *newest = records.firstObject;
+        NSString *newestID = DY778SLText(newest[@"activityID"]) ?: DY778SLText(newest[@"activity_id"]);
+        if ([newestID isEqualToString:activityID] && [DY778SLText(newest[@"status"]) isEqualToString:DY778SLText(entry[@"status"])]) return;
+    }
     if (activityID.length) {
         NSMutableArray *kept = [NSMutableArray array];
         for (NSDictionary *old in records) {
@@ -581,8 +591,13 @@ static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
             return @{@"activityID": activityID, @"roomID": roomID ?: _roomID ?: @"", @"source": @"bdx"};
         }
     }
-    // 线索 ②：组件图 BFS（Seeds）。
+    // 线索 ②：组件图 BFS（Seeds）。KVC 遍历主线程开销大，单独 60 秒节流，
+    // 预算减半，避免超级福袋房间每 15 秒掉帧。
     if (!_host) return nil;
+    static NSTimeInterval lastSeedsAt = 0;
+    NSTimeInterval seedsNow = [NSDate date].timeIntervalSince1970;
+    if (seedsNow - lastSeedsAt < 60) return nil;
+    lastSeedsAt = seedsNow;
     static NSArray<NSString *> *keys;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -593,7 +608,7 @@ static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
     });
     NSMutableArray *queue = [NSMutableArray arrayWithObject:_host];
     NSHashTable *visited = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
-    NSUInteger budget = 320;
+    NSUInteger budget = 160;
     while (queue.count && budget > 0) {
         id node = queue.firstObject;
         [queue removeObjectAtIndex:0];
@@ -641,6 +656,7 @@ static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
     NSString *activityID = candidate[@"activityID"];
     if (!activityID.length) { _lastResult = @"no-candidate"; return; }
     _lastDiscoverySource = candidate[@"source"];
+    DY778SLLastCandidate = [NSString stringWithFormat:@"%@ via %@", activityID, candidate[@"source"] ?: @"?"];
     _currentActivityID = activityID;
     NSString *roomID = candidate[@"roomID"];
     if (!roomID.length) roomID = _roomID;
@@ -652,6 +668,7 @@ static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
         strongSelf.requestInFlight = NO;
+        DY778SLRecordResponse(@"detail", response, error);
         if (error || !response.count) {
             strongSelf.lastResult = error ? [NSString stringWithFormat:@"detail-error:%@", error.localizedDescription ?: @""] : @"detail-empty";
             return;
@@ -673,6 +690,9 @@ static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
         context[@"activity_id"] = activityID;
         if (roomID.length) { context[@"roomID"] = roomID; context[@"room_id"] = roomID; }
         [DY778Preferences() setObject:[context copy] forKey:[NSString stringWithUTF8String:DY778SLTaskContextRecordKey]];
+        DY778SLTaskContext *detailContext = [[DY778SLTaskContext alloc] initWithDictionary:context];
+        DY778SLLastTaskInfo = [NSString stringWithFormat:@"taskID=%@ type=%@ state=%@ hasParticipated=%d",
+            detailContext.taskID ?: @"", detailContext.taskType ?: @"", detailContext.taskState ?: @"", detailContext.hasParticipated];
         strongSelf.lastResult = @"detail-ok";
         [strongSelf.automatic performBoundTask:[context copy]];
     }];
@@ -699,6 +719,7 @@ static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
     id stored = [DY778Preferences() objectForKey:[NSString stringWithUTF8String:DY778SLTaskContextRecordKey]];
     NSDictionary *context = [stored isKindOfClass:NSDictionary.class] ? stored : nil;
     if (!context.count) {
+        coordinator.taskContext = nil;
         [coordinator DY778SLRunDiscoveryFlow];
         return;
     }
@@ -768,6 +789,8 @@ static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
             coordinator.lastResult = joined ? @"participated" : @"participate-rejected";
             if (joined) {
                 [DY778SLRecords rememberRecord:@{@"activityID": activityID, @"taskID": context.taskID} status:@"participated"];
+                coordinator.currentActivityID = activityID;
+                coordinator.taskContext = context;
                 // 已参与的活动清掉存量上下文，避免挡住下一场发现。
                 id stored = [DY778Preferences() objectForKey:[NSString stringWithUTF8String:DY778SLTaskContextRecordKey]];
                 if ([stored isKindOfClass:NSDictionary.class]) {
@@ -824,7 +847,21 @@ NSString *DY778SLDiagnosticsText(void) {
         coordinator.lastResult ?: @"(none)", coordinator.requestInFlight];
     [text appendFormat:@"bdxLotteryURL=%@\n", DY778LastLotteryBDXURL() ?: @"(nil)"];
     [text appendFormat:@"lastCallbackArgs=%@\n", DY778SLLastCallbackArgs ?: @"(none)"];
-    [text appendFormat:@"lastResponse=%@\n", DY778SLLastResponseSummary ?: @"(none)"];
+    for (NSString *command in @[@"detail", @"execute_task", @"participate"]) {
+        NSString *summary = DY778SLResponseSummaries[command];
+        if (summary) [text appendFormat:@"lastResponse.%@=%@\n", command, summary];
+    }
+    [text appendFormat:@"lastCandidate=%@\n", DY778SLLastCandidate ?: @"(none)"];
+    [text appendFormat:@"lastTaskInfo=%@\n", DY778SLLastTaskInfo ?: @"(none)"];
+    NSArray *recentRecords = [DY778SLRecords records];
+    NSUInteger shown = MIN((NSUInteger)3, recentRecords.count);
+    for (NSUInteger index = 0; index < shown; index++) {
+        NSDictionary *record = recentRecords[index];
+        [text appendFormat:@"record[%lu]=%@ %@ at=%.0f\n", (unsigned long)index,
+            DY778SLText(record[@"activityID"]) ?: DY778SLText(record[@"activity_id"]) ?: @"?",
+            DY778SLText(record[@"status"]) ?: @"?",
+            [record[@"at"] doubleValue]];
+    }
     [text appendFormat:@"records=%lu groupFailures=%lu\n",
         (unsigned long)[DY778SLRecords records].count, (unsigned long)coordinator.groupFailures];
     return [text copy];
