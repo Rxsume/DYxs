@@ -206,6 +206,35 @@ static id DY778SLObjectArg(void *ptr) {
     if (!ptr || value < 0x1000) return nil;
     return (__bridge id)ptr;
 }
+// 响应成功判定：键缺失不算成功（旧版 [nil integerValue]==0 把无 code/status
+// 的响应误判为成功，participated 可能是假成功）。响应摘要记入诊断，
+// 导出可见服务端到底回了什么。
+static NSString *DY778SLLastResponseSummary = nil;
+static BOOL DY778SLResponseOK(NSDictionary *response) {
+    if (![response isKindOfClass:NSDictionary.class]) return NO;
+    if ([response[@"succeed"] boolValue]) return YES;
+    if (response[@"status_code"] && [response[@"status_code"] integerValue] == 200) return YES;
+    if (response[@"code"] && [response[@"code"] integerValue] == 0) return YES;
+    if (response[@"status"] && [response[@"status"] integerValue] == 0) return YES;
+    return NO;
+}
+static void DY778SLRecordResponse(NSString *command, NSDictionary *response, NSError *error) {
+    if (error) {
+        DY778SLLastResponseSummary = [NSString stringWithFormat:@"%@ error:%@", command, error.localizedDescription ?: @""];
+        return;
+    }
+    if (![response isKindOfClass:NSDictionary.class]) {
+        DY778SLLastResponseSummary = [NSString stringWithFormat:@"%@ (no-dict)", command];
+        return;
+    }
+    NSMutableArray *parts = [NSMutableArray array];
+    for (NSString *key in @[@"code", @"status", @"status_code", @"succeed", @"message", @"status_message", @"msg"]) {
+        id value = response[key];
+        if (value) [parts addObject:[NSString stringWithFormat:@"%@=%@", key, value]];
+    }
+    if (!parts.count) [parts addObject:[NSString stringWithFormat:@"keys=%@", [response.allKeys componentsJoinedByString:@","]]];
+    DY778SLLastResponseSummary = [NSString stringWithFormat:@"%@ %@", command, [parts componentsJoinedByString:@" "]];
+}
 
 @implementation DY778SLNativeCall
 - (void)finish:(NSDictionary *)response error:(NSError *)error {
@@ -675,19 +704,22 @@ static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
     }
     DY778SLTaskContext *taskContext = [[DY778SLTaskContext alloc] initWithDictionary:context];
     coordinator.taskContext = taskContext;
-    [self performBoundTask:context];
+    // 存量上下文没真正发出请求（已参与/过期/观看不足/已完成）时继续走发现，
+    // 否则第一场福袋的上下文会永久挡住后续新福袋（2026-11-28 导出实证：
+    // activityID 停在已参与的旧场，当前 BDX 已是新场）。
+    if (![self performBoundTask:context]) [coordinator DY778SLRunDiscoveryFlow];
 }
-- (void)performBoundTask:(NSDictionary *)task {
+- (BOOL)performBoundTask:(NSDictionary *)task {
     DY778SLCoordinator *coordinator = _coordinator;
-    if (!coordinator || ![coordinator canRun]) return;
+    if (!coordinator || ![coordinator canRun]) return NO;
     DY778SLParticipationPlan *plan = [[DY778SLParticipationPlan alloc] initWithDictionary:task];
     DY778SLTaskContext *context = [[DY778SLTaskContext alloc] initWithDictionary:task];
     NSString *activityID = context.activityID.length ? context.activityID : plan.taskID;
-    if (!activityID.length) return;
-    if ([DY778SLRecords hasParticipatedActivity:activityID]) return;
+    if (!activityID.length) return NO;
+    if ([DY778SLRecords hasParticipatedActivity:activityID]) return NO;
     if ([plan expired]) {
         [DY778SLRecords rememberRecord:@{@"activityID": activityID, @"taskID": context.taskID, @"reason": @"expired"} status:@"skipped"];
-        return;
+        return NO;
     }
     if ([plan watchTimeInsufficient]) {
         // 观看时长不足：只记 watch-time-insufficient，不伪造观看完成
@@ -695,11 +727,11 @@ static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
         [DY778SLRecords rememberRecord:@{@"activityID": activityID, @"taskID": context.taskID,
                                           @"watchRemainingSeconds": @(plan.watchRemainingSeconds),
                                           @"watchRequiredSeconds": @(plan.watchRequiredSeconds)} status:@"watch-time-insufficient"];
-        return;
+        return NO;
     }
     if (context.complete) {
         [DY778SLRecords rememberRecord:@{@"activityID": activityID, @"taskID": context.taskID} status:@"participated"];
-        return;
+        return NO;
     }
     // 其余任务类型（关注/加团/送礼等）是否须真实操作未证实（规格 §11.10）：
     // autoFollow 关时不自动关注；其余一律不代做，只调 execute_task 参与
@@ -710,14 +742,14 @@ static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
     [coordinator.nativeCall executeTask:context.taskID activity:activityID room:coordinator.roomID completion:^(NSDictionary *response, NSError *error) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
+        DY778SLRecordResponse(@"execute_task", response, error);
         if (error) {
             coordinator.lastResult = [NSString stringWithFormat:@"execute-error:%@", error.localizedDescription ?: @""];
             [DY778SLRecords rememberRecord:@{@"activityID": activityID, @"taskID": context.taskID,
                                               @"error": error.localizedDescription ?: @""} status:@"failed"];
             return;
         }
-        BOOL ok = [response[@"succeed"] boolValue] || [response[@"status_code"] integerValue] == 200 ||
-                  [response[@"code"] integerValue] == 0 || [response[@"status"] integerValue] == 0;
+        BOOL ok = DY778SLResponseOK(response);
         coordinator.lastResult = ok ? @"execute-ok" : @"execute-rejected";
         [DY778SLRecords rememberRecord:@{@"activityID": activityID, @"taskID": context.taskID} status:ok ? @"submitted" : @"failed"];
         if (!ok) return;
@@ -727,19 +759,28 @@ static NSString *DY778SLQueryValue(NSString *text, NSString *key) {
                                  @"task_activity_id": activityID,
                                  @"has_participate": @NO};
         [coordinator.nativeCall command:@"participate" activity:activityID room:coordinator.roomID params:params completion:^(NSDictionary *joinResponse, NSError *joinError) {
+            DY778SLRecordResponse(@"participate", joinResponse, joinError);
             if (joinError) {
                 coordinator.lastResult = [NSString stringWithFormat:@"participate-error:%@", joinError.localizedDescription ?: @""];
                 return;
             }
-            BOOL joined = [joinResponse[@"succeed"] boolValue] || [joinResponse[@"status_code"] integerValue] == 200 ||
-                          [joinResponse[@"code"] integerValue] == 0 || [joinResponse[@"status"] integerValue] == 0;
+            BOOL joined = DY778SLResponseOK(joinResponse);
             coordinator.lastResult = joined ? @"participated" : @"participate-rejected";
             if (joined) {
                 [DY778SLRecords rememberRecord:@{@"activityID": activityID, @"taskID": context.taskID} status:@"participated"];
+                // 已参与的活动清掉存量上下文，避免挡住下一场发现。
+                id stored = [DY778Preferences() objectForKey:[NSString stringWithUTF8String:DY778SLTaskContextRecordKey]];
+                if ([stored isKindOfClass:NSDictionary.class]) {
+                    DY778SLTaskContext *storedContext = [[DY778SLTaskContext alloc] initWithDictionary:stored];
+                    if ([storedContext.activityID isEqualToString:activityID]) {
+                        [DY778Preferences() removeObjectForKey:[NSString stringWithUTF8String:DY778SLTaskContextRecordKey]];
+                    }
+                }
                 [coordinator publishStatus];
             }
         }];
     }];
+    return YES;
 }
 - (void)stop { [_coordinator pauseAutomatic]; }
 @end
@@ -783,6 +824,7 @@ NSString *DY778SLDiagnosticsText(void) {
         coordinator.lastResult ?: @"(none)", coordinator.requestInFlight];
     [text appendFormat:@"bdxLotteryURL=%@\n", DY778LastLotteryBDXURL() ?: @"(nil)"];
     [text appendFormat:@"lastCallbackArgs=%@\n", DY778SLLastCallbackArgs ?: @"(none)"];
+    [text appendFormat:@"lastResponse=%@\n", DY778SLLastResponseSummary ?: @"(none)"];
     [text appendFormat:@"records=%lu groupFailures=%lu\n",
         (unsigned long)[DY778SLRecords records].count, (unsigned long)coordinator.groupFailures];
     return [text copy];

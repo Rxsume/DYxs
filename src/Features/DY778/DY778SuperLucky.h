@@ -117,7 +117,7 @@ FOUNDATION_EXPORT void DY778SLGroupTick(void);
 @property(nonatomic, weak) DY778SLCoordinator *coordinator;
 - (instancetype)initWithCoordinator:(DY778SLCoordinator *)coordinator;
 - (void)run;
-- (void)performBoundTask:(NSDictionary *)task;
+- (BOOL)performBoundTask:(NSDictionary *)task;
 - (void)stop;
 @end
 
