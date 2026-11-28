@@ -120,6 +120,7 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
             DKRow(@"DKXSHidePadTabBarElements", @"ic_squaresplit_outlined_20"),
             DKRow(@"DKXSHideEntry", @"ic_fullscreen_outlined_16"),
             DKRow(@"DKXSRemoveEntry", @"ic_fullscreen_outlined_16"),
+            DKRow(DKKeyInteractionCollapse, @"ic_squaresplit_outlined_20"),
         ]),
         // 第 3 批：侧边栏（3b，4 键）。
         DKSection(@"侧边栏", @[
@@ -433,6 +434,10 @@ static NSArray<DKSettingsSection *> *DKBuildMain(void) {
                 // DY778 星牌查询（1.0-3 新增；键见 DY778RemainingSettings.xm）。
                 DKSection(@"星牌查询", @[
                     DKRow(@"DKXSFansEnabled", @"ic_star_outlined_20"),
+                    DKRow(@"DKXSFansProfileLevel", @"ic_star_outlined_20"),
+                    DKRow(@"DKXSFansLevelScale", @"ic_text_outlined_20"),
+                    DKRow(@"DKXSFansLevelFontSize", @"ic_text_outlined_20"),
+                    DKRow(@"DKXSFansLevelColor", @"ic_magic_outlined_20"),
                 ]),
                 // DY778 杂项（1.0-8 模块 4；键见 DY778RemainingSettings.xm；备份已去重删除）。
                 DKSection(@"杂项", @[
